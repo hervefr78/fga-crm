@@ -7,8 +7,8 @@
 # Development
 dev:
 	docker compose up -d
-	@echo "✅ FGA CRM running at http://localhost:3200"
-	@echo "   API: http://localhost:8200/docs"
+	@echo "✅ FGA CRM running at http://localhost:3300"
+	@echo "   API: http://localhost:8300/docs"
 
 prod:
 	docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d

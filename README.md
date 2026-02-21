@@ -82,10 +82,13 @@ docker compose up -d
 
 | Service | Port |
 |---------|------|
-| Frontend | `3200` |
-| Backend API | `8200` |
-| PostgreSQL | `5436` |
-| Redis | `6382` |
+| Frontend | `3300` |
+| Backend API | `8300` |
+| PostgreSQL | `5437` |
+| Redis | `6383` |
+| MinIO | `9004` / `9005` (console) |
+| Celery Worker | interne |
+| Celery Beat | interne |
 
 ---
 
@@ -143,7 +146,7 @@ fga-crm/
 ## 🔗 Intégrations
 
 - **Startup Radar** — Import leads, sync bidirectionnelle, enrichissement croisé (réseau Docker partagé)
-- **LinkedIn** — Extension Chrome + imports CSV (Evaboot/PhantomBuster)
+- **LinkedIn** — API officielle (compte développeur) + Extension Chrome + imports CSV (Evaboot/PhantomBuster)
 - **OVH Email** — SMTP (envoi) + IMAP (réception)
 - **Claude & ChatGPT** — Enrichissement, scoring, génération, analyse de sentiment
 - **Google Calendar** — Sync bidirectionnelle, booking links
@@ -153,7 +156,9 @@ fga-crm/
 
 ## 📄 Documentation
 
-Le document de spécifications complet est disponible dans `docs/fga-crm-specs.docx`.
+Le document de spécifications complet est disponible dans `docs/`.
+
+Voir aussi : `docs/PORTS.md` pour la cartographie complète des ports Docker.
 
 ---
 
