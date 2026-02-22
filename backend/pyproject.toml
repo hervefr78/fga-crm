@@ -1,0 +1,85 @@
+[tool.poetry]
+name = "fga-crm-backend"
+version = "1.0.0"
+description = "Backend API for FGA CRM - Fast Growth Advisors CRM"
+authors = ["Hervé"]
+readme = "README.md"
+packages = [{include = "app"}]
+
+[tool.poetry.dependencies]
+python = "^3.12"
+
+# Web Framework
+fastapi = "^0.109.0"
+uvicorn = {extras = ["standard"], version = "^0.27.0"}
+
+# Database
+sqlalchemy = {extras = ["asyncio"], version = "^2.0.25"}
+asyncpg = "^0.29.0"
+psycopg2-binary = "^2.9.9"
+alembic = "^1.13.1"
+
+# Redis & Task Queue
+redis = "^5.0.1"
+celery = {extras = ["redis"], version = "^5.3.6"}
+
+# Authentication
+python-jose = {extras = ["cryptography"], version = "^3.3.0"}
+passlib = {extras = ["bcrypt"], version = "^1.7.4"}
+bcrypt = "^4.1.2"
+webauthn = "^2.2.0"
+
+# HTTP Client
+httpx = "^0.26.0"
+
+# AI
+anthropic = "^0.43.0"
+openai = "^1.12.0"
+
+# Email
+aiosmtplib = "^3.0.1"
+aioimaplib = "^1.1.0"
+
+# Encryption
+cryptography = "^42.0.2"
+
+# Validation & Config
+pydantic = "^2.5.3"
+pydantic-settings = "^2.1.0"
+email-validator = "^2.1.0"
+
+# File Storage (S3-compatible)
+minio = "^7.2.3"
+
+# Rate limiting
+slowapi = "^0.1.9"
+
+# Utilities
+python-multipart = "^0.0.6"
+python-dotenv = "^1.0.0"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^7.4.4"
+pytest-asyncio = "^0.23.3"
+pytest-cov = "^4.1.0"
+httpx = "^0.26.0"
+black = "^24.1.0"
+isort = "^5.13.2"
+mypy = "^1.8.0"
+
+[tool.black]
+line-length = 88
+target-version = ['py312']
+
+[tool.isort]
+profile = "black"
+line_length = 88
+skip = ["migrations"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

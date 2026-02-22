@@ -1,0 +1,181 @@
+# =============================================================================
+# FGA CRM - Docker Compose (Development)
+# =============================================================================
+# Ports configurés pour éviter les conflits :
+#   Marketer (3000/8000), Startup Radar (3100/8100), DevHub (3200/8200)
+#   Repro Estimator (6060), QRCode BTP (5435/6381/9002-9003)
+#
+#   FGA CRM:
+#     Frontend:   3300
+#     Backend:    8300
+#     PostgreSQL: 5437
+#     Redis:      6383
+#     MinIO:      9004 / 9005 (console)
+# =============================================================================
+
+services:
+  # ---------------------------------------------------------------------------
+  # PostgreSQL Database
+  # ---------------------------------------------------------------------------
+  db:
+    image: postgres:16-alpine
+    container_name: fga-crm-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: fga_crm
+      POSTGRES_PASSWORD: devpassword
+      POSTGRES_DB: fga_crm
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5437:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fga_crm"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - fga-internal
+      - fga-network
+
+  # ---------------------------------------------------------------------------
+  # Redis Cache & Celery Broker
+  # ---------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: fga-crm-redis
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6383:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - fga-internal
+
+  # ---------------------------------------------------------------------------
+  # MinIO (S3-compatible file storage)
+  # ---------------------------------------------------------------------------
+  minio:
+    image: minio/minio:latest
+    container_name: fga-crm-minio
+    restart: unless-stopped
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    volumes:
+      - minio_data:/data
+    ports:
+      - "9004:9000"
+      - "9005:9001"
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - fga-internal
+
+  # ---------------------------------------------------------------------------
+  # Backend API (FastAPI)
+  # ---------------------------------------------------------------------------
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: fga-crm-backend
+    restart: unless-stopped
+    env_file:
+      - .env
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://fga_crm:devpassword@db:5432/fga_crm
+      - REDIS_URL=redis://redis:6379/0
+      - MINIO_ENDPOINT=minio:9000
+    volumes:
+      - ./backend:/app
+    ports:
+      - "8300:8000"
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    networks:
+      - fga-internal
+      - fga-network
+
+  # ---------------------------------------------------------------------------
+  # Celery Worker (background tasks)
+  # ---------------------------------------------------------------------------
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: fga-crm-worker
+    restart: unless-stopped
+    env_file:
+      - .env
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://fga_crm:devpassword@db:5432/fga_crm
+      - REDIS_URL=redis://redis:6379/0
+      - MINIO_ENDPOINT=minio:9000
+    volumes:
+      - ./backend:/app
+    command: celery -A app.tasks.celery_app worker --loglevel=info --concurrency=2
+    networks:
+      - fga-internal
+
+  # ---------------------------------------------------------------------------
+  # Frontend (React + Vite)
+  # ---------------------------------------------------------------------------
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: fga-crm-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    environment:
+      - VITE_API_URL=http://localhost:8300/api/v1
+      - VITE_APP_NAME=FGA CRM
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    ports:
+      - "3300:3000"
+    command: npm run dev -- --host 0.0.0.0
+    networks:
+      - fga-internal
+
+# =============================================================================
+# Networks
+# =============================================================================
+networks:
+  fga-internal:
+    name: fga-crm-internal
+  fga-network:
+    name: fga-network
+    external: true
+
+# =============================================================================
+# Volumes
+# =============================================================================
+volumes:
+  postgres_data:
+    name: fga-crm-postgres
+  redis_data:
+    name: fga-crm-redis
+  minio_data:
+    name: fga-crm-minio
