@@ -48,6 +48,11 @@ export const createContact = async (data: Record<string, unknown>) => {
   return response.data;
 };
 
+export const updateContact = async (id: string, data: Record<string, unknown>) => {
+  const response = await api.put(`/contacts/${id}`, data);
+  return response.data;
+};
+
 export const deleteContact = async (id: string) => {
   await api.delete(`/contacts/${id}`);
 };
@@ -68,6 +73,11 @@ export const createCompany = async (data: Record<string, unknown>) => {
   return response.data;
 };
 
+export const updateCompany = async (id: string, data: Record<string, unknown>) => {
+  const response = await api.put(`/companies/${id}`, data);
+  return response.data;
+};
+
 export const deleteCompany = async (id: string) => {
   await api.delete(`/companies/${id}`);
 };
@@ -78,12 +88,26 @@ export const getDeals = async (params?: Record<string, unknown>) => {
   return response.data;
 };
 
+export const getDeal = async (id: string) => {
+  const response = await api.get(`/deals/${id}`);
+  return response.data;
+};
+
 export const createDeal = async (data: Record<string, unknown>) => {
   const response = await api.post('/deals', data);
   return response.data;
 };
 
-export const updateDealStage = async (id: string, stage: string) => {
-  const response = await api.patch(`/deals/${id}/stage`, null, { params: { stage } });
+export const updateDeal = async (id: string, data: Record<string, unknown>) => {
+  const response = await api.put(`/deals/${id}`, data);
   return response.data;
+};
+
+export const updateDealStage = async (id: string, stage: string) => {
+  const response = await api.patch(`/deals/${id}/stage`, { stage });
+  return response.data;
+};
+
+export const deleteDeal = async (id: string) => {
+  await api.delete(`/deals/${id}`);
 };

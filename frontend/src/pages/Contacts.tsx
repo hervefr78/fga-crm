@@ -1,29 +1,74 @@
 // =============================================================================
-// FGA CRM - Contacts Page
+// FGA CRM - Contacts Page (liste + CRUD)
 // =============================================================================
 
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { Users, Plus, Search, RefreshCw } from 'lucide-react';
-import { getContacts } from '../api/client';
-import type { Contact } from '../types';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { Users, Plus, Trash2 } from 'lucide-react';
 
-const STATUS_COLORS: Record<string, string> = {
-  new: 'bg-slate-100 text-slate-600',
-  contacted: 'bg-blue-50 text-blue-700',
-  qualified: 'bg-emerald-50 text-emerald-700',
-  unqualified: 'bg-red-50 text-red-600',
-  nurturing: 'bg-amber-50 text-amber-700',
+import { getContacts, deleteContact } from '../api/client';
+import type { Contact } from '../types';
+import { Modal, SearchInput, Pagination, LoadingSpinner, EmptyState, ConfirmDialog, Badge, Button } from '../components/ui';
+import ContactForm from '../components/contacts/ContactForm';
+
+const STATUS_COLORS: Record<string, 'default' | 'info' | 'success' | 'danger' | 'warning'> = {
+  new: 'default',
+  contacted: 'info',
+  qualified: 'success',
+  unqualified: 'danger',
+  nurturing: 'warning',
+};
+
+const STATUS_LABELS: Record<string, string> = {
+  new: 'Nouveau',
+  contacted: 'Contacté',
+  qualified: 'Qualifié',
+  unqualified: 'Non qualifié',
+  nurturing: 'Nurturing',
 };
 
 export default function ContactsPage() {
+  const queryClient = useQueryClient();
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
+
+  // Modals
+  const [formOpen, setFormOpen] = useState(false);
+  const [editingContact, setEditingContact] = useState<Contact | undefined>(undefined);
+  const [deletingContact, setDeletingContact] = useState<Contact | null>(null);
 
   const { data, isLoading } = useQuery({
     queryKey: ['contacts', { page, search }],
     queryFn: () => getContacts({ page, size: 25, search: search || undefined }),
   });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => deleteContact(id),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['contacts'] });
+      setDeletingContact(null);
+    },
+  });
+
+  const handleSearch = (value: string) => {
+    setSearch(value);
+    setPage(1);
+  };
+
+  const openCreate = () => {
+    setEditingContact(undefined);
+    setFormOpen(true);
+  };
+
+  const openEdit = (contact: Contact) => {
+    setEditingContact(contact);
+    setFormOpen(true);
+  };
+
+  const closeForm = () => {
+    setFormOpen(false);
+    setEditingContact(undefined);
+  };
 
   return (
     <div className="p-8">
@@ -33,36 +78,26 @@ export default function ContactsPage() {
           <h1 className="text-2xl font-bold text-slate-800">Contacts</h1>
           <p className="text-slate-400 text-sm mt-1">{data?.total || 0} contacts au total</p>
         </div>
-        <button className="flex items-center gap-2 px-4 py-2.5 bg-primary-600 hover:bg-primary-700 text-white text-sm font-medium rounded-lg transition-colors">
-          <Plus className="w-4 h-4" />
+        <Button icon={Plus} onClick={openCreate}>
           Nouveau contact
-        </button>
+        </Button>
       </div>
 
-      {/* Search */}
-      <div className="relative mb-5">
-        <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-        <input
-          type="text"
+      {/* Recherche */}
+      <div className="mb-5">
+        <SearchInput
           value={search}
-          onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+          onChange={handleSearch}
           placeholder="Rechercher un contact..."
-          className="w-full pl-10 pr-4 py-2.5 bg-white border border-slate-200 rounded-lg text-sm text-slate-700 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
         />
       </div>
 
-      {/* Table */}
+      {/* Tableau */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
         {isLoading ? (
-          <div className="p-8 text-center text-slate-400">
-            <RefreshCw className="w-5 h-5 animate-spin mx-auto mb-2" />
-            <p className="text-sm">Chargement...</p>
-          </div>
+          <LoadingSpinner />
         ) : !data?.items?.length ? (
-          <div className="p-8 text-center text-slate-400">
-            <Users className="w-6 h-6 mx-auto mb-2" />
-            <p className="text-sm">Aucun contact trouvé</p>
-          </div>
+          <EmptyState icon={Users} message="Aucun contact trouvé" />
         ) : (
           <>
             <table className="w-full">
@@ -73,11 +108,16 @@ export default function ContactsPage() {
                   <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wide">Email</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wide">Statut</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wide">Score</th>
+                  <th className="px-6 py-3 w-12" />
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {data.items.map((contact: Contact) => (
-                  <tr key={contact.id} className="hover:bg-slate-50 cursor-pointer transition-colors">
+                  <tr
+                    key={contact.id}
+                    onClick={() => openEdit(contact)}
+                    className="hover:bg-slate-50 cursor-pointer transition-colors"
+                  >
                     <td className="px-6 py-4">
                       <p className="text-sm font-medium text-slate-700">{contact.full_name}</p>
                       {contact.job_level && (
@@ -87,43 +127,60 @@ export default function ContactsPage() {
                     <td className="px-6 py-4 text-sm text-slate-500">{contact.title || '—'}</td>
                     <td className="px-6 py-4 text-sm text-slate-500">{contact.email || '—'}</td>
                     <td className="px-6 py-4">
-                      <span className={`px-2.5 py-1 text-xs font-medium rounded-full ${STATUS_COLORS[contact.status] || STATUS_COLORS.new}`}>
-                        {contact.status}
-                      </span>
+                      <Badge variant={STATUS_COLORS[contact.status] || 'default'}>
+                        {STATUS_LABELS[contact.status] || contact.status}
+                      </Badge>
                     </td>
                     <td className="px-6 py-4 text-sm text-slate-500">{contact.lead_score}</td>
+                    <td className="px-6 py-4">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setDeletingContact(contact);
+                        }}
+                        className="p-1 text-slate-300 hover:text-red-500 rounded transition-colors"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
 
-            {/* Pagination */}
-            {data.pages > 1 && (
-              <div className="px-6 py-3 border-t border-slate-100 flex items-center justify-between">
-                <p className="text-xs text-slate-400">
-                  Page {data.page} sur {data.pages}
-                </p>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => setPage(p => Math.max(1, p - 1))}
-                    disabled={page === 1}
-                    className="px-3 py-1.5 text-xs text-slate-500 border border-slate-200 rounded-lg hover:bg-slate-50 disabled:opacity-40"
-                  >
-                    Précédent
-                  </button>
-                  <button
-                    onClick={() => setPage(p => Math.min(data.pages, p + 1))}
-                    disabled={page >= data.pages}
-                    className="px-3 py-1.5 text-xs text-slate-500 border border-slate-200 rounded-lg hover:bg-slate-50 disabled:opacity-40"
-                  >
-                    Suivant
-                  </button>
-                </div>
-              </div>
-            )}
+            <Pagination
+              page={data.page}
+              pages={data.pages}
+              total={data.total}
+              onPageChange={setPage}
+            />
           </>
         )}
       </div>
+
+      {/* Modal creation / edition */}
+      <Modal
+        open={formOpen}
+        onClose={closeForm}
+        title={editingContact ? 'Modifier le contact' : 'Nouveau contact'}
+        size="lg"
+      >
+        <ContactForm
+          contact={editingContact}
+          onSuccess={closeForm}
+          onCancel={closeForm}
+        />
+      </Modal>
+
+      {/* Dialog suppression */}
+      <ConfirmDialog
+        open={!!deletingContact}
+        onClose={() => setDeletingContact(null)}
+        onConfirm={() => deletingContact && deleteMutation.mutate(deletingContact.id)}
+        title="Supprimer le contact"
+        message={`Voulez-vous vraiment supprimer ${deletingContact?.full_name} ? Cette action est irréversible.`}
+        loading={deleteMutation.isPending}
+      />
     </div>
   );
 }

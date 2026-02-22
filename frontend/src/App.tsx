@@ -10,6 +10,7 @@ import Dashboard from './pages/Dashboard';
 import ContactsPage from './pages/Contacts';
 import CompaniesPage from './pages/Companies';
 import LoginPage from './pages/Login';
+import PipelinePage from './pages/Pipeline';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -54,7 +55,7 @@ function AppRoutes() {
         <Route path="/" element={<Dashboard />} />
         <Route path="/contacts" element={<ContactsPage />} />
         <Route path="/companies" element={<CompaniesPage />} />
-        <Route path="/pipeline" element={<ComingSoon title="Pipeline" />} />
+        <Route path="/pipeline" element={<PipelinePage />} />
         <Route path="/tasks" element={<ComingSoon title="Tâches" />} />
         <Route path="/email" element={<ComingSoon title="Email" />} />
         <Route path="/settings" element={<ComingSoon title="Paramètres" />} />

@@ -6,7 +6,6 @@ import uuid
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -14,51 +13,40 @@ from app.core.deps import get_current_user
 from app.db.session import get_db
 from app.models.company import Company
 from app.models.user import User
+from app.schemas.company import (
+    CompanyCreate,
+    CompanyListResponse,
+    CompanyResponse,
+    CompanyUpdate,
+)
 
 router = APIRouter()
 
 
-class CompanyCreate(BaseModel):
-    name: str
-    domain: Optional[str] = None
-    website: Optional[str] = None
-    industry: Optional[str] = None
-    description: Optional[str] = None
-    size_range: Optional[str] = None
-    linkedin_url: Optional[str] = None
-    phone: Optional[str] = None
-
-
-class CompanyResponse(BaseModel):
-    id: str
-    name: str
-    domain: Optional[str]
-    website: Optional[str]
-    industry: Optional[str]
-    description: Optional[str]
-    size_range: Optional[str]
-    linkedin_url: Optional[str]
-    phone: Optional[str]
-    owner_id: Optional[str]
-    created_at: str
-
-    class Config:
-        from_attributes = True
-
-
-class CompanyListResponse(BaseModel):
-    items: list[CompanyResponse]
-    total: int
-    page: int
-    size: int
-    pages: int
+def _company_to_response(c: Company) -> CompanyResponse:
+    """Convertir un modele Company en schema de reponse (DC8 — centralise)."""
+    return CompanyResponse(
+        id=str(c.id),
+        name=c.name,
+        domain=c.domain,
+        website=c.website,
+        industry=c.industry,
+        description=c.description,
+        size_range=c.size_range,
+        linkedin_url=c.linkedin_url,
+        phone=c.phone,
+        country=c.country,
+        city=c.city,
+        owner_id=str(c.owner_id) if c.owner_id else None,
+        created_at=c.created_at.isoformat(),
+    )
 
 
 @router.get("", response_model=CompanyListResponse)
 async def list_companies(
     page: int = Query(1, ge=1),
     size: int = Query(25, ge=1, le=100),
-    search: Optional[str] = None,
+    search: Optional[str] = Query(None, max_length=255),
     industry: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
@@ -80,17 +68,11 @@ async def list_companies(
     companies = result.scalars().all()
 
     return CompanyListResponse(
-        items=[
-            CompanyResponse(
-                id=str(c.id), name=c.name, domain=c.domain, website=c.website,
-                industry=c.industry, description=c.description, size_range=c.size_range,
-                linkedin_url=c.linkedin_url, phone=c.phone,
-                owner_id=str(c.owner_id) if c.owner_id else None,
-                created_at=c.created_at.isoformat(),
-            )
-            for c in companies
-        ],
-        total=total, page=page, size=size, pages=(total + size - 1) // size,
+        items=[_company_to_response(c) for c in companies],
+        total=total,
+        page=page,
+        size=size,
+        pages=(total + size - 1) // size,
     )
 
 
@@ -105,14 +87,7 @@ async def create_company(
     await db.flush()
     await db.refresh(company)
 
-    return CompanyResponse(
-        id=str(company.id), name=company.name, domain=company.domain,
-        website=company.website, industry=company.industry,
-        description=company.description, size_range=company.size_range,
-        linkedin_url=company.linkedin_url, phone=company.phone,
-        owner_id=str(company.owner_id) if company.owner_id else None,
-        created_at=company.created_at.isoformat(),
-    )
+    return _company_to_response(company)
 
 
 @router.get("/{company_id}", response_model=CompanyResponse)
@@ -124,16 +99,30 @@ async def get_company(
     result = await db.execute(select(Company).where(Company.id == company_id))
     company = result.scalar_one_or_none()
     if not company:
-        raise HTTPException(status_code=404, detail="Company not found")
+        raise HTTPException(status_code=404, detail="Entreprise non trouvee")
 
-    return CompanyResponse(
-        id=str(company.id), name=company.name, domain=company.domain,
-        website=company.website, industry=company.industry,
-        description=company.description, size_range=company.size_range,
-        linkedin_url=company.linkedin_url, phone=company.phone,
-        owner_id=str(company.owner_id) if company.owner_id else None,
-        created_at=company.created_at.isoformat(),
-    )
+    return _company_to_response(company)
+
+
+@router.put("/{company_id}", response_model=CompanyResponse)
+async def update_company(
+    company_id: uuid.UUID,
+    data: CompanyUpdate,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    result = await db.execute(select(Company).where(Company.id == company_id))
+    company = result.scalar_one_or_none()
+    if not company:
+        raise HTTPException(status_code=404, detail="Entreprise non trouvee")
+
+    update_data = data.model_dump(exclude_unset=True)
+    for field, value in update_data.items():
+        setattr(company, field, value)
+
+    await db.flush()
+    await db.refresh(company)
+    return _company_to_response(company)
 
 
 @router.delete("/{company_id}", status_code=204)
@@ -145,6 +134,6 @@ async def delete_company(
     result = await db.execute(select(Company).where(Company.id == company_id))
     company = result.scalar_one_or_none()
     if not company:
-        raise HTTPException(status_code=404, detail="Company not found")
+        raise HTTPException(status_code=404, detail="Entreprise non trouvee")
 
     await db.delete(company)
