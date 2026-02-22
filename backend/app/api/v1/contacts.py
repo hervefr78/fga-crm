@@ -72,6 +72,7 @@ async def list_contacts(
     job_level: str | None = None,
     company_id: str | None = None,
     source: str | None = None,
+    title: str | None = Query(None, max_length=255),
     is_decision_maker: str | None = None,
     has_email: str | None = None,
     created_after: str | None = None,
@@ -100,6 +101,8 @@ async def list_contacts(
             raise HTTPException(status_code=422, detail="company_id invalide")
     if source:
         query = query.where(Contact.source == source)
+    if title:
+        query = query.where(Contact.title.ilike(f"%{title}%"))
     if is_decision_maker == "true":
         query = query.where(Contact.is_decision_maker == True)  # noqa: E712
     elif is_decision_maker == "false":

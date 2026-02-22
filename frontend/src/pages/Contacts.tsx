@@ -9,7 +9,7 @@ import { Users, Plus, Trash2, Download, Upload } from 'lucide-react';
 
 import { getContacts, deleteContact } from '../api/client';
 import type { Contact } from '../types';
-import { CONTACT_SOURCES, CONTACT_STATUSES } from '../types';
+import { CONTACT_SOURCES } from '../types';
 import { Modal, SearchInput, Pagination, LoadingSpinner, EmptyState, ConfirmDialog, Badge, Button, FilterBar } from '../components/ui';
 import type { FilterDef } from '../components/ui';
 import ContactForm from '../components/contacts/ContactForm';
@@ -35,8 +35,7 @@ const STATUS_LABELS: Record<string, string> = {
 // Filtres disponibles
 const CONTACT_FILTERS: FilterDef[] = [
   { key: 'source', label: 'Source', type: 'select', options: [...CONTACT_SOURCES] },
-  { key: 'status', label: 'Statut', type: 'select', options: [...CONTACT_STATUSES] },
-  { key: 'is_decision_maker', label: 'Décideur', type: 'boolean' },
+  { key: 'title', label: 'Titre', type: 'text' },
   { key: 'has_email', label: 'Email', type: 'boolean' },
   { key: 'created_after', label: 'Créé après', type: 'date' },
   { key: 'created_before', label: 'Créé avant', type: 'date' },

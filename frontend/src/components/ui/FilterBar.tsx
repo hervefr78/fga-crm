@@ -10,7 +10,7 @@ import clsx from 'clsx';
 export interface FilterDef {
   key: string;
   label: string;
-  type: 'select' | 'date' | 'boolean';
+  type: 'select' | 'date' | 'boolean' | 'text';
   options?: { value: string; label: string }[];
 }
 
@@ -59,6 +59,16 @@ export default function FilterBar({ filters, values, onChange, onReset }: Filter
               <option value="true">Oui</option>
               <option value="false">Non</option>
             </select>
+          )}
+
+          {filter.type === 'text' && (
+            <input
+              type="text"
+              placeholder={filter.label}
+              value={values[filter.key] || ''}
+              onChange={(e) => onChange(filter.key, e.target.value)}
+              className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-colors"
+            />
           )}
 
           {filter.type === 'date' && (
