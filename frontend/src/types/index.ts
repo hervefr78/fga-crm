@@ -47,6 +47,7 @@ export interface Company {
   phone: string | null;
   country: string | null;
   city: string | null;
+  startup_radar_id: string | null;
   owner_id: string | null;
   created_at: string;
 }
@@ -87,6 +88,7 @@ export interface Activity {
   type: string;
   subject: string | null;
   content: string | null;
+  metadata_: Record<string, unknown> | null;
   contact_id: string | null;
   company_id: string | null;
   deal_id: string | null;
@@ -248,6 +250,7 @@ export const ACTIVITY_TYPES = [
   { value: 'note', label: 'Note' },
   { value: 'linkedin', label: 'LinkedIn' },
   { value: 'task', label: 'Tâche' },
+  { value: 'audit', label: 'Audit' },
 ] as const;
 
 // ---------- Roles & Permissions ----------
@@ -344,6 +347,12 @@ export interface SyncResult {
 export interface SyncStatus {
   has_synced: boolean;
   last_result: SyncResult | null;
+}
+
+export interface CompanyAuditResponse {
+  audits_created: number;
+  audits_skipped: number;
+  errors: string[];
 }
 
 // ---------- Dashboard Stats ----------

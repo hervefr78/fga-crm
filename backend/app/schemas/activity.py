@@ -6,7 +6,7 @@
 from pydantic import BaseModel, Field, field_validator
 
 # Valeurs autorisees (DC1 — validation contre Set)
-ACTIVITY_TYPES = {"email", "call", "meeting", "note", "linkedin", "task"}
+ACTIVITY_TYPES = {"email", "call", "meeting", "note", "linkedin", "task", "audit"}
 
 
 class ActivityCreate(BaseModel):
@@ -56,6 +56,7 @@ class ActivityResponse(BaseModel):
     type: str
     subject: str | None
     content: str | None
+    metadata_: dict | None = None
     contact_id: str | None
     company_id: str | None
     deal_id: str | None

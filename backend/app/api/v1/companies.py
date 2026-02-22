@@ -45,6 +45,7 @@ def _company_to_response(c: Company) -> CompanyResponse:
         phone=c.phone,
         country=c.country,
         city=c.city,
+        startup_radar_id=c.startup_radar_id,
         owner_id=str(c.owner_id) if c.owner_id else None,
         created_at=c.created_at.isoformat(),
     )

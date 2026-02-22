@@ -18,6 +18,14 @@ class SyncResultResponse(BaseModel):
     errors: list[str] = Field(default_factory=list, description="Erreurs rencontrees")
 
 
+class CompanyAuditResponse(BaseModel):
+    """Resultat du lancement d'un audit avance sur une entreprise."""
+
+    audits_created: int = Field(0, description="Nombre d'audits crees")
+    audits_skipped: int = Field(0, description="Nombre d'audits deja existants")
+    errors: list[str] = Field(default_factory=list, description="Erreurs rencontrees")
+
+
 class SyncStatusResponse(BaseModel):
     """Statut de la derniere synchronisation."""
 

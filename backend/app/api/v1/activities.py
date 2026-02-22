@@ -30,6 +30,7 @@ def _activity_to_response(a: Activity) -> ActivityResponse:
         type=a.type,
         subject=a.subject,
         content=a.content,
+        metadata_=a.metadata_,
         contact_id=str(a.contact_id) if a.contact_id else None,
         company_id=str(a.company_id) if a.company_id else None,
         deal_id=str(a.deal_id) if a.deal_id else None,

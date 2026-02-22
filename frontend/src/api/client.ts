@@ -259,6 +259,11 @@ export const getSyncStatus = async () => {
   return response.data;
 };
 
+export const triggerCompanyAudit = async (companyId: string) => {
+  const response = await api.post(`/integrations/startup-radar/audit/${companyId}`);
+  return response.data;
+};
+
 // ---------- Dashboard ----------
 export const getDashboardStats = async () => {
   const response = await api.get('/dashboard/stats');

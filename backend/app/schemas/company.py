@@ -71,6 +71,7 @@ class CompanyResponse(BaseModel):
     phone: str | None
     country: str | None
     city: str | None
+    startup_radar_id: str | None = None
     owner_id: str | None
     created_at: str
 
