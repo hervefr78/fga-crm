@@ -41,3 +41,4 @@ htmlcov/
 # Build
 frontend/dist/
 .claude/
+SKILL.md
