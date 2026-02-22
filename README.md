@@ -108,25 +108,30 @@ fga-crm/
 │   └── app/
 │       ├── main.py             # FastAPI entry point
 │       ├── config.py           # Settings (pydantic-settings)
-│       ├── core/               # Security, permissions, utils
-│       ├── models/             # SQLAlchemy models
-│       ├── schemas/            # Pydantic schemas
-│       ├── api/v1/             # Route handlers
-│       ├── services/           # Business logic
-│       ├── integrations/       # LinkedIn, OVH, AI, Calendar
-│       ├── automation/         # Marketing automation engine
-│       ├── tasks/              # Celery async tasks
+│       ├── core/               # Security, permissions, deps
+│       ├── models/             # SQLAlchemy models (9 modèles)
+│       ├── schemas/            # Pydantic schemas (validation DC1)
+│       ├── api/v1/             # Route handlers (CRUD complet)
+│       ├── services/           # Business logic (à venir)
+│       ├── integrations/       # LinkedIn, OVH, AI, Calendar (à venir)
+│       ├── automation/         # Marketing automation engine (à venir)
+│       ├── tasks/              # Celery async tasks (à venir)
 │       └── db/                 # Session, migrations
 ├── frontend/
 │   ├── Dockerfile
 │   ├── package.json
 │   └── src/
-│       ├── components/         # UI components
-│       ├── pages/              # Route pages
-│       ├── hooks/              # Custom hooks
-│       ├── api/                # API clients
-│       ├── contexts/           # Auth, Theme
-│       └── types/              # TypeScript interfaces
+│       ├── components/
+│       │   ├── ui/             # Composants réutilisables (Button, Modal, Input...)
+│       │   ├── contacts/       # ContactForm (create/edit)
+│       │   ├── companies/      # CompanyForm (create/edit)
+│       │   ├── pipeline/       # DealForm (create/edit)
+│       │   └── layout/         # Sidebar + Layout
+│       ├── pages/              # Login, Dashboard, Contacts, Companies, Pipeline
+│       ├── hooks/              # Custom hooks (à venir)
+│       ├── api/                # Axios client + API functions
+│       ├── contexts/           # AuthContext (JWT)
+│       └── types/              # TypeScript interfaces + constantes
 ├── scripts/                    # Init, backup, seed
 └── docs/                       # Specs & documentation
 ```
@@ -151,6 +156,36 @@ fga-crm/
 - **Claude & ChatGPT** — Enrichissement, scoring, génération, analyse de sentiment
 - **Google Calendar** — Sync bidirectionnelle, booking links
 - **OVH Calendar** — CalDAV fallback
+
+---
+
+## 🚦 État d'avancement
+
+| Module | Backend | Frontend | Status |
+|--------|---------|----------|--------|
+| **Auth (JWT)** | ✅ Register, Login, Refresh, Me | ✅ Login page, AuthContext | Fonctionnel |
+| **Dashboard** | ✅ Stats via API | ✅ KPIs, deals récents | Fonctionnel |
+| **Contacts** | ✅ CRUD complet + validation | ✅ Liste, recherche, create/edit/delete | Fonctionnel |
+| **Companies** | ✅ CRUD complet + validation | ✅ Liste, recherche, create/edit/delete | Fonctionnel |
+| **Pipeline (Deals)** | ✅ CRUD complet + stage mgmt | ✅ Liste, create/edit/delete, badges | Fonctionnel |
+| **Tâches** | 🔲 Modèle prêt | 🔲 Page placeholder | Sprint 2 |
+| **Activités** | 🔲 Modèle prêt | 🔲 — | Sprint 2 |
+| **Email (OVH)** | 🔲 — | 🔲 Page placeholder | Sprint 4 |
+| **LinkedIn** | 🔲 — | 🔲 — | Sprint 3 |
+| **IA (Claude/GPT)** | 🔲 — | 🔲 — | Sprint 3 |
+| **Marketing Automation** | 🔲 — | 🔲 — | Sprint 4 |
+| **Calendrier** | 🔲 — | 🔲 — | Sprint 4 |
+| **Fichiers (MinIO)** | 🔲 — | 🔲 — | Sprint 4 |
+
+### API Endpoints (v1)
+
+| Ressource | GET list | POST | GET single | PUT | DELETE |
+|-----------|----------|------|------------|-----|--------|
+| `/auth` | — | register, login, refresh | `/me` | — | — |
+| `/contacts` | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `/companies` | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `/deals` | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `/deals/{id}/stage` | — | — | — | PATCH ✅ | — |
 
 ---
 
