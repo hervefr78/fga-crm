@@ -73,6 +73,7 @@ async def list_contacts(
     company_id: str | None = None,
     source: str | None = None,
     is_decision_maker: str | None = None,
+    has_email: str | None = None,
     created_after: str | None = None,
     created_before: str | None = None,
     db: AsyncSession = Depends(get_db),
@@ -103,6 +104,10 @@ async def list_contacts(
         query = query.where(Contact.is_decision_maker == True)  # noqa: E712
     elif is_decision_maker == "false":
         query = query.where(Contact.is_decision_maker == False)  # noqa: E712
+    if has_email == "true":
+        query = query.where(Contact.email.isnot(None), Contact.email != "")
+    elif has_email == "false":
+        query = query.where((Contact.email.is_(None)) | (Contact.email == ""))
     if created_after:
         query = query.where(Contact.created_at >= _parse_date(created_after, "created_after"))
     if created_before:

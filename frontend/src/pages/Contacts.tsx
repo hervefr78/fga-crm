@@ -37,6 +37,7 @@ const CONTACT_FILTERS: FilterDef[] = [
   { key: 'source', label: 'Source', type: 'select', options: [...CONTACT_SOURCES] },
   { key: 'status', label: 'Statut', type: 'select', options: [...CONTACT_STATUSES] },
   { key: 'is_decision_maker', label: 'Décideur', type: 'boolean' },
+  { key: 'has_email', label: 'Email', type: 'boolean' },
   { key: 'created_after', label: 'Créé après', type: 'date' },
   { key: 'created_before', label: 'Créé avant', type: 'date' },
 ];
