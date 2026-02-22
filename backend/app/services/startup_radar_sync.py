@@ -77,48 +77,49 @@ async def sync_startups(
             continue
 
         try:
-            # Chercher si la company existe deja via startup_radar_id
-            stmt = select(Company).where(Company.startup_radar_id == sr_id)
-            existing = (await db.execute(stmt)).scalar_one_or_none()
+            async with db.begin_nested():
+                # Chercher si la company existe deja via startup_radar_id
+                stmt = select(Company).where(Company.startup_radar_id == sr_id)
+                existing = (await db.execute(stmt)).scalar_one_or_none()
 
-            # Preparer les custom_fields
-            custom = {}
-            if s.get("strategy"):
-                custom["strategy"] = s["strategy"]
-            if s.get("amount"):
-                custom["funding_amount"] = s["amount"]
-            if s.get("series"):
-                custom["funding_series"] = s["series"]
-            if s.get("status"):
-                custom["sr_status"] = s["status"]
+                # Preparer les custom_fields
+                custom = {}
+                if s.get("strategy"):
+                    custom["strategy"] = s["strategy"]
+                if s.get("amount"):
+                    custom["funding_amount"] = s["amount"]
+                if s.get("series"):
+                    custom["funding_series"] = s["series"]
+                if s.get("status"):
+                    custom["sr_status"] = s["status"]
 
-            if existing:
-                # Update
-                existing.name = s.get("name") or existing.name
-                existing.website = s.get("website") or existing.website
-                existing.industry = s.get("sector") or existing.industry
-                existing.description = s.get("description") or existing.description
-                # Merger les custom_fields existants avec les nouveaux
-                merged = {**(existing.custom_fields or {}), **custom}
-                existing.custom_fields = merged
-                sr_to_crm[sr_id] = existing.id
-                result.companies_updated += 1
-            else:
-                # Insert
-                company_id = uuid.uuid4()
-                company = Company(
-                    id=company_id,
-                    name=s.get("name", "Sans nom"),
-                    website=s.get("website"),
-                    industry=s.get("sector"),
-                    description=s.get("description"),
-                    custom_fields=custom if custom else None,
-                    startup_radar_id=sr_id,
-                    owner_id=user.id,
-                )
-                db.add(company)
-                sr_to_crm[sr_id] = company_id
-                result.companies_created += 1
+                if existing:
+                    # Update
+                    existing.name = s.get("name") or existing.name
+                    existing.website = s.get("website") or existing.website
+                    existing.industry = s.get("sector") or existing.industry
+                    existing.description = s.get("description") or existing.description
+                    # Merger les custom_fields existants avec les nouveaux
+                    merged = {**(existing.custom_fields or {}), **custom}
+                    existing.custom_fields = merged
+                    sr_to_crm[sr_id] = existing.id
+                    result.companies_updated += 1
+                else:
+                    # Insert
+                    company_id = uuid.uuid4()
+                    company = Company(
+                        id=company_id,
+                        name=s.get("name", "Sans nom"),
+                        website=s.get("website"),
+                        industry=s.get("sector"),
+                        description=s.get("description"),
+                        custom_fields=custom if custom else None,
+                        startup_radar_id=sr_id,
+                        owner_id=user.id,
+                    )
+                    db.add(company)
+                    sr_to_crm[sr_id] = company_id
+                    result.companies_created += 1
 
         except Exception as e:
             result.errors.append(f"Startup {s.get('name', sr_id)}: {e}")
@@ -160,34 +161,35 @@ async def sync_investors(
         sr_id = f"inv:{inv_id}"
 
         try:
-            stmt = select(Company).where(Company.startup_radar_id == sr_id)
-            existing = (await db.execute(stmt)).scalar_one_or_none()
+            async with db.begin_nested():
+                stmt = select(Company).where(Company.startup_radar_id == sr_id)
+                existing = (await db.execute(stmt)).scalar_one_or_none()
 
-            custom = {}
-            if inv.get("startups_count"):
-                custom["portfolio_size"] = inv["startups_count"]
-            if inv.get("total_funding_amount"):
-                custom["total_invested"] = inv["total_funding_amount"]
+                custom = {}
+                if inv.get("startups_count"):
+                    custom["portfolio_size"] = inv["startups_count"]
+                if inv.get("total_funding_amount"):
+                    custom["total_invested"] = inv["total_funding_amount"]
 
-            if existing:
-                existing.name = inv.get("name") or existing.name
-                existing.website = inv.get("website") or existing.website
-                existing.industry = "Capital-risque"
-                merged = {**(existing.custom_fields or {}), **custom}
-                existing.custom_fields = merged
-                result.investors_updated += 1
-            else:
-                company = Company(
-                    id=uuid.uuid4(),
-                    name=inv.get("name", "Investisseur inconnu"),
-                    website=inv.get("website"),
-                    industry="Capital-risque",
-                    custom_fields=custom if custom else None,
-                    startup_radar_id=sr_id,
-                    owner_id=user.id,
-                )
-                db.add(company)
-                result.investors_created += 1
+                if existing:
+                    existing.name = inv.get("name") or existing.name
+                    existing.website = inv.get("website") or existing.website
+                    existing.industry = "Capital-risque"
+                    merged = {**(existing.custom_fields or {}), **custom}
+                    existing.custom_fields = merged
+                    result.investors_updated += 1
+                else:
+                    company = Company(
+                        id=uuid.uuid4(),
+                        name=inv.get("name", "Investisseur inconnu"),
+                        website=inv.get("website"),
+                        industry="Capital-risque",
+                        custom_fields=custom if custom else None,
+                        startup_radar_id=sr_id,
+                        owner_id=user.id,
+                    )
+                    db.add(company)
+                    result.investors_created += 1
 
         except Exception as e:
             result.errors.append(f"Investor {inv.get('name', inv_id)}: {e}")
@@ -230,43 +232,44 @@ async def sync_contacts(
             continue
 
         try:
-            stmt = select(Contact).where(Contact.startup_radar_id == sr_id)
-            existing = (await db.execute(stmt)).scalar_one_or_none()
+            async with db.begin_nested():
+                stmt = select(Contact).where(Contact.startup_radar_id == sr_id)
+                existing = (await db.execute(stmt)).scalar_one_or_none()
 
-            # Trouver la company CRM via startup_id du contact SR
-            company_id = None
-            startup_id = c.get("startup_id")
-            if startup_id:
-                company_id = sr_to_crm.get(str(startup_id))
+                # Trouver la company CRM via startup_id du contact SR
+                company_id = None
+                startup_id = c.get("startup_id")
+                if startup_id:
+                    company_id = sr_to_crm.get(str(startup_id))
 
-            if existing:
-                existing.first_name = c.get("first_name") or existing.first_name
-                existing.last_name = c.get("last_name") or existing.last_name
-                existing.email = c.get("email") or existing.email
-                existing.email_status = c.get("email_status") or existing.email_status
-                existing.title = c.get("title") or existing.title
-                existing.linkedin_url = c.get("linkedin_url") or existing.linkedin_url
-                existing.is_decision_maker = c.get("is_decision_maker", existing.is_decision_maker)
-                if company_id:
-                    existing.company_id = company_id
-                result.contacts_updated += 1
-            else:
-                contact = Contact(
-                    id=uuid.uuid4(),
-                    first_name=c.get("first_name", ""),
-                    last_name=c.get("last_name", ""),
-                    email=c.get("email"),
-                    email_status=c.get("email_status"),
-                    title=c.get("title"),
-                    linkedin_url=c.get("linkedin_url"),
-                    is_decision_maker=c.get("is_decision_maker", False),
-                    source="startup_radar",
-                    company_id=company_id,
-                    startup_radar_id=sr_id,
-                    owner_id=user.id,
-                )
-                db.add(contact)
-                result.contacts_created += 1
+                if existing:
+                    existing.first_name = c.get("first_name") or existing.first_name
+                    existing.last_name = c.get("last_name") or existing.last_name
+                    existing.email = c.get("email") or existing.email
+                    existing.email_status = c.get("email_status") or existing.email_status
+                    existing.title = c.get("title") or existing.title
+                    existing.linkedin_url = c.get("linkedin_url") or existing.linkedin_url
+                    existing.is_decision_maker = c.get("is_decision_maker", existing.is_decision_maker)
+                    if company_id:
+                        existing.company_id = company_id
+                    result.contacts_updated += 1
+                else:
+                    contact = Contact(
+                        id=uuid.uuid4(),
+                        first_name=c.get("first_name", ""),
+                        last_name=c.get("last_name", ""),
+                        email=c.get("email"),
+                        email_status=c.get("email_status"),
+                        title=c.get("title"),
+                        linkedin_url=c.get("linkedin_url"),
+                        is_decision_maker=c.get("is_decision_maker", False),
+                        source="startup_radar",
+                        company_id=company_id,
+                        startup_radar_id=sr_id,
+                        owner_id=user.id,
+                    )
+                    db.add(contact)
+                    result.contacts_created += 1
 
         except Exception as e:
             result.errors.append(f"Contact {c.get('first_name', '')} {c.get('last_name', sr_id)}: {e}")
@@ -310,39 +313,40 @@ async def sync_audits(
         try:
             analysis = await client.get_analysis(sr_id)
             if analysis and analysis.get("positioning"):
-                # Verifier si deja importe (par subject unique)
                 subject = f"Audit messaging: {startup_name}"
-                stmt = select(Activity).where(
-                    Activity.company_id == company_id,
-                    Activity.type == "audit",
-                    Activity.subject == subject,
-                )
-                existing = (await db.execute(stmt)).scalar_one_or_none()
-
-                if not existing:
-                    metadata = {
-                        "audit_type": "messaging",
-                        "source": "startup_radar",
-                        "positioning": analysis.get("positioning"),
-                        "value_proposition": analysis.get("value_proposition"),
-                        "messaging_score": analysis.get("messaging_score"),
-                        "differentiators": analysis.get("differentiators"),
-                        "target_audience": analysis.get("target_audience"),
-                        "strengths": analysis.get("strengths"),
-                        "weaknesses": analysis.get("weaknesses"),
-                        "recommendations": analysis.get("recommendations"),
-                    }
-                    activity = Activity(
-                        id=uuid.uuid4(),
-                        type="audit",
-                        subject=subject,
-                        content=analysis.get("value_proposition"),
-                        metadata_=metadata,
-                        company_id=company_id,
-                        user_id=user.id,
+                async with db.begin_nested():
+                    # Verifier si deja importe (par subject unique)
+                    stmt = select(Activity).where(
+                        Activity.company_id == company_id,
+                        Activity.type == "audit",
+                        Activity.subject == subject,
                     )
-                    db.add(activity)
-                    result.audits_created += 1
+                    existing = (await db.execute(stmt)).scalar_one_or_none()
+
+                    if not existing:
+                        metadata = {
+                            "audit_type": "messaging",
+                            "source": "startup_radar",
+                            "positioning": analysis.get("positioning"),
+                            "value_proposition": analysis.get("value_proposition"),
+                            "messaging_score": analysis.get("messaging_score"),
+                            "differentiators": analysis.get("differentiators"),
+                            "target_audience": analysis.get("target_audience"),
+                            "strengths": analysis.get("strengths"),
+                            "weaknesses": analysis.get("weaknesses"),
+                            "recommendations": analysis.get("recommendations"),
+                        }
+                        activity = Activity(
+                            id=uuid.uuid4(),
+                            type="audit",
+                            subject=subject,
+                            content=analysis.get("value_proposition"),
+                            metadata_=metadata,
+                            company_id=company_id,
+                            user_id=user.id,
+                        )
+                        db.add(activity)
+                        result.audits_created += 1
 
         except Exception as e:
             result.errors.append(f"Analysis {startup_name}: {e}")
@@ -352,40 +356,41 @@ async def sync_audits(
             audit = await client.get_detailed_audit(sr_id)
             if audit and audit.get("status") == "completed" and audit.get("result"):
                 subject = f"Audit detaille: {startup_name}"
-                stmt = select(Activity).where(
-                    Activity.company_id == company_id,
-                    Activity.type == "audit",
-                    Activity.subject == subject,
-                )
-                existing = (await db.execute(stmt)).scalar_one_or_none()
-
-                if not existing:
-                    audit_result = audit["result"]
-                    exec_summary = audit_result.get("executive_summary", {})
-                    scoring = audit_result.get("scoring", {})
-
-                    metadata = {
-                        "audit_type": "detailed",
-                        "source": "startup_radar",
-                        "total_score": exec_summary.get("total_score"),
-                        "score_interpretation": exec_summary.get("score_interpretation"),
-                        "key_findings": exec_summary.get("key_findings"),
-                        "top_priority": exec_summary.get("top_priority"),
-                        "scoring": scoring,
-                        "gaps_count": exec_summary.get("gaps_count"),
-                        "recommendations_count": exec_summary.get("recommendations_count"),
-                    }
-                    activity = Activity(
-                        id=uuid.uuid4(),
-                        type="audit",
-                        subject=subject,
-                        content=exec_summary.get("score_interpretation"),
-                        metadata_=metadata,
-                        company_id=company_id,
-                        user_id=user.id,
+                async with db.begin_nested():
+                    stmt = select(Activity).where(
+                        Activity.company_id == company_id,
+                        Activity.type == "audit",
+                        Activity.subject == subject,
                     )
-                    db.add(activity)
-                    result.audits_created += 1
+                    existing = (await db.execute(stmt)).scalar_one_or_none()
+
+                    if not existing:
+                        audit_result = audit["result"]
+                        exec_summary = audit_result.get("executive_summary", {})
+                        scoring = audit_result.get("scoring", {})
+
+                        metadata = {
+                            "audit_type": "detailed",
+                            "source": "startup_radar",
+                            "total_score": exec_summary.get("total_score"),
+                            "score_interpretation": exec_summary.get("score_interpretation"),
+                            "key_findings": exec_summary.get("key_findings"),
+                            "top_priority": exec_summary.get("top_priority"),
+                            "scoring": scoring,
+                            "gaps_count": exec_summary.get("gaps_count"),
+                            "recommendations_count": exec_summary.get("recommendations_count"),
+                        }
+                        activity = Activity(
+                            id=uuid.uuid4(),
+                            type="audit",
+                            subject=subject,
+                            content=exec_summary.get("score_interpretation"),
+                            metadata_=metadata,
+                            company_id=company_id,
+                            user_id=user.id,
+                        )
+                        db.add(activity)
+                        result.audits_created += 1
 
         except Exception as e:
             result.errors.append(f"DetailedAudit {startup_name}: {e}")

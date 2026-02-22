@@ -151,91 +151,97 @@ async def trigger_company_audit(
         audit = await sr_client.get_detailed_audit(sr_id)
         if audit and audit.get("status") == "completed" and audit.get("result"):
             subject = f"Audit detaille: {company.name}"
-            existing = (
-                await db.execute(
-                    select(Activity).where(
-                        Activity.company_id == company.id,
-                        Activity.type == "audit",
-                        Activity.subject == subject,
+            async with db.begin_nested():
+                existing = (
+                    await db.execute(
+                        select(Activity).where(
+                            Activity.company_id == company.id,
+                            Activity.type == "audit",
+                            Activity.subject == subject,
+                        )
                     )
-                )
-            ).scalar_one_or_none()
+                ).scalar_one_or_none()
 
-            if existing:
-                audits_skipped += 1
-            else:
-                audit_result = audit["result"]
-                exec_summary = audit_result.get("executive_summary", {})
-                metadata = {
-                    "audit_type": "detailed",
-                    "source": "startup_radar",
-                    "total_score": exec_summary.get("total_score"),
-                    "score_interpretation": exec_summary.get("score_interpretation"),
-                    "key_findings": exec_summary.get("key_findings"),
-                    "top_priority": exec_summary.get("top_priority"),
-                    "scoring": audit_result.get("scoring", {}),
-                    "gaps_count": exec_summary.get("gaps_count"),
-                    "recommendations_count": exec_summary.get("recommendations_count"),
-                }
-                activity = Activity(
-                    id=uuid.uuid4(),
-                    type="audit",
-                    subject=subject,
-                    content=exec_summary.get("score_interpretation"),
-                    metadata_=metadata,
-                    company_id=company.id,
-                    user_id=current_user.id,
-                )
-                db.add(activity)
-                audits_created += 1
+                if existing:
+                    audits_skipped += 1
+                else:
+                    audit_result = audit["result"]
+                    exec_summary = audit_result.get("executive_summary", {})
+                    metadata = {
+                        "audit_type": "detailed",
+                        "source": "startup_radar",
+                        "total_score": exec_summary.get("total_score"),
+                        "score_interpretation": exec_summary.get("score_interpretation"),
+                        "key_findings": exec_summary.get("key_findings"),
+                        "top_priority": exec_summary.get("top_priority"),
+                        "scoring": audit_result.get("scoring", {}),
+                        "gaps_count": exec_summary.get("gaps_count"),
+                        "recommendations_count": exec_summary.get("recommendations_count"),
+                    }
+                    activity = Activity(
+                        id=uuid.uuid4(),
+                        type="audit",
+                        subject=subject,
+                        content=exec_summary.get("score_interpretation"),
+                        metadata_=metadata,
+                        company_id=company.id,
+                        user_id=current_user.id,
+                    )
+                    db.add(activity)
+                    audits_created += 1
         elif audit and audit.get("status") != "completed":
             errors.append(f"Audit detaille en cours (status: {audit.get('status', 'unknown')})")
     except StartupRadarError as e:
         errors.append(f"Audit detaille: {e}")
+    except Exception as e:
+        errors.append(f"Audit detaille DB: {e}")
 
     # 7. Analyse messaging
     try:
         analysis = await sr_client.get_analysis(sr_id)
         if analysis and analysis.get("positioning"):
             subject = f"Audit messaging: {company.name}"
-            existing = (
-                await db.execute(
-                    select(Activity).where(
-                        Activity.company_id == company.id,
-                        Activity.type == "audit",
-                        Activity.subject == subject,
+            async with db.begin_nested():
+                existing = (
+                    await db.execute(
+                        select(Activity).where(
+                            Activity.company_id == company.id,
+                            Activity.type == "audit",
+                            Activity.subject == subject,
+                        )
                     )
-                )
-            ).scalar_one_or_none()
+                ).scalar_one_or_none()
 
-            if existing:
-                audits_skipped += 1
-            else:
-                metadata = {
-                    "audit_type": "messaging",
-                    "source": "startup_radar",
-                    "positioning": analysis.get("positioning"),
-                    "value_proposition": analysis.get("value_proposition"),
-                    "messaging_score": analysis.get("messaging_score"),
-                    "differentiators": analysis.get("differentiators"),
-                    "target_audience": analysis.get("target_audience"),
-                    "strengths": analysis.get("strengths"),
-                    "weaknesses": analysis.get("weaknesses"),
-                    "recommendations": analysis.get("recommendations"),
-                }
-                activity = Activity(
-                    id=uuid.uuid4(),
-                    type="audit",
-                    subject=subject,
-                    content=analysis.get("value_proposition"),
-                    metadata_=metadata,
-                    company_id=company.id,
-                    user_id=current_user.id,
-                )
-                db.add(activity)
-                audits_created += 1
+                if existing:
+                    audits_skipped += 1
+                else:
+                    metadata = {
+                        "audit_type": "messaging",
+                        "source": "startup_radar",
+                        "positioning": analysis.get("positioning"),
+                        "value_proposition": analysis.get("value_proposition"),
+                        "messaging_score": analysis.get("messaging_score"),
+                        "differentiators": analysis.get("differentiators"),
+                        "target_audience": analysis.get("target_audience"),
+                        "strengths": analysis.get("strengths"),
+                        "weaknesses": analysis.get("weaknesses"),
+                        "recommendations": analysis.get("recommendations"),
+                    }
+                    activity = Activity(
+                        id=uuid.uuid4(),
+                        type="audit",
+                        subject=subject,
+                        content=analysis.get("value_proposition"),
+                        metadata_=metadata,
+                        company_id=company.id,
+                        user_id=current_user.id,
+                    )
+                    db.add(activity)
+                    audits_created += 1
     except StartupRadarError as e:
         errors.append(f"Analyse messaging: {e}")
+    except Exception as e:
+        errors.append(f"Analyse messaging DB: {e}")
 
     # 8. Commit
     if audits_created > 0:
