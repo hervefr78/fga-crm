@@ -7,13 +7,14 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowLeft, Mail, Phone, Linkedin, Edit2, Trash2,
-  Calendar, Target, CheckCircle2,
+  Calendar, Target, CheckCircle2, ListPlus,
 } from 'lucide-react';
 
 import {
-  getContact, getActivities, getDeals, getTasks, deleteContact,
+  getContact, getActivities, getDeals, getTasks, deleteContact, createTask,
 } from '../api/client';
 import type { Contact, Activity, Deal, Task } from '../types';
+import { TASK_TYPES, TASK_PRIORITIES } from '../types';
 import { Badge, Button, ConfirmDialog, LoadingSpinner, Modal, Tabs } from '../components/ui';
 import ContactForm from '../components/contacts/ContactForm';
 import ComposeModal from '../components/email/ComposeModal';
@@ -62,6 +63,8 @@ export default function ContactDetailPage() {
   const [editOpen, setEditOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [composeOpen, setComposeOpen] = useState(false);
+  const [taskOpen, setTaskOpen] = useState(false);
+  const [taskForm, setTaskForm] = useState({ title: '', type: 'todo', priority: 'medium', due_date: '' });
 
   const { data: contact, isLoading } = useQuery({
     queryKey: ['contact', id],
@@ -92,6 +95,16 @@ export default function ContactDetailPage() {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['contacts'] });
       navigate('/contacts');
+    },
+  });
+
+  const taskMutation = useMutation({
+    mutationFn: (data: Record<string, unknown>) => createTask(data),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['tasks', { contact_id: id }] });
+      setTaskOpen(false);
+      setTaskForm({ title: '', type: 'todo', priority: 'medium', due_date: '' });
+      setActiveTab('tasks');
     },
   });
 
@@ -273,6 +286,9 @@ export default function ContactDetailPage() {
                 Envoyer un email
               </Button>
             )}
+            <Button icon={ListPlus} variant="secondary" className="w-full" onClick={() => setTaskOpen(true)}>
+              Ajouter une tache
+            </Button>
             <Button icon={Edit2} variant="secondary" className="w-full" onClick={() => setEditOpen(true)}>
               Modifier
             </Button>
@@ -340,6 +356,87 @@ export default function ContactDetailPage() {
         onClose={() => setComposeOpen(false)}
         prefilledContact={contact as Contact}
       />
+
+      {/* Modal ajout tache */}
+      <Modal
+        open={taskOpen}
+        onClose={() => setTaskOpen(false)}
+        title="Nouvelle tache"
+        size="md"
+      >
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            taskMutation.mutate({
+              title: taskForm.title,
+              type: taskForm.type,
+              priority: taskForm.priority,
+              contact_id: id,
+              due_date: taskForm.due_date || undefined,
+            });
+          }}
+          className="space-y-4"
+        >
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Titre</label>
+            <input
+              type="text"
+              required
+              maxLength={500}
+              value={taskForm.title}
+              onChange={(e) => setTaskForm((prev) => ({ ...prev, title: e.target.value }))}
+              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+              placeholder="Ex: Appeler pour suivi..."
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Type</label>
+              <select
+                value={taskForm.type}
+                onChange={(e) => setTaskForm((prev) => ({ ...prev, type: e.target.value }))}
+                className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+              >
+                {TASK_TYPES.map((t) => (
+                  <option key={t.value} value={t.value}>{t.label}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Priorite</label>
+              <select
+                value={taskForm.priority}
+                onChange={(e) => setTaskForm((prev) => ({ ...prev, priority: e.target.value }))}
+                className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+              >
+                {TASK_PRIORITIES.map((p) => (
+                  <option key={p.value} value={p.value}>{p.label}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Echeance (optionnel)</label>
+            <input
+              type="date"
+              value={taskForm.due_date}
+              onChange={(e) => setTaskForm((prev) => ({ ...prev, due_date: e.target.value }))}
+              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+            />
+          </div>
+
+          <div className="flex justify-end gap-2 pt-2">
+            <Button variant="secondary" onClick={() => setTaskOpen(false)} type="button">
+              Annuler
+            </Button>
+            <Button type="submit" loading={taskMutation.isPending}>
+              Creer la tache
+            </Button>
+          </div>
+        </form>
+      </Modal>
     </div>
   );
 }
