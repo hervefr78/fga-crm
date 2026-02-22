@@ -240,6 +240,7 @@ export const CONTACT_SOURCES = [
   { value: 'event', label: 'Événement' },
   { value: 'cold_outreach', label: 'Prospection' },
   { value: 'inbound', label: 'Inbound' },
+  { value: 'startup_radar', label: 'Startup Radar' },
   { value: 'other', label: 'Autre' },
 ] as const;
 
