@@ -4,7 +4,7 @@
 
 import uuid
 from datetime import date, datetime
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING, Optional
 
 from sqlalchemy import Date, DateTime, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
@@ -13,10 +13,10 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.models.base import Base, TimestampMixin, UUIDMixin
 
 if TYPE_CHECKING:
+    from app.models.activity import Activity
     from app.models.company import Company
     from app.models.contact import Contact
     from app.models.user import User
-    from app.models.activity import Activity
 
 # Pipeline stages
 DEAL_STAGES = ["new", "contacted", "meeting", "proposal", "negotiation", "won", "lost"]
@@ -66,7 +66,7 @@ class Deal(Base, UUIDMixin, TimestampMixin):
     company: Mapped[Optional["Company"]] = relationship(back_populates="deals")
     contact: Mapped[Optional["Contact"]] = relationship(back_populates="deals")
     owner: Mapped[Optional["User"]] = relationship(back_populates="owned_deals")
-    activities: Mapped[List["Activity"]] = relationship(back_populates="deal", lazy="selectin")
+    activities: Mapped[list["Activity"]] = relationship(back_populates="deal", lazy="selectin")
 
     def __repr__(self) -> str:
         return f"<Deal {self.title} ({self.stage})>"

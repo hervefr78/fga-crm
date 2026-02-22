@@ -32,6 +32,19 @@ export const getMe = async () => {
   return response.data;
 };
 
+export const updateProfile = async (data: { full_name?: string; avatar_url?: string }) => {
+  const response = await api.put('/auth/me', data);
+  return response.data;
+};
+
+export const changePassword = async (currentPassword: string, newPassword: string) => {
+  const response = await api.post('/auth/change-password', {
+    current_password: currentPassword,
+    new_password: newPassword,
+  });
+  return response.data;
+};
+
 // ---------- Contacts ----------
 export const getContacts = async (params?: Record<string, unknown>) => {
   const response = await api.get('/contacts', { params });
@@ -110,4 +123,150 @@ export const updateDealStage = async (id: string, stage: string) => {
 
 export const deleteDeal = async (id: string) => {
   await api.delete(`/deals/${id}`);
+};
+
+// ---------- Tasks ----------
+export const getTasks = async (params?: Record<string, unknown>) => {
+  const response = await api.get('/tasks', { params });
+  return response.data;
+};
+
+export const getTask = async (id: string) => {
+  const response = await api.get(`/tasks/${id}`);
+  return response.data;
+};
+
+export const createTask = async (data: Record<string, unknown>) => {
+  const response = await api.post('/tasks', data);
+  return response.data;
+};
+
+export const updateTask = async (id: string, data: Record<string, unknown>) => {
+  const response = await api.put(`/tasks/${id}`, data);
+  return response.data;
+};
+
+export const toggleTaskCompletion = async (id: string, is_completed: boolean) => {
+  const response = await api.patch(`/tasks/${id}/complete`, { is_completed });
+  return response.data;
+};
+
+export const deleteTask = async (id: string) => {
+  await api.delete(`/tasks/${id}`);
+};
+
+// ---------- Activities ----------
+export const getActivities = async (params?: Record<string, unknown>) => {
+  const response = await api.get('/activities', { params });
+  return response.data;
+};
+
+export const getActivity = async (id: string) => {
+  const response = await api.get(`/activities/${id}`);
+  return response.data;
+};
+
+export const createActivity = async (data: Record<string, unknown>) => {
+  const response = await api.post('/activities', data);
+  return response.data;
+};
+
+export const updateActivity = async (id: string, data: Record<string, unknown>) => {
+  const response = await api.put(`/activities/${id}`, data);
+  return response.data;
+};
+
+export const deleteActivity = async (id: string) => {
+  await api.delete(`/activities/${id}`);
+};
+
+// ---------- Import CSV ----------
+export const importContacts = async (rows: Record<string, unknown>[]) => {
+  const response = await api.post('/contacts/import', { rows });
+  return response.data;
+};
+
+export const importCompanies = async (rows: Record<string, unknown>[]) => {
+  const response = await api.post('/companies/import', { rows });
+  return response.data;
+};
+
+// ---------- Admin — User Management ----------
+export const getUsers = async (params?: Record<string, unknown>) => {
+  const response = await api.get('/users', { params });
+  return response.data;
+};
+
+export const getUser = async (id: string) => {
+  const response = await api.get(`/users/${id}`);
+  return response.data;
+};
+
+export const updateUserRole = async (id: string, role: string) => {
+  const response = await api.patch(`/users/${id}/role`, { role });
+  return response.data;
+};
+
+export const toggleUserActive = async (id: string, is_active: boolean) => {
+  const response = await api.patch(`/users/${id}/deactivate`, { is_active });
+  return response.data;
+};
+
+// ---------- Emails ----------
+export const sendEmail = async (data: Record<string, unknown>) => {
+  const response = await api.post('/emails/send', data);
+  return response.data;
+};
+
+export const getEmails = async (params?: Record<string, unknown>) => {
+  const response = await api.get('/emails', { params });
+  return response.data;
+};
+
+// ---------- Email Templates ----------
+export const getEmailTemplates = async (params?: Record<string, unknown>) => {
+  const response = await api.get('/email-templates', { params });
+  return response.data;
+};
+
+export const getEmailTemplate = async (id: string) => {
+  const response = await api.get(`/email-templates/${id}`);
+  return response.data;
+};
+
+export const createEmailTemplate = async (data: Record<string, unknown>) => {
+  const response = await api.post('/email-templates', data);
+  return response.data;
+};
+
+export const updateEmailTemplate = async (id: string, data: Record<string, unknown>) => {
+  const response = await api.put(`/email-templates/${id}`, data);
+  return response.data;
+};
+
+export const deleteEmailTemplate = async (id: string) => {
+  await api.delete(`/email-templates/${id}`);
+};
+
+// ---------- Integrations (Startup Radar) ----------
+export const syncStartupRadar = async () => {
+  const response = await api.post('/integrations/startup-radar/sync');
+  return response.data;
+};
+
+export const getSyncStatus = async () => {
+  const response = await api.get('/integrations/startup-radar/status');
+  return response.data;
+};
+
+// ---------- Dashboard ----------
+export const getDashboardStats = async () => {
+  const response = await api.get('/dashboard/stats');
+  return response.data;
+};
+
+// ---------- Recherche globale ----------
+export const globalSearch = async (q: string) => {
+  const response = await api.get('/search', { params: { q } });
+  return response.data;
 };

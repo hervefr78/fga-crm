@@ -13,3 +13,6 @@ export { default as Pagination } from './Pagination';
 export { default as SearchInput } from './SearchInput';
 export { default as EmptyState } from './EmptyState';
 export { default as LoadingSpinner } from './LoadingSpinner';
+export { default as Tabs } from './Tabs';
+export { default as FilterBar } from './FilterBar';
+export type { FilterDef } from './FilterBar';

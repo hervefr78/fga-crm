@@ -9,28 +9,44 @@ import {
   Users,
   Target,
   ListTodo,
+  Activity,
   Mail,
+  Link2,
   Settings,
   LogOut,
   User,
   Zap,
+  Shield,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { useAuth } from '../../contexts/AuthContext';
+import { isAdmin, USER_ROLES } from '../../types';
+import GlobalSearch from './GlobalSearch';
 
-const navigation = [
+const baseNavigation = [
   { name: 'Dashboard', href: '/', icon: LayoutDashboard },
   { name: 'Contacts', href: '/contacts', icon: Users },
   { name: 'Entreprises', href: '/companies', icon: Building2 },
   { name: 'Pipeline', href: '/pipeline', icon: Target },
   { name: 'Tâches', href: '/tasks', icon: ListTodo },
+  { name: 'Activités', href: '/activities', icon: Activity },
   { name: 'Email', href: '/email', icon: Mail },
+  { name: 'Integrations', href: '/integrations', icon: Link2 },
   { name: 'Paramètres', href: '/settings', icon: Settings },
 ];
+
+const ROLE_LABELS: Record<string, string> = Object.fromEntries(
+  USER_ROLES.map((r) => [r.value, r.label]),
+);
 
 export default function Layout() {
   const location = useLocation();
   const { user, logout } = useAuth();
+
+  const navigation = [
+    ...baseNavigation,
+    ...(isAdmin(user) ? [{ name: 'Utilisateurs', href: '/admin/users', icon: Shield }] : []),
+  ];
 
   return (
     <div className="flex h-screen bg-slate-50">
@@ -75,7 +91,12 @@ export default function Layout() {
               <User className="w-4 h-4 text-primary-600" />
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-slate-700 truncate">{user?.full_name}</p>
+              <div className="flex items-center gap-1.5">
+                <p className="text-sm font-medium text-slate-700 truncate">{user?.full_name}</p>
+                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-primary-50 text-primary-700">
+                  {ROLE_LABELS[user?.role ?? ''] ?? user?.role}
+                </span>
+              </div>
               <p className="text-xs text-slate-400 truncate">{user?.email}</p>
             </div>
             <button
@@ -90,9 +111,16 @@ export default function Layout() {
       </aside>
 
       {/* Main content */}
-      <main className="flex-1 overflow-auto">
-        <Outlet />
-      </main>
+      <div className="flex-1 flex flex-col overflow-hidden">
+        {/* Header avec recherche globale */}
+        <header className="flex items-center justify-end px-8 py-3 bg-white border-b border-slate-200 shadow-sm">
+          <GlobalSearch />
+        </header>
+
+        <main className="flex-1 overflow-auto">
+          <Outlet />
+        </main>
+      </div>
     </div>
   );
 }

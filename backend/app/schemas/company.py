@@ -2,7 +2,6 @@
 # FGA CRM - Schemas Company
 # =============================================================================
 
-from typing import Optional
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -14,19 +13,19 @@ class CompanyCreate(BaseModel):
     """Schema de creation d'une entreprise — tous les strings bornes (DC1)."""
 
     name: str = Field(..., min_length=1, max_length=255)
-    domain: Optional[str] = Field(None, max_length=255)
-    website: Optional[str] = Field(None, max_length=500)
-    industry: Optional[str] = Field(None, max_length=255)
-    description: Optional[str] = Field(None, max_length=5000)
-    size_range: Optional[str] = Field(None, max_length=50)
-    linkedin_url: Optional[str] = Field(None, max_length=500)
-    phone: Optional[str] = Field(None, max_length=50)
-    country: Optional[str] = Field(None, max_length=100)
-    city: Optional[str] = Field(None, max_length=100)
+    domain: str | None = Field(None, max_length=255)
+    website: str | None = Field(None, max_length=500)
+    industry: str | None = Field(None, max_length=255)
+    description: str | None = Field(None, max_length=5000)
+    size_range: str | None = Field(None, max_length=50)
+    linkedin_url: str | None = Field(None, max_length=500)
+    phone: str | None = Field(None, max_length=50)
+    country: str | None = Field(None, max_length=100)
+    city: str | None = Field(None, max_length=100)
 
     @field_validator("size_range")
     @classmethod
-    def validate_size_range(cls, v: Optional[str]) -> Optional[str]:
+    def validate_size_range(cls, v: str | None) -> str | None:
         if v is not None and v not in SIZE_RANGES:
             raise ValueError(
                 f"Taille invalide. Valeurs autorisees : {', '.join(sorted(SIZE_RANGES))}"
@@ -37,20 +36,20 @@ class CompanyCreate(BaseModel):
 class CompanyUpdate(BaseModel):
     """Schema de mise a jour partielle d'une entreprise."""
 
-    name: Optional[str] = Field(None, min_length=1, max_length=255)
-    domain: Optional[str] = Field(None, max_length=255)
-    website: Optional[str] = Field(None, max_length=500)
-    industry: Optional[str] = Field(None, max_length=255)
-    description: Optional[str] = Field(None, max_length=5000)
-    size_range: Optional[str] = Field(None, max_length=50)
-    linkedin_url: Optional[str] = Field(None, max_length=500)
-    phone: Optional[str] = Field(None, max_length=50)
-    country: Optional[str] = Field(None, max_length=100)
-    city: Optional[str] = Field(None, max_length=100)
+    name: str | None = Field(None, min_length=1, max_length=255)
+    domain: str | None = Field(None, max_length=255)
+    website: str | None = Field(None, max_length=500)
+    industry: str | None = Field(None, max_length=255)
+    description: str | None = Field(None, max_length=5000)
+    size_range: str | None = Field(None, max_length=50)
+    linkedin_url: str | None = Field(None, max_length=500)
+    phone: str | None = Field(None, max_length=50)
+    country: str | None = Field(None, max_length=100)
+    city: str | None = Field(None, max_length=100)
 
     @field_validator("size_range")
     @classmethod
-    def validate_size_range(cls, v: Optional[str]) -> Optional[str]:
+    def validate_size_range(cls, v: str | None) -> str | None:
         if v is not None and v not in SIZE_RANGES:
             raise ValueError(
                 f"Taille invalide. Valeurs autorisees : {', '.join(sorted(SIZE_RANGES))}"
@@ -63,16 +62,16 @@ class CompanyResponse(BaseModel):
 
     id: str
     name: str
-    domain: Optional[str]
-    website: Optional[str]
-    industry: Optional[str]
-    description: Optional[str]
-    size_range: Optional[str]
-    linkedin_url: Optional[str]
-    phone: Optional[str]
-    country: Optional[str]
-    city: Optional[str]
-    owner_id: Optional[str]
+    domain: str | None
+    website: str | None
+    industry: str | None
+    description: str | None
+    size_range: str | None
+    linkedin_url: str | None
+    phone: str | None
+    country: str | None
+    city: str | None
+    owner_id: str | None
     created_at: str
 
     class Config:

@@ -126,8 +126,10 @@ fga-crm/
 │       │   ├── contacts/       # ContactForm (create/edit)
 │       │   ├── companies/      # CompanyForm (create/edit)
 │       │   ├── pipeline/       # DealForm (create/edit)
+│       │   ├── tasks/          # TaskForm (create/edit)
+│       │   ├── activities/     # ActivityForm (create/edit)
 │       │   └── layout/         # Sidebar + Layout
-│       ├── pages/              # Login, Dashboard, Contacts, Companies, Pipeline
+│       ├── pages/              # Login, Dashboard, Contacts, Companies, Pipeline, Tasks, Activities
 │       ├── hooks/              # Custom hooks (à venir)
 │       ├── api/                # Axios client + API functions
 │       ├── contexts/           # AuthContext (JWT)
@@ -164,12 +166,12 @@ fga-crm/
 | Module | Backend | Frontend | Status |
 |--------|---------|----------|--------|
 | **Auth (JWT)** | ✅ Register, Login, Refresh, Me | ✅ Login page, AuthContext | Fonctionnel |
-| **Dashboard** | ✅ Stats via API | ✅ KPIs, deals récents | Fonctionnel |
+| **Dashboard** | ✅ Stats via API | ✅ KPIs, deals récents, tâches en retard, activités récentes | Fonctionnel |
 | **Contacts** | ✅ CRUD complet + validation | ✅ Liste, recherche, create/edit/delete | Fonctionnel |
 | **Companies** | ✅ CRUD complet + validation | ✅ Liste, recherche, create/edit/delete | Fonctionnel |
 | **Pipeline (Deals)** | ✅ CRUD complet + stage mgmt | ✅ Liste, create/edit/delete, badges | Fonctionnel |
-| **Tâches** | 🔲 Modèle prêt | 🔲 Page placeholder | Sprint 2 |
-| **Activités** | 🔲 Modèle prêt | 🔲 — | Sprint 2 |
+| **Tâches** | ✅ CRUD + toggle completion + filtres | ✅ Liste, filtres, checkbox toggle, create/edit/delete | Fonctionnel |
+| **Activités** | ✅ CRUD + filtres par type/entité | ✅ Liste, filtres, icônes par type, create/edit/delete | Fonctionnel |
 | **Email (OVH)** | 🔲 — | 🔲 Page placeholder | Sprint 4 |
 | **LinkedIn** | 🔲 — | 🔲 — | Sprint 3 |
 | **IA (Claude/GPT)** | 🔲 — | 🔲 — | Sprint 3 |
@@ -186,6 +188,9 @@ fga-crm/
 | `/companies` | ✅ | ✅ | ✅ | ✅ | ✅ |
 | `/deals` | ✅ | ✅ | ✅ | ✅ | ✅ |
 | `/deals/{id}/stage` | — | — | — | PATCH ✅ | — |
+| `/tasks` | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `/tasks/{id}/complete` | — | — | — | PATCH ✅ | — |
+| `/activities` | ✅ | ✅ | ✅ | ✅ | ✅ |
 
 ---
 

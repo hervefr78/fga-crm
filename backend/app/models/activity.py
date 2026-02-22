@@ -12,13 +12,13 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.models.base import Base, TimestampMixin, UUIDMixin
 
 if TYPE_CHECKING:
-    from app.models.contact import Contact
     from app.models.company import Company
+    from app.models.contact import Contact
     from app.models.deal import Deal
     from app.models.user import User
 
 # Activity types
-ACTIVITY_TYPES = ["email", "call", "meeting", "note", "linkedin", "task"]
+ACTIVITY_TYPES = ["email", "call", "meeting", "note", "linkedin", "task", "audit"]
 
 
 class Activity(Base, UUIDMixin, TimestampMixin):

@@ -3,19 +3,19 @@
 # =============================================================================
 
 import uuid
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING, Optional
 
-from sqlalchemy import ForeignKey, Integer, String, Text
+from sqlalchemy import ForeignKey, String, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin, UUIDMixin
 
 if TYPE_CHECKING:
-    from app.models.user import User
+    from app.models.activity import Activity
     from app.models.contact import Contact
     from app.models.deal import Deal
-    from app.models.activity import Activity
+    from app.models.user import User
 
 
 class Company(Base, UUIDMixin, TimestampMixin):
@@ -55,9 +55,9 @@ class Company(Base, UUIDMixin, TimestampMixin):
 
     # Relationships
     owner: Mapped[Optional["User"]] = relationship(back_populates="owned_companies")
-    contacts: Mapped[List["Contact"]] = relationship(back_populates="company", cascade="all, delete-orphan", lazy="selectin")
-    deals: Mapped[List["Deal"]] = relationship(back_populates="company", lazy="selectin")
-    activities: Mapped[List["Activity"]] = relationship(back_populates="company", lazy="selectin")
+    contacts: Mapped[list["Contact"]] = relationship(back_populates="company", cascade="all, delete-orphan", lazy="selectin")
+    deals: Mapped[list["Deal"]] = relationship(back_populates="company", lazy="selectin")
+    activities: Mapped[list["Activity"]] = relationship(back_populates="company", lazy="selectin")
 
     def __repr__(self) -> str:
         return f"<Company {self.name}>"

@@ -1,0 +1,58 @@
+# =============================================================================
+# FGA CRM - SonarQube (analyse qualite)
+# =============================================================================
+# Usage: docker compose -f docker-compose.sonar.yml up -d
+# Interface: http://localhost:9200 (admin/admin au premier lancement)
+# Scanner: npx sonar-scanner (voir sonar-project.properties)
+# =============================================================================
+
+services:
+  sonarqube:
+    image: sonarqube:community
+    container_name: fga-crm-sonarqube
+    depends_on:
+      sonar-db:
+        condition: service_healthy
+    ports:
+      - "9200:9000"
+    environment:
+      SONAR_JDBC_URL: jdbc:postgresql://sonar-db:5432/sonarqube
+      SONAR_JDBC_USERNAME: sonarqube
+      SONAR_JDBC_PASSWORD: sonarqube
+    volumes:
+      - sonar_data:/opt/sonarqube/data
+      - sonar_extensions:/opt/sonarqube/extensions
+      - sonar_logs:/opt/sonarqube/logs
+    networks:
+      - sonar-internal
+
+  sonar-db:
+    image: postgres:16-alpine
+    container_name: fga-crm-sonar-db
+    environment:
+      POSTGRES_USER: sonarqube
+      POSTGRES_PASSWORD: sonarqube
+      POSTGRES_DB: sonarqube
+    volumes:
+      - sonar_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sonarqube"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - sonar-internal
+
+networks:
+  sonar-internal:
+    name: fga-sonar-internal
+
+volumes:
+  sonar_data:
+    name: fga-sonar-data
+  sonar_extensions:
+    name: fga-sonar-extensions
+  sonar_logs:
+    name: fga-sonar-logs
+  sonar_db_data:
+    name: fga-sonar-db

@@ -3,13 +3,15 @@
 # =============================================================================
 
 import uuid
-from typing import Optional
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import ValidationError
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import get_current_user
+from app.core.rbac import apply_ownership_filter, check_entity_access
 from app.db.session import get_db
 from app.models.contact import Contact
 from app.models.user import User
@@ -19,8 +21,22 @@ from app.schemas.contact import (
     ContactResponse,
     ContactUpdate,
 )
+from app.schemas.import_export import (
+    ContactImportRequest,
+    ContactImportRow,
+    ImportResult,
+    ImportRowError,
+)
 
 router = APIRouter()
+
+
+def _parse_date(value: str, field_name: str) -> datetime:
+    """Convertir un string ISO en datetime avec gestion d'erreur propre (DC3)."""
+    try:
+        return datetime.fromisoformat(value)
+    except ValueError:
+        raise HTTPException(status_code=422, detail=f"{field_name} : format de date invalide (ISO 8601 attendu)")
 
 
 def _contact_to_response(c: Contact) -> ContactResponse:
@@ -51,14 +67,19 @@ def _contact_to_response(c: Contact) -> ContactResponse:
 async def list_contacts(
     page: int = Query(1, ge=1),
     size: int = Query(25, ge=1, le=100),
-    search: Optional[str] = Query(None, max_length=255),
-    status: Optional[str] = None,
-    job_level: Optional[str] = None,
-    company_id: Optional[str] = None,
+    search: str | None = Query(None, max_length=255),
+    status: str | None = None,
+    job_level: str | None = None,
+    company_id: str | None = None,
+    source: str | None = None,
+    is_decision_maker: str | None = None,
+    created_after: str | None = None,
+    created_before: str | None = None,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
     query = select(Contact)
+    query = apply_ownership_filter(query, Contact, user)
 
     if search:
         search_filter = f"%{search}%"
@@ -76,6 +97,16 @@ async def list_contacts(
             query = query.where(Contact.company_id == uuid.UUID(company_id))
         except ValueError:
             raise HTTPException(status_code=422, detail="company_id invalide")
+    if source:
+        query = query.where(Contact.source == source)
+    if is_decision_maker == "true":
+        query = query.where(Contact.is_decision_maker == True)  # noqa: E712
+    elif is_decision_maker == "false":
+        query = query.where(Contact.is_decision_maker == False)  # noqa: E712
+    if created_after:
+        query = query.where(Contact.created_at >= _parse_date(created_after, "created_after"))
+    if created_before:
+        query = query.where(Contact.created_at <= _parse_date(created_before, "created_before"))
 
     count_query = select(func.count()).select_from(query.subquery())
     total = (await db.execute(count_query)).scalar() or 0
@@ -126,6 +157,7 @@ async def get_contact(
     contact = result.scalar_one_or_none()
     if not contact:
         raise HTTPException(status_code=404, detail="Contact non trouve")
+    check_entity_access(contact, user)
 
     return _contact_to_response(contact)
 
@@ -141,6 +173,7 @@ async def update_contact(
     contact = result.scalar_one_or_none()
     if not contact:
         raise HTTPException(status_code=404, detail="Contact non trouve")
+    check_entity_access(contact, user)
 
     update_data = data.model_dump(exclude_unset=True)
 
@@ -169,5 +202,41 @@ async def delete_contact(
     contact = result.scalar_one_or_none()
     if not contact:
         raise HTTPException(status_code=404, detail="Contact non trouve")
+    check_entity_access(contact, user)
 
     await db.delete(contact)
+
+
+@router.post("/import", response_model=ImportResult)
+async def import_contacts(
+    data: ContactImportRequest,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Import batch de contacts depuis un CSV parse cote client."""
+    imported = 0
+    errors: list[ImportRowError] = []
+
+    for idx, row_data in enumerate(data.rows, start=1):
+        try:
+            validated = ContactImportRow(**row_data)
+            contact_dict = validated.model_dump()
+
+            # Pas de company_id dans l'import (simplification)
+            contact = Contact(**contact_dict, owner_id=user.id)
+            db.add(contact)
+            imported += 1
+        except ValidationError as e:
+            for err in e.errors():
+                errors.append(ImportRowError(
+                    row=idx,
+                    field=str(err["loc"][-1]) if err["loc"] else "unknown",
+                    message=err["msg"],
+                ))
+        except Exception as e:
+            errors.append(ImportRowError(row=idx, field="unknown", message=str(e)))
+
+    if imported > 0:
+        await db.flush()
+
+    return ImportResult(imported=imported, errors=errors)

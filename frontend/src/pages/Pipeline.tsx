@@ -4,12 +4,13 @@
 
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Target, Plus, Trash2 } from 'lucide-react';
+import { Target, Plus, Trash2, LayoutGrid, List } from 'lucide-react';
 
-import { getDeals, deleteDeal } from '../api/client';
+import { getDeals, deleteDeal, updateDealStage } from '../api/client';
 import type { Deal } from '../types';
 import { Modal, SearchInput, Pagination, LoadingSpinner, EmptyState, ConfirmDialog, Badge, Button } from '../components/ui';
 import DealForm from '../components/pipeline/DealForm';
+import KanbanBoard from '../components/pipeline/KanbanBoard';
 
 const STAGE_VARIANTS: Record<string, 'default' | 'info' | 'success' | 'danger' | 'warning'> = {
   new: 'default',
@@ -40,6 +41,7 @@ const PRIORITY_VARIANTS: Record<string, 'default' | 'info' | 'warning' | 'danger
 
 export default function PipelinePage() {
   const queryClient = useQueryClient();
+  const [view, setView] = useState<'kanban' | 'table'>('kanban');
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
 
@@ -48,16 +50,35 @@ export default function PipelinePage() {
   const [editingDeal, setEditingDeal] = useState<Deal | undefined>(undefined);
   const [deletingDeal, setDeletingDeal] = useState<Deal | null>(null);
 
-  const { data, isLoading } = useQuery({
+  // Kanban : charger tous les deals (sans pagination)
+  const kanbanQuery = useQuery({
+    queryKey: ['deals', 'kanban'],
+    queryFn: () => getDeals({ size: 200 }),
+    enabled: view === 'kanban',
+  });
+
+  // Table : charger avec pagination + recherche
+  const tableQuery = useQuery({
     queryKey: ['deals', { page, search }],
     queryFn: () => getDeals({ page, size: 25, search: search || undefined }),
+    enabled: view === 'table',
   });
+
+  const data = view === 'kanban' ? kanbanQuery.data : tableQuery.data;
+  const isLoading = view === 'kanban' ? kanbanQuery.isLoading : tableQuery.isLoading;
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => deleteDeal(id),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['deals'] });
       setDeletingDeal(null);
+    },
+  });
+
+  const stageMutation = useMutation({
+    mutationFn: ({ id, stage }: { id: string; stage: string }) => updateDealStage(id, stage),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['deals'] });
     },
   });
 
@@ -94,91 +115,129 @@ export default function PipelinePage() {
           <h1 className="text-2xl font-bold text-slate-800">Pipeline</h1>
           <p className="text-slate-400 text-sm mt-1">{data?.total || 0} deals</p>
         </div>
-        <Button icon={Plus} onClick={openCreate}>
-          Nouveau deal
-        </Button>
+        <div className="flex items-center gap-3">
+          {/* Toggle vue */}
+          <div className="flex rounded-lg border border-slate-200 bg-white p-0.5">
+            <button
+              onClick={() => setView('kanban')}
+              className={`p-1.5 rounded-md transition-colors ${view === 'kanban' ? 'bg-slate-100 text-slate-700' : 'text-slate-400 hover:text-slate-600'}`}
+              title="Vue Kanban"
+            >
+              <LayoutGrid className="w-4 h-4" />
+            </button>
+            <button
+              onClick={() => setView('table')}
+              className={`p-1.5 rounded-md transition-colors ${view === 'table' ? 'bg-slate-100 text-slate-700' : 'text-slate-400 hover:text-slate-600'}`}
+              title="Vue Tableau"
+            >
+              <List className="w-4 h-4" />
+            </button>
+          </div>
+          <Button icon={Plus} onClick={openCreate}>
+            Nouveau deal
+          </Button>
+        </div>
       </div>
 
-      {/* Recherche */}
-      <div className="mb-5">
-        <SearchInput
-          value={search}
-          onChange={handleSearch}
-          placeholder="Rechercher un deal..."
-        />
-      </div>
+      {/* Recherche (uniquement en vue table) */}
+      {view === 'table' && (
+        <div className="mb-5">
+          <SearchInput
+            value={search}
+            onChange={handleSearch}
+            placeholder="Rechercher un deal..."
+          />
+        </div>
+      )}
 
-      {/* Tableau */}
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-        {isLoading ? (
+      {/* Kanban */}
+      {view === 'kanban' && (
+        isLoading ? (
           <LoadingSpinner />
         ) : !data?.items?.length ? (
-          <EmptyState icon={Target} message="Aucun deal trouvé" />
+          <EmptyState icon={Target} message="Aucun deal dans le pipeline" />
         ) : (
-          <>
-            <table className="w-full">
-              <thead className="bg-slate-50">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wide">Deal</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wide">Stage</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wide">Montant</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wide">Priorité</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wide">Probabilité</th>
-                  <th className="px-6 py-3 w-12" />
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {data.items.map((deal: Deal) => (
-                  <tr
-                    key={deal.id}
-                    onClick={() => openEdit(deal)}
-                    className="hover:bg-slate-50 cursor-pointer transition-colors"
-                  >
-                    <td className="px-6 py-4">
-                      <p className="text-sm font-medium text-slate-700">{deal.title}</p>
-                      {deal.expected_close_date && (
-                        <p className="text-xs text-slate-400">Clôture : {deal.expected_close_date}</p>
-                      )}
-                    </td>
-                    <td className="px-6 py-4">
-                      <Badge variant={STAGE_VARIANTS[deal.stage] || 'default'}>
-                        {STAGE_LABELS[deal.stage] || deal.stage}
-                      </Badge>
-                    </td>
-                    <td className="px-6 py-4 text-sm text-slate-500">
-                      {formatAmount(deal.amount, deal.currency)}
-                    </td>
-                    <td className="px-6 py-4">
-                      <Badge variant={PRIORITY_VARIANTS[deal.priority] || 'default'}>
-                        {deal.priority}
-                      </Badge>
-                    </td>
-                    <td className="px-6 py-4 text-sm text-slate-500">{deal.probability}%</td>
-                    <td className="px-6 py-4">
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setDeletingDeal(deal);
-                        }}
-                        className="p-1 text-slate-300 hover:text-red-500 rounded transition-colors"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <KanbanBoard
+            deals={data.items}
+            onStageChange={(dealId, newStage) => stageMutation.mutate({ id: dealId, stage: newStage })}
+            onDealClick={openEdit}
+          />
+        )
+      )}
 
-            <Pagination
-              page={data.page}
-              pages={data.pages}
-              total={data.total}
-              onPageChange={setPage}
-            />
-          </>
-        )}
-      </div>
+      {/* Tableau */}
+      {view === 'table' && (
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+          {isLoading ? (
+            <LoadingSpinner />
+          ) : !data?.items?.length ? (
+            <EmptyState icon={Target} message="Aucun deal trouvé" />
+          ) : (
+            <>
+              <table className="w-full">
+                <thead className="bg-slate-50">
+                  <tr>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wide">Deal</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wide">Stage</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wide">Montant</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wide">Priorité</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wide">Probabilité</th>
+                    <th className="px-6 py-3 w-12" />
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {data.items.map((deal: Deal) => (
+                    <tr
+                      key={deal.id}
+                      onClick={() => openEdit(deal)}
+                      className="hover:bg-slate-50 cursor-pointer transition-colors"
+                    >
+                      <td className="px-6 py-4">
+                        <p className="text-sm font-medium text-slate-700">{deal.title}</p>
+                        {deal.expected_close_date && (
+                          <p className="text-xs text-slate-400">Clôture : {deal.expected_close_date}</p>
+                        )}
+                      </td>
+                      <td className="px-6 py-4">
+                        <Badge variant={STAGE_VARIANTS[deal.stage] || 'default'}>
+                          {STAGE_LABELS[deal.stage] || deal.stage}
+                        </Badge>
+                      </td>
+                      <td className="px-6 py-4 text-sm text-slate-500">
+                        {formatAmount(deal.amount, deal.currency)}
+                      </td>
+                      <td className="px-6 py-4">
+                        <Badge variant={PRIORITY_VARIANTS[deal.priority] || 'default'}>
+                          {deal.priority}
+                        </Badge>
+                      </td>
+                      <td className="px-6 py-4 text-sm text-slate-500">{deal.probability}%</td>
+                      <td className="px-6 py-4">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setDeletingDeal(deal);
+                          }}
+                          className="p-1 text-slate-300 hover:text-red-500 rounded transition-colors"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+
+              <Pagination
+                page={data.page}
+                pages={data.pages}
+                total={data.total}
+                onPageChange={setPage}
+              />
+            </>
+          )}
+        </div>
+      )}
 
       {/* Modal creation / edition */}
       <Modal

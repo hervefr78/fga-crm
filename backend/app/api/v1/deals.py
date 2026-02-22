@@ -3,14 +3,14 @@
 # =============================================================================
 
 import uuid
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import get_current_user
+from app.core.rbac import apply_ownership_filter, check_entity_access
 from app.db.session import get_db
 from app.models.deal import Deal
 from app.models.user import User
@@ -56,16 +56,23 @@ def _parse_uuid(value: str, field_name: str) -> uuid.UUID:
 async def list_deals(
     page: int = Query(1, ge=1),
     size: int = Query(25, ge=1, le=100),
-    stage: Optional[str] = None,
-    search: Optional[str] = Query(None, max_length=255),
+    stage: str | None = None,
+    search: str | None = Query(None, max_length=255),
+    contact_id: str | None = None,
+    company_id: str | None = None,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
     query = select(Deal)
+    query = apply_ownership_filter(query, Deal, user)
     if stage:
         query = query.where(Deal.stage == stage)
     if search:
         query = query.where(Deal.title.ilike(f"%{search}%"))
+    if contact_id:
+        query = query.where(Deal.contact_id == _parse_uuid(contact_id, "contact_id"))
+    if company_id:
+        query = query.where(Deal.company_id == _parse_uuid(company_id, "company_id"))
 
     count_query = select(func.count()).select_from(query.subquery())
     total = (await db.execute(count_query)).scalar() or 0
@@ -114,6 +121,7 @@ async def get_deal(
     deal = result.scalar_one_or_none()
     if not deal:
         raise HTTPException(status_code=404, detail="Deal non trouve")
+    check_entity_access(deal, user)
 
     return _deal_to_response(deal)
 
@@ -129,6 +137,7 @@ async def update_deal(
     deal = result.scalar_one_or_none()
     if not deal:
         raise HTTPException(status_code=404, detail="Deal non trouve")
+    check_entity_access(deal, user)
 
     update_data = data.model_dump(exclude_unset=True)
 
@@ -139,7 +148,7 @@ async def update_deal(
 
     # Detecter changement de stage pour le timestamp
     if "stage" in update_data and update_data["stage"] != deal.stage:
-        update_data["stage_changed_at"] = datetime.now(timezone.utc)
+        update_data["stage_changed_at"] = datetime.now(UTC)
 
     for field, value in update_data.items():
         setattr(deal, field, value)
@@ -160,9 +169,10 @@ async def update_deal_stage(
     deal = result.scalar_one_or_none()
     if not deal:
         raise HTTPException(status_code=404, detail="Deal non trouve")
+    check_entity_access(deal, user)
 
     deal.stage = data.stage
-    deal.stage_changed_at = datetime.now(timezone.utc)
+    deal.stage_changed_at = datetime.now(UTC)
 
     await db.flush()
     await db.refresh(deal)
@@ -179,5 +189,6 @@ async def delete_deal(
     deal = result.scalar_one_or_none()
     if not deal:
         raise HTTPException(status_code=404, detail="Deal non trouve")
+    check_entity_access(deal, user)
 
     await db.delete(deal)

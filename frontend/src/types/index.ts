@@ -10,6 +10,8 @@ export interface User {
   full_name: string;
   role: string;
   is_active: boolean;
+  avatar_url: string | null;
+  created_at?: string;
 }
 
 export interface Contact {
@@ -62,6 +64,33 @@ export interface Deal {
   contact_id: string | null;
   owner_id: string | null;
   description: string | null;
+  created_at: string;
+}
+
+export interface Task {
+  id: string;
+  title: string;
+  description: string | null;
+  type: string;
+  priority: string;
+  is_completed: boolean;
+  due_date: string | null;
+  completed_at: string | null;
+  assigned_to: string | null;
+  contact_id: string | null;
+  deal_id: string | null;
+  created_at: string;
+}
+
+export interface Activity {
+  id: string;
+  type: string;
+  subject: string | null;
+  content: string | null;
+  contact_id: string | null;
+  company_id: string | null;
+  deal_id: string | null;
+  user_id: string;
   created_at: string;
 }
 
@@ -125,6 +154,25 @@ export interface DealFormData {
   description?: string;
 }
 
+export interface TaskFormData {
+  title: string;
+  description?: string;
+  type: string;
+  priority: string;
+  due_date?: string;
+  contact_id?: string;
+  deal_id?: string;
+}
+
+export interface ActivityFormData {
+  type: string;
+  subject?: string;
+  content?: string;
+  contact_id?: string;
+  company_id?: string;
+  deal_id?: string;
+}
+
 // ---------- Constantes (dropdowns) ----------
 
 export const CONTACT_STATUSES = [
@@ -168,3 +216,190 @@ export const COMPANY_SIZE_RANGES = [
   { value: '201-500', label: '201-500' },
   { value: '500+', label: '500+' },
 ] as const;
+
+export const TASK_TYPES = [
+  { value: 'todo', label: 'À faire' },
+  { value: 'call', label: 'Appel' },
+  { value: 'email', label: 'Email' },
+  { value: 'meeting', label: 'Meeting' },
+] as const;
+
+export const TASK_PRIORITIES = [
+  { value: 'low', label: 'Basse' },
+  { value: 'medium', label: 'Moyenne' },
+  { value: 'high', label: 'Haute' },
+  { value: 'urgent', label: 'Urgente' },
+] as const;
+
+export const CONTACT_SOURCES = [
+  { value: 'linkedin', label: 'LinkedIn' },
+  { value: 'website', label: 'Site web' },
+  { value: 'referral', label: 'Recommandation' },
+  { value: 'event', label: 'Événement' },
+  { value: 'cold_outreach', label: 'Prospection' },
+  { value: 'inbound', label: 'Inbound' },
+  { value: 'other', label: 'Autre' },
+] as const;
+
+export const ACTIVITY_TYPES = [
+  { value: 'email', label: 'Email' },
+  { value: 'call', label: 'Appel' },
+  { value: 'meeting', label: 'Meeting' },
+  { value: 'note', label: 'Note' },
+  { value: 'linkedin', label: 'LinkedIn' },
+  { value: 'task', label: 'Tâche' },
+] as const;
+
+// ---------- Roles & Permissions ----------
+
+export const USER_ROLES = [
+  { value: 'admin', label: 'Administrateur' },
+  { value: 'manager', label: 'Manager' },
+  { value: 'sales', label: 'Commercial' },
+] as const;
+
+export type UserRole = 'admin' | 'manager' | 'sales';
+
+export function isAdmin(user: User | null): boolean {
+  return user?.role === 'admin';
+}
+
+export function isManagerOrAbove(user: User | null): boolean {
+  return user?.role === 'admin' || user?.role === 'manager';
+}
+
+// ---------- Email ----------
+
+export interface EmailTemplate {
+  id: string;
+  name: string;
+  subject: string;
+  body: string;
+  variables: string[];
+  owner_id: string;
+  created_at: string;
+}
+
+export interface EmailTemplateFormData {
+  name: string;
+  subject: string;
+  body: string;
+}
+
+export interface EmailSendData {
+  to_email: string;
+  subject: string;
+  body: string;
+  contact_id?: string;
+  company_id?: string;
+  deal_id?: string;
+  template_id?: string;
+}
+
+export interface EmailSendResponse {
+  success: boolean;
+  activity_id: string;
+  message_id: string | null;
+  sent_at: string;
+}
+
+export interface SentEmail {
+  id: string;
+  subject: string | null;
+  content: string | null;
+  to_email: string;
+  from_email: string;
+  template_name: string | null;
+  contact_id: string | null;
+  company_id: string | null;
+  deal_id: string | null;
+  user_id: string;
+  created_at: string;
+}
+
+export const TEMPLATE_VARIABLES = [
+  { key: 'first_name', label: 'Prenom du contact' },
+  { key: 'last_name', label: 'Nom du contact' },
+  { key: 'full_name', label: 'Nom complet' },
+  { key: 'email', label: 'Email du contact' },
+  { key: 'title', label: 'Titre du contact' },
+  { key: 'company_name', label: 'Nom de l\'entreprise' },
+  { key: 'sender_name', label: 'Nom de l\'expediteur' },
+  { key: 'sender_email', label: 'Email de l\'expediteur' },
+] as const;
+
+// ---------- Integrations (Startup Radar) ----------
+
+export interface SyncResult {
+  companies_created: number;
+  companies_updated: number;
+  contacts_created: number;
+  contacts_updated: number;
+  investors_created: number;
+  investors_updated: number;
+  audits_created: number;
+  errors: string[];
+}
+
+export interface SyncStatus {
+  has_synced: boolean;
+  last_result: SyncResult | null;
+}
+
+// ---------- Dashboard Stats ----------
+
+export interface DealsByStage {
+  stage: string;
+  count: number;
+  total_amount: number;
+}
+
+export interface ActivityByType {
+  type: string;
+  count: number;
+}
+
+export interface DashboardStats {
+  contacts_total: number;
+  contacts_this_month: number;
+  companies_total: number;
+  deals_total: number;
+  deals_pipeline_amount: number;
+  deals_won_amount: number;
+  deals_won_count: number;
+  deals_lost_count: number;
+  deals_by_stage: DealsByStage[];
+  activities_by_type: ActivityByType[];
+  activities_total_30d: number;
+  tasks_total: number;
+  tasks_completed: number;
+  tasks_overdue: number;
+  emails_sent_30d: number;
+}
+
+// ---------- Recherche globale ----------
+
+export interface SearchResultItem {
+  id: string;
+  label: string;
+  sub: string | null;
+}
+
+export interface GlobalSearchResponse {
+  contacts: SearchResultItem[];
+  companies: SearchResultItem[];
+  deals: SearchResultItem[];
+}
+
+// ---------- Import CSV ----------
+
+export interface ImportRowError {
+  row: number;
+  field: string;
+  message: string;
+}
+
+export interface ImportResult {
+  imported: number;
+  errors: ImportRowError[];
+}

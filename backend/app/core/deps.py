@@ -3,7 +3,6 @@
 # =============================================================================
 
 import uuid
-from typing import Optional
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer

@@ -27,7 +27,11 @@ async_session_maker = async_sessionmaker(
 
 
 async def init_db() -> None:
-    from app.models import base  # noqa: F401
+    """Importer tous les models et creer les tables manquantes (dev mode)."""
+    from app.models import Base  # noqa: F401
+
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
 
 
 async def close_db() -> None:

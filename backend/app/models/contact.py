@@ -4,19 +4,18 @@
 
 import uuid
 from datetime import datetime
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING, Optional
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin, UUIDMixin
 
 if TYPE_CHECKING:
-    from app.models.company import Company
-    from app.models.user import User
-    from app.models.deal import Deal
     from app.models.activity import Activity
+    from app.models.company import Company
+    from app.models.deal import Deal
     from app.models.task import Task
 
 
@@ -66,11 +65,14 @@ class Contact(Base, UUIDMixin, TimestampMixin):
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
     )
 
+    # Integration — Startup Radar
+    startup_radar_id: Mapped[str | None] = mapped_column(String(255), nullable=True, unique=True)
+
     # Relationships
     company: Mapped[Optional["Company"]] = relationship(back_populates="contacts")
-    deals: Mapped[List["Deal"]] = relationship(back_populates="contact", lazy="selectin")
-    activities: Mapped[List["Activity"]] = relationship(back_populates="contact", lazy="selectin")
-    tasks: Mapped[List["Task"]] = relationship(back_populates="contact", lazy="selectin")
+    deals: Mapped[list["Deal"]] = relationship(back_populates="contact", lazy="selectin")
+    activities: Mapped[list["Activity"]] = relationship(back_populates="contact", lazy="selectin")
+    tasks: Mapped[list["Task"]] = relationship(back_populates="contact", lazy="selectin")
 
     def __repr__(self) -> str:
         return f"<Contact {self.first_name} {self.last_name}>"

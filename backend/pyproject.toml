@@ -76,6 +76,36 @@ profile = "black"
 line_length = 88
 skip = ["migrations"]
 
+[tool.ruff]
+target-version = "py312"
+line-length = 88
+
+[tool.ruff.lint]
+select = [
+  "E",    # pycodestyle errors
+  "W",    # pycodestyle warnings
+  "F",    # pyflakes
+  "I",    # isort
+  "B",    # flake8-bugbear
+  "C4",   # flake8-comprehensions
+  "UP",   # pyupgrade
+  "SIM",  # flake8-simplify
+  "S",    # flake8-bandit (securite)
+  "T20",  # flake8-print (pas de print en prod)
+]
+ignore = [
+  "E501",  # line too long — gere par black/formatter
+  "S101",  # assert autorise dans les tests
+  "S105",  # faux positifs sur hardcoded passwords (config dev)
+  "S106",  # idem
+  "B008",  # Depends() dans FastAPI = normal
+  "B904",  # raise from dans except — pattern FastAPI HTTPException
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["S101", "S105", "S106"]
+"app/core/config.py" = ["S105", "S106"]
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]

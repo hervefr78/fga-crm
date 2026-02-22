@@ -42,3 +42,5 @@ htmlcov/
 frontend/dist/
 .claude/
 SKILL.md
+backend/test.db
+*.chous

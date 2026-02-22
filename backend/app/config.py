@@ -3,7 +3,6 @@
 # =============================================================================
 
 from functools import lru_cache
-from typing import Optional
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -44,11 +43,11 @@ class Settings(BaseSettings):
     webauthn_origin: str = "http://localhost:3300"
 
     # AI - Claude
-    claude_api_key: Optional[str] = None
+    claude_api_key: str | None = None
     claude_model: str = "claude-sonnet-4-20250514"
 
     # AI - OpenAI
-    openai_api_key: Optional[str] = None
+    openai_api_key: str | None = None
     openai_model: str = "gpt-4o"
 
     # Email - OVH
@@ -56,17 +55,19 @@ class Settings(BaseSettings):
     ovh_smtp_port: int = 465
     ovh_imap_host: str = "ssl0.ovh.net"
     ovh_imap_port: int = 993
-    ovh_email_user: Optional[str] = None
-    ovh_email_password: Optional[str] = None
+    ovh_email_user: str | None = None
+    ovh_email_password: str | None = None
 
     # LinkedIn
-    linkedin_client_id: Optional[str] = None
-    linkedin_client_secret: Optional[str] = None
+    linkedin_client_id: str | None = None
+    linkedin_client_secret: str | None = None
     linkedin_redirect_uri: str = "http://localhost:8300/api/v1/integrations/linkedin/callback"
 
     # Startup Radar Integration
     startup_radar_api_url: str = "http://startup-radar-backend:8000/api/v1"
-    startup_radar_api_key: Optional[str] = None
+    startup_radar_api_key: str | None = None
+    startup_radar_email: str | None = None
+    startup_radar_password: str | None = None
 
     # MinIO (S3-compatible)
     minio_endpoint: str = "minio:9000"
@@ -76,7 +77,7 @@ class Settings(BaseSettings):
     minio_secure: bool = False
 
     # Encryption (Fernet for sensitive fields)
-    encryption_key: Optional[str] = None
+    encryption_key: str | None = None
 
     @property
     def is_production(self) -> bool:

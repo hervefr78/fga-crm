@@ -6,7 +6,7 @@ import { useState, FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlertCircle } from 'lucide-react';
 
-import { Input, Select, Textarea, Button } from '../ui';
+import { Input, Select, Button } from '../ui';
 import { createContact, updateContact, getCompanies } from '../../api/client';
 import type { Contact, PaginatedResponse, Company } from '../../types';
 import { CONTACT_STATUSES, JOB_LEVELS } from '../../types';

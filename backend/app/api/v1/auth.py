@@ -4,8 +4,8 @@
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
-from pydantic import BaseModel, EmailStr
-from sqlalchemy import select
+from pydantic import BaseModel, EmailStr, Field
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import get_current_user
@@ -34,12 +34,24 @@ class TokenResponse(BaseModel):
     token_type: str = "bearer"
 
 
+class UpdateProfileRequest(BaseModel):
+    full_name: str | None = Field(None, min_length=1, max_length=255)
+    avatar_url: str | None = Field(None, max_length=500)
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str = Field(..., min_length=1, max_length=255)
+    new_password: str = Field(..., min_length=8, max_length=255)
+
+
 class UserResponse(BaseModel):
     id: str
     email: str
     full_name: str
     role: str
     is_active: bool
+    avatar_url: str | None = None
+    created_at: str | None = None
 
     class Config:
         from_attributes = True
@@ -51,11 +63,15 @@ async def register(data: RegisterRequest, db: AsyncSession = Depends(get_db)):
     if result.scalar_one_or_none():
         raise HTTPException(status_code=400, detail="Email already registered")
 
+    # Premier utilisateur = admin, les suivants = sales
+    user_count = (await db.execute(select(func.count()).select_from(User))).scalar() or 0
+    role = "admin" if user_count == 0 else "sales"
+
     user = User(
         email=data.email,
         hashed_password=hash_password(data.password),
         full_name=data.full_name,
-        role="admin",  # First user is admin, TODO: check if first user
+        role=role,
     )
     db.add(user)
     await db.flush()
@@ -63,7 +79,7 @@ async def register(data: RegisterRequest, db: AsyncSession = Depends(get_db)):
 
     return UserResponse(
         id=str(user.id), email=user.email, full_name=user.full_name,
-        role=user.role, is_active=user.is_active
+        role=user.role, is_active=user.is_active, avatar_url=user.avatar_url
     )
 
 
@@ -110,5 +126,42 @@ async def refresh_token(refresh_token: str, db: AsyncSession = Depends(get_db)):
 async def get_me(user: User = Depends(get_current_user)):
     return UserResponse(
         id=str(user.id), email=user.email, full_name=user.full_name,
-        role=user.role, is_active=user.is_active
+        role=user.role, is_active=user.is_active, avatar_url=user.avatar_url
     )
+
+
+@router.put("/me", response_model=UserResponse)
+async def update_profile(
+    data: UpdateProfileRequest,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    update_data = data.model_dump(exclude_unset=True)
+    if not update_data:
+        raise HTTPException(status_code=422, detail="Aucun champ a mettre a jour")
+
+    for field, value in update_data.items():
+        setattr(user, field, value)
+
+    await db.flush()
+    await db.refresh(user)
+
+    return UserResponse(
+        id=str(user.id), email=user.email, full_name=user.full_name,
+        role=user.role, is_active=user.is_active, avatar_url=user.avatar_url
+    )
+
+
+@router.post("/change-password", status_code=200)
+async def change_password(
+    data: ChangePasswordRequest,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    if not verify_password(data.current_password, user.hashed_password):
+        raise HTTPException(status_code=400, detail="Mot de passe actuel incorrect")
+
+    user.hashed_password = hash_password(data.new_password)
+    await db.flush()
+
+    return {"message": "Mot de passe modifie avec succes"}

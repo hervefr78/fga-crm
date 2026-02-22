@@ -2,6 +2,12 @@
 # FGA CRM - Schemas (re-exports)
 # =============================================================================
 
+from app.schemas.activity import (
+    ActivityCreate,
+    ActivityListResponse,
+    ActivityResponse,
+    ActivityUpdate,
+)
 from app.schemas.common import PaginatedParams
 from app.schemas.company import (
     CompanyCreate,
@@ -22,6 +28,13 @@ from app.schemas.deal import (
     DealStageUpdate,
     DealUpdate,
 )
+from app.schemas.task import (
+    TaskCompletionToggle,
+    TaskCreate,
+    TaskListResponse,
+    TaskResponse,
+    TaskUpdate,
+)
 
 __all__ = [
     "PaginatedParams",
@@ -38,4 +51,13 @@ __all__ = [
     "DealStageUpdate",
     "DealResponse",
     "DealListResponse",
+    "TaskCreate",
+    "TaskUpdate",
+    "TaskCompletionToggle",
+    "TaskResponse",
+    "TaskListResponse",
+    "ActivityCreate",
+    "ActivityUpdate",
+    "ActivityResponse",
+    "ActivityListResponse",
 ]
