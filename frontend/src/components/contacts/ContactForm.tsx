@@ -13,11 +13,12 @@ import { CONTACT_STATUSES, JOB_LEVELS } from '../../types';
 
 interface ContactFormProps {
   contact?: Contact;
+  defaultCompanyId?: string;
   onSuccess: () => void;
   onCancel: () => void;
 }
 
-export default function ContactForm({ contact, onSuccess, onCancel }: ContactFormProps) {
+export default function ContactForm({ contact, defaultCompanyId, onSuccess, onCancel }: ContactFormProps) {
   const queryClient = useQueryClient();
   const isEdit = !!contact;
 
@@ -30,7 +31,7 @@ export default function ContactForm({ contact, onSuccess, onCancel }: ContactFor
   const [jobLevel, setJobLevel] = useState(contact?.job_level || '');
   const [department, setDepartment] = useState(contact?.department || '');
   const [linkedinUrl, setLinkedinUrl] = useState(contact?.linkedin_url || '');
-  const [companyId, setCompanyId] = useState(contact?.company_id || '');
+  const [companyId, setCompanyId] = useState(contact?.company_id || defaultCompanyId || '');
   const [source, setSource] = useState(contact?.source || '');
   const [status, setStatus] = useState(contact?.status || 'new');
   const [error, setError] = useState('');

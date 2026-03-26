@@ -31,15 +31,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const verify = async () => {
-      if (!token) {
-        setIsLoading(false);
-        return;
-      }
+      // Mode dev : tenter de charger le profil sans token (backend AUTH_BYPASS)
       try {
         const userData = await getMe();
         setUser(userData);
+        if (!token) {
+          localStorage.setItem(TOKEN_KEY, 'dev-bypass');
+          setToken('dev-bypass');
+        }
       } catch {
-        logout();
+        if (token) logout();
       } finally {
         setIsLoading(false);
       }

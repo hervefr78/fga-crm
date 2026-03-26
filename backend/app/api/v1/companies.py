@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.deps import get_current_user
 from app.core.rbac import apply_ownership_filter, check_entity_access
 from app.db.session import get_db
+from app.models.activity import Activity
 from app.models.company import Company
 from app.models.user import User
 from app.schemas.company import (
@@ -31,7 +32,15 @@ from app.schemas.import_export import (
 router = APIRouter()
 
 
-def _company_to_response(c: Company) -> CompanyResponse:
+def _company_to_response(
+    c: Company,
+    owner_name: str | None = None,
+    updated_by_name: str | None = None,
+    has_audit_messaging: bool = False,
+    has_audit_detailed: bool = False,
+    has_audit_geo: bool = False,
+    audit_score: int | None = None,
+) -> CompanyResponse:
     """Convertir un modele Company en schema de reponse (DC8 — centralise)."""
     return CompanyResponse(
         id=str(c.id),
@@ -43,11 +52,21 @@ def _company_to_response(c: Company) -> CompanyResponse:
         size_range=c.size_range,
         linkedin_url=c.linkedin_url,
         phone=c.phone,
-        country=c.country,
+        address_line=c.address_line,
+        postal_code=c.postal_code,
         city=c.city,
+        country=c.country,
         startup_radar_id=c.startup_radar_id,
+        lead_source=c.lead_source,
         owner_id=str(c.owner_id) if c.owner_id else None,
+        owner_name=owner_name,
         created_at=c.created_at.isoformat(),
+        updated_at=c.updated_at.isoformat() if c.updated_at else None,
+        updated_by_name=updated_by_name,
+        has_audit_messaging=has_audit_messaging,
+        has_audit_detailed=has_audit_detailed,
+        has_audit_geo=has_audit_geo,
+        audit_score=audit_score,
     )
 
 
@@ -85,8 +104,67 @@ async def list_companies(
     result = await db.execute(query)
     companies = result.scalars().all()
 
+    # Charger les flags d'audit SR et score pour les companies de cette page
+    company_ids = [c.id for c in companies]
+    audit_map: dict[uuid.UUID, dict] = {}
+    score_map: dict[uuid.UUID, int] = {}
+
+    if company_ids:
+        # Recuperer toutes les activites audit de ces companies (company_id + audit_type)
+        audit_query = (
+            select(
+                Activity.company_id,
+                Activity.metadata_["audit_type"].astext.label("audit_type"),
+                Activity.metadata_["total_score"].astext.label("total_score"),
+                Activity.metadata_["messaging_score"].astext.label("messaging_score"),
+            )
+            .where(
+                Activity.company_id.in_(company_ids),
+                Activity.type == "audit",
+                Activity.metadata_["audit_type"] != None,  # noqa: E711
+            )
+        )
+        audit_rows = (await db.execute(audit_query)).all()
+
+        for row in audit_rows:
+            cid = row.company_id
+            atype = row.audit_type
+
+            if cid not in audit_map:
+                audit_map[cid] = {"has_messaging": False, "has_detailed": False, "has_geo": False}
+
+            if atype == "messaging":
+                audit_map[cid]["has_messaging"] = True
+                # Score messaging (/10) — utilisé si pas de score detailed
+                if row.messaging_score and cid not in score_map:
+                    try:
+                        score_map[cid] = int(float(row.messaging_score))
+                    except (ValueError, TypeError):
+                        pass
+            elif atype == "detailed":
+                audit_map[cid]["has_detailed"] = True
+                # Score detailed (/75) — prioritaire sur messaging
+                if row.total_score:
+                    try:
+                        score_val = int(float(row.total_score))
+                        if cid not in score_map or score_val > score_map[cid]:
+                            score_map[cid] = score_val
+                    except (ValueError, TypeError):
+                        pass
+            elif atype == "geo":
+                audit_map[cid]["has_geo"] = True
+
     return CompanyListResponse(
-        items=[_company_to_response(c) for c in companies],
+        items=[
+            _company_to_response(
+                c,
+                has_audit_messaging=audit_map.get(c.id, {}).get("has_messaging", False),
+                has_audit_detailed=audit_map.get(c.id, {}).get("has_detailed", False),
+                has_audit_geo=audit_map.get(c.id, {}).get("has_geo", False),
+                audit_score=score_map.get(c.id),
+            )
+            for c in companies
+        ],
         total=total,
         page=page,
         size=size,
@@ -105,7 +183,7 @@ async def create_company(
     await db.flush()
     await db.refresh(company)
 
-    return _company_to_response(company)
+    return _company_to_response(company, owner_name=user.full_name)
 
 
 @router.get("/{company_id}", response_model=CompanyResponse)
@@ -120,7 +198,18 @@ async def get_company(
         raise HTTPException(status_code=404, detail="Entreprise non trouvee")
     check_entity_access(company, user)
 
-    return _company_to_response(company)
+    # Charger le nom du owner et du dernier modificateur
+    owner_name = None
+    if company.owner_id:
+        owner_result = await db.execute(select(User.full_name).where(User.id == company.owner_id))
+        owner_name = owner_result.scalar_one_or_none()
+
+    updated_by_name = None
+    if company.updated_by:
+        ub_result = await db.execute(select(User.full_name).where(User.id == company.updated_by))
+        updated_by_name = ub_result.scalar_one_or_none()
+
+    return _company_to_response(company, owner_name=owner_name, updated_by_name=updated_by_name)
 
 
 @router.put("/{company_id}", response_model=CompanyResponse)
@@ -140,9 +229,19 @@ async def update_company(
     for field, value in update_data.items():
         setattr(company, field, value)
 
+    # Tracer qui a modifie
+    company.updated_by = user.id
+
     await db.flush()
     await db.refresh(company)
-    return _company_to_response(company)
+
+    # Charger owner_name (peut etre different de l'utilisateur courant)
+    owner_name = None
+    if company.owner_id:
+        owner_result = await db.execute(select(User.full_name).where(User.id == company.owner_id))
+        owner_name = owner_result.scalar_one_or_none()
+
+    return _company_to_response(company, owner_name=owner_name, updated_by_name=user.full_name)
 
 
 @router.delete("/{company_id}", status_code=204)

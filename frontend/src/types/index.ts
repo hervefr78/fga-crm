@@ -32,7 +32,10 @@ export interface Contact {
   source: string | null;
   company_id: string | null;
   owner_id: string | null;
+  owner_name: string | null;
   created_at: string;
+  updated_at: string | null;
+  updated_by_name: string | null;
 }
 
 export interface Company {
@@ -45,11 +48,20 @@ export interface Company {
   size_range: string | null;
   linkedin_url: string | null;
   phone: string | null;
-  country: string | null;
+  address_line: string | null;
+  postal_code: string | null;
   city: string | null;
+  country: string | null;
   startup_radar_id: string | null;
   owner_id: string | null;
+  owner_name: string | null;
   created_at: string;
+  updated_at: string | null;
+  updated_by_name: string | null;
+  has_audit_messaging: boolean;
+  has_audit_detailed: boolean;
+  has_audit_geo: boolean;
+  audit_score: number | null;
 }
 
 export interface Deal {
@@ -139,8 +151,10 @@ export interface CompanyFormData {
   size_range?: string;
   linkedin_url?: string;
   phone?: string;
-  country?: string;
+  address_line?: string;
+  postal_code?: string;
   city?: string;
+  country?: string;
 }
 
 export interface DealFormData {
@@ -186,12 +200,12 @@ export const CONTACT_STATUSES = [
 ] as const;
 
 export const JOB_LEVELS = [
-  { value: 'C-Level', label: 'C-Level' },
-  { value: 'VP', label: 'VP' },
-  { value: 'Director', label: 'Directeur' },
+  { value: 'CxO', label: 'CxO' },
+  { value: 'Director', label: 'Director' },
   { value: 'Manager', label: 'Manager' },
-  { value: 'IC', label: 'IC' },
-  { value: 'Other', label: 'Autre' },
+  { value: 'User', label: 'User' },
+  { value: 'Partner', label: 'Partner' },
+  { value: 'Investor', label: 'Investor' },
 ] as const;
 
 export const DEAL_STAGES = [

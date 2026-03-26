@@ -39,7 +39,11 @@ def _parse_date(value: str, field_name: str) -> datetime:
         raise HTTPException(status_code=422, detail=f"{field_name} : format de date invalide (ISO 8601 attendu)")
 
 
-def _contact_to_response(c: Contact) -> ContactResponse:
+def _contact_to_response(
+    c: Contact,
+    owner_name: str | None = None,
+    updated_by_name: str | None = None,
+) -> ContactResponse:
     """Convertir un modele Contact en schema de reponse."""
     return ContactResponse(
         id=str(c.id),
@@ -59,7 +63,10 @@ def _contact_to_response(c: Contact) -> ContactResponse:
         source=c.source,
         company_id=str(c.company_id) if c.company_id else None,
         owner_id=str(c.owner_id) if c.owner_id else None,
+        owner_name=owner_name,
         created_at=c.created_at.isoformat(),
+        updated_at=c.updated_at.isoformat() if c.updated_at else None,
+        updated_by_name=updated_by_name,
     )
 
 
@@ -167,7 +174,18 @@ async def get_contact(
         raise HTTPException(status_code=404, detail="Contact non trouve")
     check_entity_access(contact, user)
 
-    return _contact_to_response(contact)
+    # Charger le nom du owner et du dernier modificateur
+    owner_name = None
+    if contact.owner_id:
+        owner_result = await db.execute(select(User.full_name).where(User.id == contact.owner_id))
+        owner_name = owner_result.scalar_one_or_none()
+
+    updated_by_name = None
+    if contact.updated_by:
+        ub_result = await db.execute(select(User.full_name).where(User.id == contact.updated_by))
+        updated_by_name = ub_result.scalar_one_or_none()
+
+    return _contact_to_response(contact, owner_name=owner_name, updated_by_name=updated_by_name)
 
 
 @router.put("/{contact_id}", response_model=ContactResponse)
@@ -195,9 +213,12 @@ async def update_contact(
     for field, value in update_data.items():
         setattr(contact, field, value)
 
+    # Tracer qui a modifie
+    contact.updated_by = user.id
+
     await db.flush()
     await db.refresh(contact)
-    return _contact_to_response(contact)
+    return _contact_to_response(contact, updated_by_name=user.full_name)
 
 
 @router.delete("/{contact_id}", status_code=204)

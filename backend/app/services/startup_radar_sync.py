@@ -380,11 +380,33 @@ async def sync_audits(
                             "gaps_count": exec_summary.get("gaps_count"),
                             "recommendations_count": exec_summary.get("recommendations_count"),
                         }
+
+                        # Stocker le rapport markdown complet dans content
+                        full_report = audit_result.get("full_report", "")
+
+                        # URLs de telechargement (MD/DOCX) — toujours disponibles si audit existe
+                        try:
+                            md_url, docx_url = client.get_detailed_audit_file_urls(sr_id)
+                            metadata["file_md_url"] = md_url
+                            metadata["file_docx_url"] = docx_url
+                        except Exception:
+                            pass  # Non bloquant
+
+                        # Recuperer le lien de presentation commerciale
+                        try:
+                            pres = await client.get_presentation(sr_id)
+                            if pres:
+                                metadata["presentation_slug"] = pres.get("slug")
+                                metadata["presentation_url"] = pres.get("public_url")
+                                metadata["radar_axes"] = pres.get("radar_axes")
+                        except Exception:
+                            pass  # Non bloquant
+
                         activity = Activity(
                             id=uuid.uuid4(),
                             type="audit",
                             subject=subject,
-                            content=exec_summary.get("score_interpretation"),
+                            content=full_report or exec_summary.get("score_interpretation"),
                             metadata_=metadata,
                             company_id=company_id,
                             user_id=user.id,
@@ -394,6 +416,52 @@ async def sync_audits(
 
         except Exception as e:
             result.errors.append(f"DetailedAudit {startup_name}: {e}")
+
+        # --- Audit GEO ---
+        try:
+            geo = await client.get_geo_audit(sr_id)
+            if geo and geo.get("status") == "completed" and geo.get("result"):
+                subject = f"Audit GEO: {startup_name}"
+                async with db.begin_nested():
+                    stmt = select(Activity).where(
+                        Activity.company_id == company_id,
+                        Activity.type == "audit",
+                        Activity.subject == subject,
+                    )
+                    existing = (await db.execute(stmt)).scalar_one_or_none()
+
+                    if not existing:
+                        geo_result = geo["result"]
+                        metadata = {
+                            "audit_type": "geo",
+                            "source": "startup_radar",
+                            "total_score": geo_result.get("total_score"),
+                            "grade": geo_result.get("grade"),
+                            "summary": geo_result.get("summary"),
+                            "content_clarity": geo_result.get("content_clarity"),
+                            "semantic_html": geo_result.get("semantic_html"),
+                            "schema_org": geo_result.get("schema_org"),
+                            "crawl_directives": geo_result.get("crawl_directives"),
+                            "agent_comprehension": geo_result.get("agent_comprehension"),
+                            "priority_actions": geo_result.get("priority_actions"),
+                        }
+                        # Rapport markdown complet dans content
+                        full_report = geo_result.get("full_report", "")
+
+                        activity = Activity(
+                            id=uuid.uuid4(),
+                            type="audit",
+                            subject=subject,
+                            content=full_report or geo_result.get("summary"),
+                            metadata_=metadata,
+                            company_id=company_id,
+                            user_id=user.id,
+                        )
+                        db.add(activity)
+                        result.audits_created += 1
+
+        except Exception as e:
+            result.errors.append(f"GeoAudit {startup_name}: {e}")
 
     await db.flush()
     logger.info("[SRSync] Audits: %d crees", result.audits_created)

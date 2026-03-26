@@ -62,6 +62,7 @@ async def list_tasks(
     overdue: str | None = None,
     assigned_to: str | None = None,
     contact_id: str | None = None,
+    deal_id: str | None = None,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
@@ -85,6 +86,8 @@ async def list_tasks(
         query = query.where(Task.assigned_to == _parse_uuid(assigned_to, "assigned_to"))
     if contact_id:
         query = query.where(Task.contact_id == _parse_uuid(contact_id, "contact_id"))
+    if deal_id:
+        query = query.where(Task.deal_id == _parse_uuid(deal_id, "deal_id"))
 
     # Comptage
     count_query = select(func.count()).select_from(query.subquery())

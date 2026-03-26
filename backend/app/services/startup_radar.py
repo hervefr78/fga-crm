@@ -39,33 +39,43 @@ class StartupRadarClient:
     # Auth
     # ------------------------------------------------------------------
 
-    async def authenticate(self) -> str:
-        """Authentification via POST /auth/login (form-urlencoded) → JWT."""
+    async def authenticate(self) -> str | None:
+        """Authentification via POST /auth/login (form-urlencoded) → JWT.
+
+        Si les credentials ne sont pas configures ou si l'auth echoue (ex: AUTH_DISABLED
+        cote SR), on continue sans token — les requetes passent en mode anonyme.
+        """
         if not self.email or not self.password:
-            raise StartupRadarError(
-                "Credentials SR manquants (STARTUP_RADAR_EMAIL / STARTUP_RADAR_PASSWORD)"
-            )
+            logger.info("[StartupRadar] Pas de credentials — mode anonyme")
+            return None
 
-        async with httpx.AsyncClient(timeout=SR_TIMEOUT) as client:
-            resp = await client.post(
-                f"{self.base_url}/auth/login",
-                data={"username": self.email, "password": self.password},
-            )
+        try:
+            async with httpx.AsyncClient(timeout=SR_TIMEOUT) as client:
+                resp = await client.post(
+                    f"{self.base_url}/auth/login",
+                    data={"username": self.email, "password": self.password},
+                )
 
-        if resp.status_code != 200:
-            raise StartupRadarError(
-                f"Echec auth SR: {resp.status_code} — {resp.text}"
-            )
+            if resp.status_code != 200:
+                logger.warning(
+                    "[StartupRadar] Auth echouee (%d) — fallback mode anonyme",
+                    resp.status_code,
+                )
+                return None
 
-        data = resp.json()
-        self._token = data["access_token"]
-        logger.info("[StartupRadar] Authentification reussie")
-        return self._token
+            data = resp.json()
+            self._token = data["access_token"]
+            logger.info("[StartupRadar] Authentification reussie")
+            return self._token
+
+        except httpx.HTTPError as e:
+            logger.warning("[StartupRadar] Auth erreur réseau (%s) — fallback mode anonyme", e)
+            return None
 
     def _headers(self) -> dict[str, str]:
-        """Headers avec le token JWT."""
+        """Headers avec le token JWT (vide si mode anonyme)."""
         if not self._token:
-            raise StartupRadarError("Non authentifie — appeler authenticate() d'abord")
+            return {}
         return {"Authorization": f"Bearer {self._token}"}
 
     # ------------------------------------------------------------------
@@ -134,3 +144,35 @@ class StartupRadarClient:
     async def get_detailed_audit(self, startup_id: str) -> dict | None:
         """Recuperer l'audit detaille d'une startup."""
         return await self._get(f"/detailed-audit/{startup_id}")
+
+    async def get_geo_audit(self, startup_id: str) -> dict | None:
+        """Recuperer l'audit GEO d'une startup."""
+        return await self._get(f"/geo-audit/{startup_id}")
+
+    def get_detailed_audit_file_urls(self, startup_id: str) -> tuple[str, str]:
+        """Construire les URLs de telechargement MD et DOCX de l'audit detaille.
+
+        Retourne (md_download_url, docx_download_url) — URLs absolues SR.
+        On les stocke systematiquement si l'audit detaille existe.
+        """
+        base = self.base_url
+        md_url = f"{base}/detailed-audit/{startup_id}/download/markdown"
+        docx_url = f"{base}/detailed-audit/{startup_id}/download/docx"
+        return md_url, docx_url
+
+    async def get_presentation(self, startup_id: str) -> dict | None:
+        """Recuperer la presentation commerciale d'une startup (la plus recente).
+
+        Retourne {slug, public_url, radar_axes, status} ou None.
+        """
+        data = await self._get(f"/presentations/{startup_id}")
+        if not data:
+            return None
+
+        # L'endpoint renvoie une liste de presentations
+        items = data if isinstance(data, list) else [data]
+        # Prendre la plus recente completee
+        for item in items:
+            if item.get("status") == "completed":
+                return item
+        return None

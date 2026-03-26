@@ -31,8 +31,10 @@ class Company(Base, UUIDMixin, TimestampMixin):
     industry: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
     size_range: Mapped[str | None] = mapped_column(String(50), nullable=True)  # 1-10, 11-50, 51-200, 201-500, 500+
     revenue_range: Mapped[str | None] = mapped_column(String(50), nullable=True)
-    country: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    address_line: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    postal_code: Mapped[str | None] = mapped_column(String(20), nullable=True)
     city: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    country: Mapped[str | None] = mapped_column(String(100), nullable=True)
 
     # Contact info
     phone: Mapped[str | None] = mapped_column(String(50), nullable=True)
@@ -50,11 +52,19 @@ class Company(Base, UUIDMixin, TimestampMixin):
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
     )
 
+    # Derniere modification — qui a modifie
+    updated_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+
     # Startup Radar link
     startup_radar_id: Mapped[str | None] = mapped_column(String(255), nullable=True, unique=True)
 
+    # Provenance du lead (plein-phare, manual, import, linkedin, etc.)
+    lead_source: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
+
     # Relationships
-    owner: Mapped[Optional["User"]] = relationship(back_populates="owned_companies")
+    owner: Mapped[Optional["User"]] = relationship(back_populates="owned_companies", foreign_keys=[owner_id])
     contacts: Mapped[list["Contact"]] = relationship(back_populates="company", cascade="all, delete-orphan", lazy="selectin")
     deals: Mapped[list["Deal"]] = relationship(back_populates="company", lazy="selectin")
     activities: Mapped[list["Activity"]] = relationship(back_populates="company", lazy="selectin")

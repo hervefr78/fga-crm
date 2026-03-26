@@ -3,6 +3,7 @@
 // =============================================================================
 
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Target, Plus, Trash2, LayoutGrid, List } from 'lucide-react';
 
@@ -40,6 +41,7 @@ const PRIORITY_VARIANTS: Record<string, 'default' | 'info' | 'warning' | 'danger
 };
 
 export default function PipelinePage() {
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [view, setView] = useState<'kanban' | 'table'>('kanban');
   const [search, setSearch] = useState('');
@@ -47,7 +49,6 @@ export default function PipelinePage() {
 
   // Modals
   const [formOpen, setFormOpen] = useState(false);
-  const [editingDeal, setEditingDeal] = useState<Deal | undefined>(undefined);
   const [deletingDeal, setDeletingDeal] = useState<Deal | null>(null);
 
   // Kanban : charger tous les deals (sans pagination)
@@ -87,19 +88,12 @@ export default function PipelinePage() {
     setPage(1);
   };
 
-  const openCreate = () => {
-    setEditingDeal(undefined);
-    setFormOpen(true);
-  };
-
-  const openEdit = (deal: Deal) => {
-    setEditingDeal(deal);
-    setFormOpen(true);
+  const goToDeal = (deal: Deal) => {
+    navigate(`/pipeline/${deal.id}`);
   };
 
   const closeForm = () => {
     setFormOpen(false);
-    setEditingDeal(undefined);
   };
 
   const formatAmount = (amount: number | null, currency: string) => {
@@ -133,7 +127,7 @@ export default function PipelinePage() {
               <List className="w-4 h-4" />
             </button>
           </div>
-          <Button icon={Plus} onClick={openCreate}>
+          <Button icon={Plus} onClick={() => setFormOpen(true)}>
             Nouveau deal
           </Button>
         </div>
@@ -160,7 +154,7 @@ export default function PipelinePage() {
           <KanbanBoard
             deals={data.items}
             onStageChange={(dealId, newStage) => stageMutation.mutate({ id: dealId, stage: newStage })}
-            onDealClick={openEdit}
+            onDealClick={goToDeal}
           />
         )
       )}
@@ -189,7 +183,7 @@ export default function PipelinePage() {
                   {data.items.map((deal: Deal) => (
                     <tr
                       key={deal.id}
-                      onClick={() => openEdit(deal)}
+                      onClick={() => goToDeal(deal)}
                       className="hover:bg-slate-50 cursor-pointer transition-colors"
                     >
                       <td className="px-6 py-4">
@@ -239,15 +233,14 @@ export default function PipelinePage() {
         </div>
       )}
 
-      {/* Modal creation / edition */}
+      {/* Modal creation */}
       <Modal
         open={formOpen}
         onClose={closeForm}
-        title={editingDeal ? 'Modifier le deal' : 'Nouveau deal'}
+        title="Nouveau deal"
         size="lg"
       >
         <DealForm
-          deal={editingDeal}
           onSuccess={closeForm}
           onCancel={closeForm}
         />

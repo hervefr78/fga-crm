@@ -20,8 +20,12 @@ class CompanyCreate(BaseModel):
     size_range: str | None = Field(None, max_length=50)
     linkedin_url: str | None = Field(None, max_length=500)
     phone: str | None = Field(None, max_length=50)
-    country: str | None = Field(None, max_length=100)
+    address_line: str | None = Field(None, max_length=500)
+    postal_code: str | None = Field(None, max_length=20)
     city: str | None = Field(None, max_length=100)
+    country: str | None = Field(None, max_length=100)
+    startup_radar_id: str | None = Field(None, max_length=255)
+    lead_source: str | None = Field(None, max_length=100)
 
     @field_validator("size_range")
     @classmethod
@@ -44,8 +48,10 @@ class CompanyUpdate(BaseModel):
     size_range: str | None = Field(None, max_length=50)
     linkedin_url: str | None = Field(None, max_length=500)
     phone: str | None = Field(None, max_length=50)
-    country: str | None = Field(None, max_length=100)
+    address_line: str | None = Field(None, max_length=500)
+    postal_code: str | None = Field(None, max_length=20)
     city: str | None = Field(None, max_length=100)
+    country: str | None = Field(None, max_length=100)
 
     @field_validator("size_range")
     @classmethod
@@ -69,11 +75,22 @@ class CompanyResponse(BaseModel):
     size_range: str | None
     linkedin_url: str | None
     phone: str | None
-    country: str | None
+    address_line: str | None = None
+    postal_code: str | None = None
     city: str | None
+    country: str | None
     startup_radar_id: str | None = None
+    lead_source: str | None = None
     owner_id: str | None
+    owner_name: str | None = None
     created_at: str
+    updated_at: str | None = None
+    updated_by_name: str | None = None
+    # Audits SR (liste entreprises)
+    has_audit_messaging: bool = False
+    has_audit_detailed: bool = False
+    has_audit_geo: bool = False
+    audit_score: int | None = None
 
     class Config:
         from_attributes = True

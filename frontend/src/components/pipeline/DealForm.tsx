@@ -1,5 +1,5 @@
 // =============================================================================
-// FGA CRM - Formulaire Deal (creation / edition)
+// FGA CRM - Formulaire Deal (creation uniquement)
 // =============================================================================
 
 import { useState, FormEvent } from 'react';
@@ -7,31 +7,29 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlertCircle } from 'lucide-react';
 
 import { Input, Select, Textarea, Button } from '../ui';
-import { createDeal, updateDeal, getCompanies, getContacts } from '../../api/client';
-import type { Deal, PaginatedResponse, Company, Contact } from '../../types';
+import { createDeal, getCompanies, getContacts } from '../../api/client';
+import type { PaginatedResponse, Company, Contact } from '../../types';
 import { DEAL_STAGES, DEAL_PRIORITIES } from '../../types';
 
 interface DealFormProps {
-  deal?: Deal;
   onSuccess: () => void;
   onCancel: () => void;
 }
 
-export default function DealForm({ deal, onSuccess, onCancel }: DealFormProps) {
+export default function DealForm({ onSuccess, onCancel }: DealFormProps) {
   const queryClient = useQueryClient();
-  const isEdit = !!deal;
 
   // Etat du formulaire
-  const [title, setTitle] = useState(deal?.title || '');
-  const [stage, setStage] = useState(deal?.stage || 'new');
-  const [amount, setAmount] = useState(deal?.amount?.toString() || '');
-  const [currency, setCurrency] = useState(deal?.currency || 'EUR');
-  const [probability, setProbability] = useState(deal?.probability?.toString() || '0');
-  const [priority, setPriority] = useState(deal?.priority || 'medium');
-  const [expectedCloseDate, setExpectedCloseDate] = useState(deal?.expected_close_date || '');
-  const [companyId, setCompanyId] = useState(deal?.company_id || '');
-  const [contactId, setContactId] = useState(deal?.contact_id || '');
-  const [description, setDescription] = useState(deal?.description || '');
+  const [title, setTitle] = useState('');
+  const [stage, setStage] = useState('new');
+  const [amount, setAmount] = useState('');
+  const [currency, setCurrency] = useState('EUR');
+  const [probability, setProbability] = useState('0');
+  const [priority, setPriority] = useState('medium');
+  const [expectedCloseDate, setExpectedCloseDate] = useState('');
+  const [companyId, setCompanyId] = useState('');
+  const [contactId, setContactId] = useState('');
+  const [description, setDescription] = useState('');
   const [error, setError] = useState('');
 
   // Charger les entreprises et contacts pour les dropdowns
@@ -56,8 +54,7 @@ export default function DealForm({ deal, onSuccess, onCancel }: DealFormProps) {
   }));
 
   const mutation = useMutation({
-    mutationFn: (data: Record<string, unknown>) =>
-      isEdit ? updateDeal(deal.id, data) : createDeal(data),
+    mutationFn: (data: Record<string, unknown>) => createDeal(data),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['deals'] });
       onSuccess();
@@ -198,7 +195,7 @@ export default function DealForm({ deal, onSuccess, onCancel }: DealFormProps) {
           Annuler
         </Button>
         <Button type="submit" loading={mutation.isPending}>
-          {isEdit ? 'Enregistrer' : 'Créer le deal'}
+          Créer le deal
         </Button>
       </div>
     </form>

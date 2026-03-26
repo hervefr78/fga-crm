@@ -28,7 +28,7 @@ class User(Base, UUIDMixin, TimestampMixin):
     avatar_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
     # Relationships
-    owned_companies: Mapped[list["Company"]] = relationship(back_populates="owner", lazy="selectin")
+    owned_companies: Mapped[list["Company"]] = relationship(back_populates="owner", foreign_keys="[Company.owner_id]", lazy="selectin")
     owned_deals: Mapped[list["Deal"]] = relationship(back_populates="owner", lazy="selectin")
     activities: Mapped[list["Activity"]] = relationship(back_populates="user", lazy="selectin")
     tasks: Mapped[list["Task"]] = relationship(back_populates="assigned_to_user", lazy="selectin")

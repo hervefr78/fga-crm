@@ -15,6 +15,7 @@ class ActivityCreate(BaseModel):
     type: str = Field(..., min_length=1, max_length=50)
     subject: str | None = Field(None, max_length=500)
     content: str | None = Field(None, max_length=10000)
+    metadata_: dict | None = Field(None, alias="metadata")
     contact_id: str | None = Field(None, max_length=36)
     company_id: str | None = Field(None, max_length=36)
     deal_id: str | None = Field(None, max_length=36)

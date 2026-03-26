@@ -19,11 +19,11 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
-// Handle 401 globally
+// Handle 401 globally (sauf en mode bypass)
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response?.status === 401) {
+    if (error.response?.status === 401 && localStorage.getItem('access_token') !== 'dev-bypass') {
       localStorage.removeItem('access_token');
       window.location.href = '/login';
     }

@@ -3,7 +3,7 @@
 # =============================================================================
 
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, select
@@ -55,7 +55,7 @@ def _parse_uuid(value: str, field_name: str) -> uuid.UUID:
 @router.get("", response_model=DealListResponse)
 async def list_deals(
     page: int = Query(1, ge=1),
-    size: int = Query(25, ge=1, le=100),
+    size: int = Query(25, ge=1, le=200),
     stage: str | None = None,
     search: str | None = Query(None, max_length=255),
     contact_id: str | None = None,
@@ -103,6 +103,10 @@ async def create_deal(
         if deal_data.get(key):
             deal_data[key] = _parse_uuid(deal_data[key], key)
 
+    # Convertir expected_close_date string → date
+    if deal_data.get("expected_close_date"):
+        deal_data["expected_close_date"] = date.fromisoformat(deal_data["expected_close_date"])
+
     deal = Deal(**deal_data, owner_id=user.id)
     db.add(deal)
     await db.flush()
@@ -145,6 +149,10 @@ async def update_deal(
     for key in ("company_id", "contact_id"):
         if key in update_data and update_data[key]:
             update_data[key] = _parse_uuid(update_data[key], key)
+
+    # Convertir expected_close_date string → date
+    if update_data.get("expected_close_date"):
+        update_data["expected_close_date"] = date.fromisoformat(update_data["expected_close_date"])
 
     # Detecter changement de stage pour le timestamp
     if "stage" in update_data and update_data["stage"] != deal.stage:

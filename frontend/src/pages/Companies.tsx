@@ -5,7 +5,7 @@
 import { useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Building2, Plus, Trash2, Download, Upload } from 'lucide-react';
+import { Building2, Plus, Trash2, Download, Upload, FileText, FileSearch, Globe } from 'lucide-react';
 
 import { getCompanies, deleteCompany } from '../api/client';
 import type { Company } from '../types';
@@ -143,7 +143,8 @@ export default function CompaniesPage() {
                   <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wide">Entreprise</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wide">Secteur</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wide">Taille</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wide">Domaine</th>
+                  <th className="px-6 py-3 text-center text-xs font-medium text-slate-400 uppercase tracking-wide">Score</th>
+                  <th className="px-6 py-3 text-center text-xs font-medium text-slate-400 uppercase tracking-wide">Audits</th>
                   <th className="px-6 py-3 w-12" />
                 </tr>
               </thead>
@@ -162,7 +163,32 @@ export default function CompaniesPage() {
                     </td>
                     <td className="px-6 py-4 text-sm text-slate-500">{company.industry || '—'}</td>
                     <td className="px-6 py-4 text-sm text-slate-500">{company.size_range || '—'}</td>
-                    <td className="px-6 py-4 text-sm text-slate-500">{company.domain || '—'}</td>
+                    <td className="px-6 py-4 text-center">
+                      {company.audit_score != null ? (
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold ${
+                          company.audit_score >= 50 ? 'bg-green-50 text-green-700' :
+                          company.audit_score >= 30 ? 'bg-amber-50 text-amber-700' :
+                          'bg-red-50 text-red-700'
+                        }`}>
+                          {company.audit_score}/75
+                        </span>
+                      ) : (
+                        <span className="text-slate-300">—</span>
+                      )}
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="flex items-center justify-center gap-1.5">
+                        <span title="Audit messaging">
+                          <FileText className={`w-4 h-4 ${company.has_audit_messaging ? 'text-blue-500' : 'text-slate-200'}`} />
+                        </span>
+                        <span title="Audit détaillé">
+                          <FileSearch className={`w-4 h-4 ${company.has_audit_detailed ? 'text-purple-500' : 'text-slate-200'}`} />
+                        </span>
+                        <span title="Audit GEO">
+                          <Globe className={`w-4 h-4 ${company.has_audit_geo ? 'text-emerald-500' : 'text-slate-200'}`} />
+                        </span>
+                      </div>
+                    </td>
                     <td className="px-6 py-4">
                       <button
                         onClick={(e) => {

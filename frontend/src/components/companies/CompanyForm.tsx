@@ -23,15 +23,16 @@ export default function CompanyForm({ company, onSuccess, onCancel }: CompanyFor
 
   // Etat du formulaire
   const [name, setName] = useState(company?.name || '');
-  const [domain, setDomain] = useState(company?.domain || '');
   const [website, setWebsite] = useState(company?.website || '');
   const [industry, setIndustry] = useState(company?.industry || '');
   const [description, setDescription] = useState(company?.description || '');
   const [sizeRange, setSizeRange] = useState(company?.size_range || '');
   const [linkedinUrl, setLinkedinUrl] = useState(company?.linkedin_url || '');
   const [phone, setPhone] = useState(company?.phone || '');
-  const [country, setCountry] = useState(company?.country || '');
+  const [addressLine, setAddressLine] = useState(company?.address_line || '');
+  const [postalCode, setPostalCode] = useState(company?.postal_code || '');
   const [city, setCity] = useState(company?.city || '');
+  const [country, setCountry] = useState(company?.country || '');
   const [error, setError] = useState('');
 
   const mutation = useMutation({
@@ -61,15 +62,16 @@ export default function CompanyForm({ company, onSuccess, onCancel }: CompanyFor
       name: name.trim(),
     };
 
-    if (domain.trim()) data.domain = domain.trim();
     if (website.trim()) data.website = website.trim();
     if (industry.trim()) data.industry = industry.trim();
     if (description.trim()) data.description = description.trim();
     if (sizeRange) data.size_range = sizeRange;
     if (linkedinUrl.trim()) data.linkedin_url = linkedinUrl.trim();
     if (phone.trim()) data.phone = phone.trim();
-    if (country.trim()) data.country = country.trim();
+    if (addressLine.trim()) data.address_line = addressLine.trim();
+    if (postalCode.trim()) data.postal_code = postalCode.trim();
     if (city.trim()) data.city = city.trim();
+    if (country.trim()) data.country = country.trim();
 
     mutation.mutate(data);
   };
@@ -92,21 +94,13 @@ export default function CompanyForm({ company, onSuccess, onCancel }: CompanyFor
         required
       />
 
-      {/* Domaine / Site web */}
-      <div className="grid grid-cols-2 gap-4">
-        <Input
-          label="Domaine"
-          value={domain}
-          onChange={(e) => setDomain(e.target.value)}
-          placeholder="acme.com"
-        />
-        <Input
-          label="Site web"
-          value={website}
-          onChange={(e) => setWebsite(e.target.value)}
-          placeholder="https://acme.com"
-        />
-      </div>
+      {/* Site web */}
+      <Input
+        label="Site web"
+        value={website}
+        onChange={(e) => setWebsite(e.target.value)}
+        placeholder="https://acme.com"
+      />
 
       {/* Secteur / Taille */}
       <div className="grid grid-cols-2 gap-4">
@@ -125,19 +119,31 @@ export default function CompanyForm({ company, onSuccess, onCancel }: CompanyFor
         />
       </div>
 
-      {/* Pays / Ville */}
-      <div className="grid grid-cols-2 gap-4">
+      {/* Adresse */}
+      <Input
+        label="Adresse"
+        value={addressLine}
+        onChange={(e) => setAddressLine(e.target.value)}
+        placeholder="12 rue de la Paix"
+      />
+      <div className="grid grid-cols-3 gap-4">
         <Input
-          label="Pays"
-          value={country}
-          onChange={(e) => setCountry(e.target.value)}
-          placeholder="France"
+          label="Code postal"
+          value={postalCode}
+          onChange={(e) => setPostalCode(e.target.value)}
+          placeholder="75002"
         />
         <Input
           label="Ville"
           value={city}
           onChange={(e) => setCity(e.target.value)}
           placeholder="Paris"
+        />
+        <Input
+          label="Pays"
+          value={country}
+          onChange={(e) => setCountry(e.target.value)}
+          placeholder="France"
         />
       </div>
 

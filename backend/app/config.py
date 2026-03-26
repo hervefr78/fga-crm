@@ -22,6 +22,10 @@ class Settings(BaseSettings):
     app_env: str = "development"
     app_debug: bool = True
     app_secret_key: str = "change-this-in-production"
+    auth_bypass: bool = False
+
+    # CORS (origines supplémentaires, séparées par virgule)
+    cors_origins: str | None = None
 
     # Database
     database_url: str = "postgresql+asyncpg://fga_crm:devpassword@db:5432/fga_crm"

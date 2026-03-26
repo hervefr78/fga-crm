@@ -31,7 +31,6 @@ export const CONTACT_CSV_COLUMNS: CsvColumn[] = [
 
 export const COMPANY_CSV_COLUMNS: CsvColumn[] = [
   { key: 'name', label: 'Nom' },
-  { key: 'domain', label: 'Domaine' },
   { key: 'website', label: 'Site web' },
   { key: 'industry', label: 'Secteur' },
   { key: 'size_range', label: 'Taille' },

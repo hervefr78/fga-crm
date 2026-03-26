@@ -65,6 +65,11 @@ class Contact(Base, UUIDMixin, TimestampMixin):
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
     )
 
+    # Derniere modification — qui a modifie
+    updated_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+
     # Integration — Startup Radar
     startup_radar_id: Mapped[str | None] = mapped_column(String(255), nullable=True, unique=True)
 

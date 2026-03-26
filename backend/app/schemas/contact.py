@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field, field_validator
 
 # Valeurs autorisees (DC1 — validation contre Set)
 CONTACT_STATUSES = {"new", "contacted", "qualified", "unqualified", "nurturing"}
-JOB_LEVELS = {"C-Level", "VP", "Director", "Manager", "IC", "Other"}
+JOB_LEVELS = {"CxO", "Director", "Manager", "User", "Partner", "Investor"}
 
 
 class ContactCreate(BaseModel):
@@ -100,7 +100,10 @@ class ContactResponse(BaseModel):
     source: str | None
     company_id: str | None
     owner_id: str | None
+    owner_name: str | None = None
     created_at: str
+    updated_at: str | None = None
+    updated_by_name: str | None = None
 
     class Config:
         from_attributes = True
