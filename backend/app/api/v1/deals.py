@@ -74,6 +74,7 @@ def _deal_to_response(d: Deal) -> DealResponse:
         pricing_type=d.pricing_type,
         recurring_amount=d.recurring_amount,
         commitment_months=d.commitment_months,
+        source=d.source,
     )
 
 
@@ -105,6 +106,7 @@ def _apply_deal_filters(
     close_date_to: str | None,
     pricing_type: str | None,
     owner_id: str | None,
+    source: str | None,
 ) -> Select:
     """Appliquer les filtres communs list/stats (DC8 — centralise).
 
@@ -145,6 +147,11 @@ def _apply_deal_filters(
             )
         query = query.where(Deal.pricing_type == pricing_type)
 
+    if source:
+        # Filtre exact (le tag est libre cote client, ex: "mcp", "import"...).
+        # La longueur est deja bornee par Query(max_length=100) sur l'endpoint (DC1).
+        query = query.where(Deal.source == source)
+
     return query
 
 
@@ -180,6 +187,7 @@ async def list_deals(
     close_date_to: str | None = Query(None, max_length=10),
     pricing_type: str | None = Query(None, max_length=20),
     owner_id: str | None = Query(None, max_length=36),
+    source: str | None = Query(None, max_length=100),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
@@ -197,6 +205,7 @@ async def list_deals(
         close_date_to=close_date_to,
         pricing_type=pricing_type,
         owner_id=owner_id,
+        source=source,
     )
 
     count_query = select(func.count()).select_from(query.subquery())
@@ -228,6 +237,7 @@ async def get_deals_stats(
     close_date_to: str | None = Query(None, max_length=10),
     pricing_type: str | None = Query(None, max_length=20),
     owner_id: str | None = Query(None, max_length=36),
+    source: str | None = Query(None, max_length=100),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
@@ -250,6 +260,7 @@ async def get_deals_stats(
         close_date_to=close_date_to,
         pricing_type=pricing_type,
         owner_id=owner_id,
+        source=source,
     )
 
     rows = (await db.execute(query)).all()

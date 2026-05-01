@@ -33,6 +33,9 @@ class DealCreate(BaseModel):
     recurring_amount: float | None = Field(None, ge=0)
     commitment_months: int | None = Field(None, ge=1, le=120)
 
+    # Source d'attribution libre (ex: "mcp", "manual"...) — DC1 borne a 100 chars
+    source: str | None = Field(None, max_length=100)
+
     @field_validator("stage")
     @classmethod
     def validate_stage(cls, v: str) -> str:
@@ -94,6 +97,9 @@ class DealUpdate(BaseModel):
     pricing_type: str | None = Field(None, max_length=20)
     recurring_amount: float | None = Field(None, ge=0)
     commitment_months: int | None = Field(None, ge=1, le=120)
+
+    # Source d'attribution (PATCH optionnel) — DC1 borne a 100 chars
+    source: str | None = Field(None, max_length=100)
 
     @field_validator("stage")
     @classmethod
@@ -166,6 +172,9 @@ class DealResponse(BaseModel):
     pricing_type: str
     recurring_amount: float | None
     commitment_months: int | None
+
+    # Source d'attribution (ex: "mcp")
+    source: str | None = None
 
     class Config:
         from_attributes = True
