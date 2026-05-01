@@ -33,6 +33,12 @@ class DashboardStats(BaseModel):
     deals_won_count: int = Field(0, description="Nombre deals gagnes")
     deals_lost_count: int = Field(0, description="Nombre deals perdus")
 
+    # KPI pricing recurrent (DC8 — derives en route)
+    deals_mrr_won: float = Field(0.0, description="MRR des deals gagnes (recurrents normalises mensuel)")
+    deals_arr_won: float = Field(0.0, description="ARR = MRR * 12")
+    deals_mrr_pipeline: float = Field(0.0, description="MRR potentiel pipeline ouvert")
+    deals_one_shot_won: float = Field(0.0, description="Revenue one-shot (gagnes, type one_shot)")
+
     # Pipeline par stage (pour bar chart)
     deals_by_stage: list[DealsByStage] = Field(default_factory=list)
 

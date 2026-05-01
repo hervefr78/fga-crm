@@ -27,7 +27,15 @@ async_session_maker = async_sessionmaker(
 
 
 async def init_db() -> None:
-    """Importer tous les models et creer les tables manquantes (dev mode)."""
+    """Creer les tables manquantes en dev/test.
+
+    En production, les migrations sont gerees par Alembic
+    (`alembic upgrade head` execute par le Docker entrypoint).
+    On skip ici pour eviter tout conflit entre create_all et alembic.
+    """
+    if settings.is_production:
+        return
+
     from app.models import Base  # noqa: F401
 
     async with engine.begin() as conn:

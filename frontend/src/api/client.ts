@@ -116,11 +116,6 @@ export const updateDeal = async (id: string, data: Record<string, unknown>) => {
   return response.data;
 };
 
-export const updateDealStage = async (id: string, stage: string) => {
-  const response = await api.patch(`/deals/${id}/stage`, { stage });
-  return response.data;
-};
-
 export const deleteDeal = async (id: string) => {
   await api.delete(`/deals/${id}`);
 };

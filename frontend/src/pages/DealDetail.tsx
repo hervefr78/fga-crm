@@ -8,7 +8,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowLeft, Edit2, Trash2, Save, X, Calendar,
   DollarSign, Percent, Clock, Building2, User, ListPlus,
-  CheckCircle2, FileText,
+  CheckCircle2, FileText, AlertCircle,
 } from 'lucide-react';
 
 import {
@@ -16,7 +16,7 @@ import {
   createTask, getCompanies, getContacts,
 } from '../api/client';
 import type { Activity, Task, Company, Contact, PaginatedResponse } from '../types';
-import { DEAL_STAGES, DEAL_PRIORITIES, TASK_TYPES, TASK_PRIORITIES } from '../types';
+import { DEAL_STAGES, DEAL_PRIORITIES, DEAL_PRICING_TYPES, PRICING_PERIOD_MONTHS, TASK_TYPES, TASK_PRIORITIES } from '../types';
 import { Badge, Button, ConfirmDialog, LoadingSpinner, Modal, Tabs } from '../components/ui';
 
 // -- Mappings d'affichage --
@@ -55,6 +55,11 @@ const PRIORITY_LABELS: Record<string, string> = {
   urgent: 'Urgente',
 };
 
+// Mapping pricing_type -> label affichage (depuis DEAL_PRICING_TYPES)
+const PRICING_LABELS: Record<string, string> = Object.fromEntries(
+  DEAL_PRICING_TYPES.map((p) => [p.value, p.label]),
+);
+
 const ACTIVITY_LABELS: Record<string, string> = {
   email: 'Email',
   call: 'Appel',
@@ -78,7 +83,20 @@ interface EditForm {
   company_id: string;
   contact_id: string;
   description: string;
+  // Tarification (DC10 : noms exacts du backend)
+  pricing_type: string;
+  recurring_amount: string;
+  commitment_months: string;
 }
+
+// Label "court" pour le champ recurrent (entre parentheses) — duplique de DealForm.tsx
+// pour rester coherent visuellement sans abstraire deux UX differentes
+const PRICING_PERIOD_LABEL: Record<string, string> = {
+  monthly: 'mensuel',
+  quarterly: 'trimestriel',
+  biannual: 'semestriel',
+  annual: 'annuel',
+};
 
 export default function DealDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -88,6 +106,7 @@ export default function DealDetailPage() {
   const [activeTab, setActiveTab] = useState('activities');
   const [isEditing, setIsEditing] = useState(false);
   const [editForm, setEditForm] = useState<EditForm | null>(null);
+  const [editError, setEditError] = useState<string | null>(null);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [taskOpen, setTaskOpen] = useState(false);
   const [taskForm, setTaskForm] = useState({ title: '', type: 'todo', priority: 'medium', due_date: '' });
@@ -170,6 +189,9 @@ export default function DealDetailPage() {
       company_id: deal.company_id || '',
       contact_id: deal.contact_id || '',
       description: deal.description || '',
+      pricing_type: deal.pricing_type,
+      recurring_amount: deal.recurring_amount?.toString() ?? '',
+      commitment_months: deal.commitment_months?.toString() ?? '',
     });
     setIsEditing(true);
   };
@@ -177,18 +199,27 @@ export default function DealDetailPage() {
   const cancelEditing = () => {
     setIsEditing(false);
     setEditForm(null);
+    setEditError(null);
   };
 
   const saveEditing = () => {
     if (!editForm) return;
+    setEditError(null);
+
+    // Validation cross-field : pricing recurrent → recurring_amount obligatoire (DC8 : meme regle que DealForm)
+    if (editForm.pricing_type !== 'one_shot' && !editForm.recurring_amount.trim()) {
+      setEditError('Le montant unitaire est obligatoire pour un abonnement.');
+      return;
+    }
+
     const data: Record<string, unknown> = {
       title: editForm.title.trim(),
       stage: editForm.stage,
       currency: editForm.currency,
       priority: editForm.priority,
       probability: parseInt(editForm.probability, 10) || 0,
+      pricing_type: editForm.pricing_type,
     };
-    if (editForm.amount.trim()) data.amount = parseFloat(editForm.amount);
     if (editForm.expected_close_date) data.expected_close_date = editForm.expected_close_date;
     if (editForm.company_id) data.company_id = editForm.company_id;
     else data.company_id = null;
@@ -196,6 +227,29 @@ export default function DealDetailPage() {
     else data.contact_id = null;
     if (editForm.description.trim()) data.description = editForm.description.trim();
     else data.description = null;
+
+    // Tarification — symetrique de DealForm.tsx (DC8 : meme logique de calcul amount)
+    if (editForm.pricing_type === 'one_shot') {
+      // One-shot : amount classique, on remet a null les champs recurrents
+      // (DealUpdate Pydantic accepte null pour nettoyer les anciens recurring values)
+      data.recurring_amount = null;
+      data.commitment_months = null;
+      if (editForm.amount.trim()) data.amount = parseFloat(editForm.amount);
+    } else {
+      // Recurrent : recurring_amount + commitment_months, et amount = total contrat
+      if (editForm.recurring_amount.trim()) {
+        data.recurring_amount = parseFloat(editForm.recurring_amount);
+      }
+      if (editForm.commitment_months.trim()) {
+        data.commitment_months = parseInt(editForm.commitment_months, 10);
+      }
+      // Recalcul du montant total (nb periodes * recurring) pour KPI agreges
+      if (editForm.recurring_amount.trim() && editForm.commitment_months.trim()) {
+        const months = PRICING_PERIOD_MONTHS[editForm.pricing_type] || 1;
+        const totalPeriods = parseInt(editForm.commitment_months, 10) / months;
+        data.amount = parseFloat(editForm.recurring_amount) * totalPeriods;
+      }
+    }
 
     editMutation.mutate(data);
   };
@@ -289,24 +343,92 @@ export default function DealDetailPage() {
           </div>
         </div>
 
+        {/* Erreur de validation en mode edition */}
+        {isEditing && editError && (
+          <div className="mb-4 flex items-center gap-2 bg-red-50 border border-red-200 text-red-600 text-sm rounded-lg px-4 py-3">
+            <AlertCircle className="w-4 h-4 flex-shrink-0" />
+            {editError}
+          </div>
+        )}
+
+        {/* Selecteur pricing_type — affiche uniquement en mode edition (DC8 : pattern identique a DealForm.tsx) */}
+        {isEditing && editForm && (
+          <div className="mb-4">
+            <label className="block text-sm font-medium text-slate-700 mb-2">Type de tarification</label>
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+              {DEAL_PRICING_TYPES.map((p) => (
+                <button
+                  key={p.value}
+                  type="button"
+                  onClick={() => setEditForm({ ...editForm, pricing_type: p.value })}
+                  className={`px-3 py-2 text-xs font-medium rounded-lg border transition-colors ${
+                    editForm.pricing_type === p.value
+                      ? 'bg-primary-50 border-primary-500 text-primary-700'
+                      : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300'
+                  }`}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Grille des champs */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-3 text-sm mb-5">
           {isEditing && editForm ? (
             <>
-              {/* Montant */}
-              <div className="flex items-center gap-2">
-                <DollarSign className="w-4 h-4 text-slate-400 shrink-0" />
-                <span className="text-slate-400">Montant :</span>
-                <input
-                  type="number"
-                  value={editForm.amount}
-                  onChange={(e) => setEditForm({ ...editForm, amount: e.target.value })}
-                  className="flex-1 border-b border-slate-300 focus:border-primary-500 focus:outline-none bg-transparent text-sm"
-                  placeholder="0"
-                  min="0"
-                  step="0.01"
-                />
-              </div>
+              {/* Montant (one_shot uniquement) */}
+              {editForm.pricing_type === 'one_shot' && (
+                <div className="flex items-center gap-2">
+                  <DollarSign className="w-4 h-4 text-slate-400 shrink-0" />
+                  <span className="text-slate-400">Montant :</span>
+                  <input
+                    type="number"
+                    value={editForm.amount}
+                    onChange={(e) => setEditForm({ ...editForm, amount: e.target.value })}
+                    className="flex-1 border-b border-slate-300 focus:border-primary-500 focus:outline-none bg-transparent text-sm"
+                    placeholder="0"
+                    min="0"
+                    step="0.01"
+                  />
+                </div>
+              )}
+              {/* Montant unitaire (recurrent uniquement) */}
+              {editForm.pricing_type !== 'one_shot' && (
+                <div className="flex items-center gap-2">
+                  <DollarSign className="w-4 h-4 text-slate-400 shrink-0" />
+                  <span className="text-slate-400">
+                    Montant {PRICING_PERIOD_LABEL[editForm.pricing_type] || ''} :
+                  </span>
+                  <input
+                    type="number"
+                    value={editForm.recurring_amount}
+                    onChange={(e) => setEditForm({ ...editForm, recurring_amount: e.target.value })}
+                    className="flex-1 border-b border-slate-300 focus:border-primary-500 focus:outline-none bg-transparent text-sm"
+                    placeholder="500"
+                    min="0"
+                    step="0.01"
+                  />
+                </div>
+              )}
+              {/* Engagement (recurrent uniquement) */}
+              {editForm.pricing_type !== 'one_shot' && (
+                <div className="flex items-center gap-2">
+                  <Calendar className="w-4 h-4 text-slate-400 shrink-0" />
+                  <span className="text-slate-400">Engagement :</span>
+                  <input
+                    type="number"
+                    value={editForm.commitment_months}
+                    onChange={(e) => setEditForm({ ...editForm, commitment_months: e.target.value })}
+                    className="w-20 border-b border-slate-300 focus:border-primary-500 focus:outline-none bg-transparent text-sm"
+                    placeholder="12"
+                    min="1"
+                    max="120"
+                  />
+                  <span className="text-slate-400">mois</span>
+                </div>
+              )}
               {/* Devise */}
               <div className="flex items-center gap-2">
                 <DollarSign className="w-4 h-4 text-slate-400 shrink-0" />
@@ -406,6 +528,16 @@ export default function DealDetailPage() {
                     : '—'}
                 </span>
               </div>
+              {/* Date de cloture effective (uniquement quand le deal est won/lost) */}
+              {(deal.stage === 'won' || deal.stage === 'lost') && deal.actual_close_date && (
+                <div className="flex items-center gap-2">
+                  <Calendar className="w-4 h-4 text-slate-400 shrink-0" />
+                  <span className="text-slate-400">Clôturé le :</span>
+                  <span className="text-slate-700 font-medium">
+                    {new Date(deal.actual_close_date).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })}
+                  </span>
+                </div>
+              )}
               {/* Entreprise */}
               <div className="flex items-center gap-2">
                 <Building2 className="w-4 h-4 text-slate-400 shrink-0" />
@@ -438,6 +570,38 @@ export default function DealDetailPage() {
                   {new Date(deal.created_at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })}
                 </span>
               </div>
+              {/* Tarification (read-only en mode lecture, displaye en mode edit aussi pour info) */}
+              <div className="flex items-center gap-2">
+                <DollarSign className="w-4 h-4 text-slate-400 shrink-0" />
+                <span className="text-slate-400">Tarification :</span>
+                <span className="text-slate-700">{PRICING_LABELS[deal.pricing_type] || deal.pricing_type}</span>
+              </div>
+              {deal.pricing_type !== 'one_shot' && deal.recurring_amount !== null && (
+                <div className="flex items-center gap-2">
+                  <DollarSign className="w-4 h-4 text-slate-400 shrink-0" />
+                  <span className="text-slate-400">Montant unitaire :</span>
+                  <span className="text-slate-700">
+                    {deal.recurring_amount.toLocaleString('fr-FR')} {deal.currency}
+                  </span>
+                </div>
+              )}
+              {deal.pricing_type !== 'one_shot' && deal.commitment_months !== null && (
+                <div className="flex items-center gap-2">
+                  <Calendar className="w-4 h-4 text-slate-400 shrink-0" />
+                  <span className="text-slate-400">Engagement :</span>
+                  <span className="text-slate-700">{deal.commitment_months} mois</span>
+                </div>
+              )}
+              {/* MRR calcule pour les deals recurrents (recurring_amount / period_months) */}
+              {deal.pricing_type !== 'one_shot' && deal.recurring_amount !== null && PRICING_PERIOD_MONTHS[deal.pricing_type] && (
+                <div className="flex items-center gap-2">
+                  <Percent className="w-4 h-4 text-slate-400 shrink-0" />
+                  <span className="text-slate-400">MRR :</span>
+                  <span className="text-slate-700 font-medium">
+                    {(deal.recurring_amount / PRICING_PERIOD_MONTHS[deal.pricing_type]).toLocaleString('fr-FR', { maximumFractionDigits: 2 })} {deal.currency}/mois
+                  </span>
+                </div>
+              )}
             </>
           )}
         </div>

@@ -20,6 +20,7 @@ import { COMPANY_SIZE_RANGES, TASK_TYPES, TASK_PRIORITIES } from '../types';
 import { Badge, Button, ConfirmDialog, LoadingSpinner, Modal, Tabs } from '../components/ui';
 import AuditResultPanel from '../components/audit/AuditResultPanel';
 import ContactForm from '../components/contacts/ContactForm';
+import DealForm from '../components/pipeline/DealForm';
 
 interface EditForm {
   name: string;
@@ -75,6 +76,7 @@ export default function CompanyDetailPage() {
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [contactFormOpen, setContactFormOpen] = useState(false);
   const [taskOpen, setTaskOpen] = useState(false);
+  const [dealOpen, setDealOpen] = useState(false);
   const [taskForm, setTaskForm] = useState({ title: '', type: 'todo', priority: 'medium', due_date: '', contact_id: '' });
 
   const { data: company, isLoading } = useQuery({
@@ -500,6 +502,9 @@ export default function CompanyDetailPage() {
             <Button icon={ListTodo} variant="secondary" size="sm" onClick={() => setTaskOpen(true)}>
               Ajouter une tache
             </Button>
+            <Button icon={Target} variant="secondary" size="sm" onClick={() => setDealOpen(true)}>
+              Nouvelle opportunité
+            </Button>
           </div>
         </div>
 
@@ -832,6 +837,24 @@ export default function CompanyDetailPage() {
             </Button>
           </div>
         </form>
+      </Modal>
+
+      {/* Modal nouvelle opportunite */}
+      <Modal
+        open={dealOpen}
+        onClose={() => setDealOpen(false)}
+        title="Nouvelle opportunité"
+        size="lg"
+      >
+        <DealForm
+          defaultCompanyId={id}
+          onSuccess={() => {
+            setDealOpen(false);
+            void queryClient.invalidateQueries({ queryKey: ['deals', { company_id: id }] });
+            setActiveTab('deals');
+          }}
+          onCancel={() => setDealOpen(false)}
+        />
       </Modal>
     </div>
   );

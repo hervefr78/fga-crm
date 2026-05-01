@@ -73,10 +73,18 @@ export interface Deal {
   probability: number;
   priority: string;
   expected_close_date: string | null;
+  // Date de cloture effective (renseignee quand le deal passe a won/lost cote backend)
+  actual_close_date: string | null;
+  // Position dans la colonne du stage (utilisee pour l'ordonnancement custom)
+  position: number;
   company_id: string | null;
   contact_id: string | null;
   owner_id: string | null;
   description: string | null;
+  // Tarification (one_shot par defaut, ou recurrent : monthly/quarterly/biannual/annual)
+  pricing_type: string;
+  recurring_amount: number | null;
+  commitment_months: number | null;
   created_at: string;
 }
 
@@ -168,6 +176,9 @@ export interface DealFormData {
   company_id?: string;
   contact_id?: string;
   description?: string;
+  pricing_type: string;
+  recurring_amount?: number;
+  commitment_months?: number;
 }
 
 export interface TaskFormData {
@@ -224,6 +235,22 @@ export const DEAL_PRIORITIES = [
   { value: 'high', label: 'Haute' },
   { value: 'urgent', label: 'Urgente' },
 ] as const;
+
+export const DEAL_PRICING_TYPES = [
+  { value: 'one_shot', label: 'Coût unique' },
+  { value: 'monthly', label: 'Abonnement mensuel' },
+  { value: 'quarterly', label: 'Abonnement trimestriel' },
+  { value: 'biannual', label: 'Abonnement semestriel' },
+  { value: 'annual', label: 'Abonnement annuel' },
+] as const;
+
+// Helper : nombre de mois par periode (utile pour calculer MRR cote front)
+export const PRICING_PERIOD_MONTHS: Record<string, number> = {
+  monthly: 1,
+  quarterly: 3,
+  biannual: 6,
+  annual: 12,
+};
 
 export const COMPANY_SIZE_RANGES = [
   { value: '1-10', label: '1-10' },
@@ -399,6 +426,11 @@ export interface DashboardStats {
   tasks_completed: number;
   tasks_overdue: number;
   emails_sent_30d: number;
+  // Revenus recurrents
+  deals_mrr_won: number;
+  deals_arr_won: number;
+  deals_mrr_pipeline: number;
+  deals_one_shot_won: number;
 }
 
 // ---------- Recherche globale ----------

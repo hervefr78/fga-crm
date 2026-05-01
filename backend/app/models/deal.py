@@ -21,6 +21,12 @@ if TYPE_CHECKING:
 # Pipeline stages
 DEAL_STAGES = ["new", "contacted", "meeting", "proposal", "negotiation", "won", "lost"]
 
+# Types de pricing supportes (one-shot ou recurrent)
+PRICING_TYPES = ["one_shot", "monthly", "quarterly", "biannual", "annual"]
+
+# Conversion d'une periode recurrente en nombre de mois (pour normaliser le MRR)
+PERIOD_TO_MONTHS: dict[str, int] = {"monthly": 1, "quarterly": 3, "biannual": 6, "annual": 12}
+
 
 class Deal(Base, UUIDMixin, TimestampMixin):
     __tablename__ = "deals"
@@ -47,6 +53,13 @@ class Deal(Base, UUIDMixin, TimestampMixin):
 
     # Position in kanban
     position: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+
+    # Pricing recurrent (DC1 borne en schema, default safe one_shot)
+    pricing_type: Mapped[str] = mapped_column(
+        String(20), default="one_shot", nullable=False, index=True
+    )
+    recurring_amount: Mapped[float | None] = mapped_column(Float, nullable=True)
+    commitment_months: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     # Flexible
     custom_fields: Mapped[dict | None] = mapped_column(JSONB, nullable=True, default=dict)

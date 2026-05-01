@@ -36,11 +36,16 @@ def _deal_to_response(d: Deal) -> DealResponse:
         probability=d.probability or 0,
         priority=d.priority,
         expected_close_date=d.expected_close_date.isoformat() if d.expected_close_date else None,
+        actual_close_date=d.actual_close_date.isoformat() if d.actual_close_date else None,
+        position=d.position,
         company_id=str(d.company_id) if d.company_id else None,
         contact_id=str(d.contact_id) if d.contact_id else None,
         owner_id=str(d.owner_id) if d.owner_id else None,
         description=d.description,
         created_at=d.created_at.isoformat(),
+        pricing_type=d.pricing_type,
+        recurring_amount=d.recurring_amount,
+        commitment_months=d.commitment_months,
     )
 
 
@@ -157,6 +162,17 @@ async def update_deal(
     # Detecter changement de stage pour le timestamp
     if "stage" in update_data and update_data["stage"] != deal.stage:
         update_data["stage_changed_at"] = datetime.now(UTC)
+
+    # Validation cross-field : si l'etat final est recurrent, recurring_amount
+    # doit etre defini (DC2 — sinon le deal est silencieusement ignore au MRR).
+    # On compose l'etat final en preferant la valeur du PATCH a celle de l'entite.
+    final_pricing = update_data.get("pricing_type", deal.pricing_type)
+    final_recurring = update_data.get("recurring_amount", deal.recurring_amount)
+    if final_pricing != "one_shot" and final_recurring is None:
+        raise HTTPException(
+            status_code=422,
+            detail="recurring_amount est obligatoire pour un pricing recurrent",
+        )
 
     for field, value in update_data.items():
         setattr(deal, field, value)

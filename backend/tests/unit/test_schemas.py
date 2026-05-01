@@ -8,7 +8,7 @@ from pydantic import ValidationError
 from app.schemas.activity import ACTIVITY_TYPES, ActivityCreate, ActivityUpdate
 from app.schemas.company import CompanyCreate
 from app.schemas.contact import ContactCreate
-from app.schemas.deal import DealCreate
+from app.schemas.deal import DealCreate, DealUpdate
 from app.schemas.task import (
     TASK_PRIORITIES,
     TASK_TYPES,
@@ -219,3 +219,108 @@ class TestDealCreate:
     def test_title_required(self):
         with pytest.raises(ValidationError):
             DealCreate()
+
+    def test_deal_create_pricing_type_default(self):
+        """Sans pricing_type explicite, le defaut doit etre 'one_shot'."""
+        d = DealCreate(title="Deal sans pricing")
+        assert d.pricing_type == "one_shot"
+
+    def test_deal_create_pricing_type_valid_one_shot(self):
+        d = DealCreate(title="Deal", pricing_type="one_shot")
+        assert d.pricing_type == "one_shot"
+
+    def test_deal_create_pricing_type_valid_monthly(self):
+        # recurring_amount obligatoire pour un pricing recurrent (cross-field)
+        d = DealCreate(title="Deal", pricing_type="monthly", recurring_amount=500)
+        assert d.pricing_type == "monthly"
+
+    def test_deal_create_pricing_type_valid_quarterly(self):
+        d = DealCreate(title="Deal", pricing_type="quarterly", recurring_amount=1500)
+        assert d.pricing_type == "quarterly"
+
+    def test_deal_create_pricing_type_valid_biannual(self):
+        d = DealCreate(title="Deal", pricing_type="biannual", recurring_amount=3000)
+        assert d.pricing_type == "biannual"
+
+    def test_deal_create_pricing_type_valid_annual(self):
+        d = DealCreate(title="Deal", pricing_type="annual", recurring_amount=6000)
+        assert d.pricing_type == "annual"
+
+    def test_deal_create_pricing_type_invalid(self):
+        """'weekly' n'est pas un pricing_type valide → ValidationError."""
+        with pytest.raises(ValidationError, match="Pricing type invalide"):
+            DealCreate(title="Deal", pricing_type="weekly")
+
+    def test_deal_create_recurring_amount_negative(self):
+        """recurring_amount negatif doit lever ValidationError (ge=0)."""
+        with pytest.raises(ValidationError):
+            DealCreate(title="Deal", recurring_amount=-100)
+
+    def test_deal_create_recurring_amount_zero_is_valid(self):
+        """recurring_amount=0 est la borne inferieure valide."""
+        d = DealCreate(title="Deal", recurring_amount=0)
+        assert d.recurring_amount == 0.0
+
+    def test_deal_create_commitment_months_zero(self):
+        """commitment_months=0 doit lever ValidationError (ge=1)."""
+        with pytest.raises(ValidationError):
+            DealCreate(title="Deal", commitment_months=0)
+
+    def test_deal_create_commitment_months_too_high(self):
+        """commitment_months=200 doit lever ValidationError (le=120)."""
+        with pytest.raises(ValidationError):
+            DealCreate(title="Deal", commitment_months=200)
+
+    def test_deal_create_commitment_months_min_valid(self):
+        """commitment_months=1 est la borne inferieure valide."""
+        d = DealCreate(title="Deal", commitment_months=1)
+        assert d.commitment_months == 1
+
+    def test_deal_create_commitment_months_max_valid(self):
+        """commitment_months=120 est la borne superieure valide."""
+        d = DealCreate(title="Deal", commitment_months=120)
+        assert d.commitment_months == 120
+
+    def test_deal_create_recurring_fields_none_by_default(self):
+        """Sans champs recurrents, recurring_amount et commitment_months sont None."""
+        d = DealCreate(title="Deal")
+        assert d.recurring_amount is None
+        assert d.commitment_months is None
+
+
+# ---------------------------------------------------------------------------
+# DealUpdate — pricing_type validation
+# ---------------------------------------------------------------------------
+
+class TestDealUpdatePricingType:
+    """Tests de validation des champs pricing du schema DealUpdate."""
+
+    def test_deal_update_pricing_type_invalid(self):
+        """pricing_type='weekly' sur un update → ValidationError."""
+        with pytest.raises(ValidationError, match="Pricing type invalide"):
+            DealUpdate(pricing_type="weekly")
+
+    def test_deal_update_pricing_type_none_skipped(self):
+        """pricing_type=None sur un update est autorise (champ optionnel)."""
+        u = DealUpdate(pricing_type=None)
+        assert u.pricing_type is None
+
+    def test_deal_update_pricing_type_valid(self):
+        """pricing_type valide sur update passe la validation."""
+        u = DealUpdate(pricing_type="annual")
+        assert u.pricing_type == "annual"
+
+    def test_deal_update_recurring_amount_negative(self):
+        """recurring_amount negatif sur update → ValidationError."""
+        with pytest.raises(ValidationError):
+            DealUpdate(recurring_amount=-1)
+
+    def test_deal_update_commitment_months_zero(self):
+        """commitment_months=0 sur update → ValidationError."""
+        with pytest.raises(ValidationError):
+            DealUpdate(commitment_months=0)
+
+    def test_deal_update_commitment_months_exceeds_max(self):
+        """commitment_months=121 sur update → ValidationError."""
+        with pytest.raises(ValidationError):
+            DealUpdate(commitment_months=121)

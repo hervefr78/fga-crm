@@ -134,9 +134,9 @@ export default function Dashboard() {
           bgColor="bg-violet-50"
         />
         <KpiCard
-          title="Revenue"
-          value={formatCurrency(stats?.deals_won_amount || 0)}
-          subtitle={stats?.deals_won_count ? `${stats.deals_won_count} gagne${stats.deals_won_count > 1 ? 's' : ''}` : undefined}
+          title="Revenue one-shot"
+          value={formatCurrency(stats?.deals_one_shot_won || 0)}
+          subtitle="Contrats ponctuels gagnés"
           icon={TrendingUp}
           color="text-emerald-600"
           bgColor="bg-emerald-50"
@@ -148,6 +148,34 @@ export default function Dashboard() {
           icon={Award}
           color="text-amber-600"
           bgColor="bg-amber-50"
+        />
+      </div>
+
+      {/* Revenus recurrents — MRR / ARR */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+        <KpiCard
+          title="MRR actif"
+          value={formatCurrency(stats?.deals_mrr_won || 0)}
+          subtitle="Revenus mensuels recurrents (gagnés)"
+          icon={Activity}
+          color="text-indigo-600"
+          bgColor="bg-indigo-50"
+        />
+        <KpiCard
+          title="ARR"
+          value={formatCurrency(stats?.deals_arr_won || 0)}
+          subtitle="Annual Recurring Revenue"
+          icon={TrendingUp}
+          color="text-indigo-600"
+          bgColor="bg-indigo-50"
+        />
+        <KpiCard
+          title="MRR pipeline"
+          value={formatCurrency(stats?.deals_mrr_pipeline || 0)}
+          subtitle="MRR potentiel (deals ouverts)"
+          icon={Target}
+          color="text-violet-600"
+          bgColor="bg-violet-50"
         />
       </div>
 

@@ -14,7 +14,7 @@ from app.db.session import get_db
 from app.models.activity import Activity
 from app.models.company import Company
 from app.models.contact import Contact
-from app.models.deal import Deal
+from app.models.deal import PERIOD_TO_MONTHS, Deal
 from app.models.task import Task
 from app.models.user import User
 from app.schemas.dashboard import ActivityByType, DashboardStats, DealsByStage
@@ -146,6 +146,45 @@ async def get_dashboard_stats(
     )
     emails_sent_30d = (await db.execute(emails_q)).scalar() or 0
 
+    # --- KPI pricing : MRR / ARR / one-shot (DC6 select minimal, RBAC applique) ---
+    # On charge uniquement les 3 colonnes utiles puis on normalise en Python.
+    pricing_won_q = apply_ownership_filter(
+        select(Deal.pricing_type, Deal.amount, Deal.recurring_amount).where(
+            Deal.stage == "won"
+        ),
+        Deal, current_user,
+    )
+    # Pipeline : on n'a pas besoin de Deal.amount (one_shot pipeline ne contribue pas au MRR)
+    pricing_pipeline_q = apply_ownership_filter(
+        select(Deal.pricing_type, Deal.recurring_amount).where(
+            Deal.stage.in_(PIPELINE_STAGES)
+        ),
+        Deal, current_user,
+    )
+    won_rows = (await db.execute(pricing_won_q)).all()
+    pipeline_rows = (await db.execute(pricing_pipeline_q)).all()
+
+    deals_mrr_won = 0.0
+    deals_one_shot_won = 0.0
+    for ptype, amount, rec_amount in won_rows:
+        if ptype == "one_shot":
+            deals_one_shot_won += float(amount or 0.0)
+            continue
+        # Recurrent : ne contribue au MRR que si recurring_amount renseigne
+        months = PERIOD_TO_MONTHS.get(ptype)
+        if months and rec_amount is not None:
+            deals_mrr_won += float(rec_amount) / months
+
+    deals_mrr_pipeline = 0.0
+    for ptype, rec_amount in pipeline_rows:
+        if ptype == "one_shot":
+            continue
+        months = PERIOD_TO_MONTHS.get(ptype)
+        if months and rec_amount is not None:
+            deals_mrr_pipeline += float(rec_amount) / months
+
+    deals_arr_won = deals_mrr_won * 12
+
     return DashboardStats(
         contacts_total=contacts_total,
         contacts_this_month=contacts_this_month,
@@ -162,4 +201,8 @@ async def get_dashboard_stats(
         tasks_completed=tasks_completed,
         tasks_overdue=tasks_overdue,
         emails_sent_30d=emails_sent_30d,
+        deals_mrr_won=deals_mrr_won,
+        deals_arr_won=deals_arr_won,
+        deals_mrr_pipeline=deals_mrr_pipeline,
+        deals_one_shot_won=deals_one_shot_won,
     )

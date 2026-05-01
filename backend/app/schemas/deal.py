@@ -3,16 +3,17 @@
 # =============================================================================
 
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
-from app.models.deal import DEAL_STAGES
+from app.models.deal import DEAL_STAGES, PRICING_TYPES
 
 # Valeurs autorisees (DC1)
 DEAL_PRIORITIES = {"low", "medium", "high", "urgent"}
+DEAL_PRICING_TYPES = set(PRICING_TYPES)
 
 
 class DealCreate(BaseModel):
-    """Schema de creation d'un deal — validation stage/priority (DC1)."""
+    """Schema de creation d'un deal — validation stage/priority/pricing (DC1)."""
 
     title: str = Field(..., min_length=1, max_length=255)
     stage: str = Field("new", max_length=50)
@@ -24,6 +25,11 @@ class DealCreate(BaseModel):
     company_id: str | None = Field(None, max_length=36)
     contact_id: str | None = Field(None, max_length=36)
     description: str | None = Field(None, max_length=5000)
+
+    # Pricing recurrent (DC1 — bornes ge/le, default safe one_shot)
+    pricing_type: str = Field("one_shot", max_length=20)
+    recurring_amount: float | None = Field(None, ge=0)
+    commitment_months: int | None = Field(None, ge=1, le=120)
 
     @field_validator("stage")
     @classmethod
@@ -43,6 +49,28 @@ class DealCreate(BaseModel):
             )
         return v
 
+    @field_validator("pricing_type")
+    @classmethod
+    def validate_pricing_type(cls, v: str) -> str:
+        if v not in DEAL_PRICING_TYPES:
+            raise ValueError(
+                f"Pricing type invalide. Valeurs autorisees : {', '.join(PRICING_TYPES)}"
+            )
+        return v
+
+    @model_validator(mode="after")
+    def validate_recurring_required(self) -> "DealCreate":
+        """Cross-field : un pricing recurrent doit avoir un recurring_amount.
+
+        Sans cette validation, un deal recurrent sans recurring_amount serait
+        silencieusement ignore par le calcul MRR du dashboard (DC2).
+        """
+        if self.pricing_type != "one_shot" and self.recurring_amount is None:
+            raise ValueError(
+                "recurring_amount est obligatoire pour un pricing recurrent"
+            )
+        return self
+
 
 class DealUpdate(BaseModel):
     """Schema de mise a jour partielle d'un deal."""
@@ -57,6 +85,11 @@ class DealUpdate(BaseModel):
     company_id: str | None = Field(None, max_length=36)
     contact_id: str | None = Field(None, max_length=36)
     description: str | None = Field(None, max_length=5000)
+
+    # Pricing recurrent (PATCH — tous optionnels)
+    pricing_type: str | None = Field(None, max_length=20)
+    recurring_amount: float | None = Field(None, ge=0)
+    commitment_months: int | None = Field(None, ge=1, le=120)
 
     @field_validator("stage")
     @classmethod
@@ -73,6 +106,15 @@ class DealUpdate(BaseModel):
         if v is not None and v not in DEAL_PRIORITIES:
             raise ValueError(
                 f"Priorite invalide. Valeurs autorisees : {', '.join(sorted(DEAL_PRIORITIES))}"
+            )
+        return v
+
+    @field_validator("pricing_type")
+    @classmethod
+    def validate_pricing_type(cls, v: str | None) -> str | None:
+        if v is not None and v not in DEAL_PRICING_TYPES:
+            raise ValueError(
+                f"Pricing type invalide. Valeurs autorisees : {', '.join(PRICING_TYPES)}"
             )
         return v
 
@@ -103,11 +145,18 @@ class DealResponse(BaseModel):
     probability: int
     priority: str
     expected_close_date: str | None
+    actual_close_date: str | None
+    position: int
     company_id: str | None
     contact_id: str | None
     owner_id: str | None
     description: str | None
     created_at: str
+
+    # Pricing recurrent
+    pricing_type: str
+    recurring_amount: float | None
+    commitment_months: int | None
 
     class Config:
         from_attributes = True
