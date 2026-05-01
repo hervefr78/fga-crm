@@ -63,6 +63,9 @@ class Company(Base, UUIDMixin, TimestampMixin):
     # Provenance du lead (plein-phare, manual, import, linkedin, etc.)
     lead_source: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
 
+    # N° de TVA intracommunautaire
+    vat_number: Mapped[str | None] = mapped_column(String(50), nullable=True)
+
     # Relationships
     owner: Mapped[Optional["User"]] = relationship(back_populates="owned_companies", foreign_keys=[owner_id])
     contacts: Mapped[list["Contact"]] = relationship(back_populates="company", cascade="all, delete-orphan", lazy="selectin")

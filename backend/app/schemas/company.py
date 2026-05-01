@@ -26,6 +26,7 @@ class CompanyCreate(BaseModel):
     country: str | None = Field(None, max_length=100)
     startup_radar_id: str | None = Field(None, max_length=255)
     lead_source: str | None = Field(None, max_length=100)
+    vat_number: str | None = Field(None, max_length=50)
 
     @field_validator("size_range")
     @classmethod
@@ -52,6 +53,7 @@ class CompanyUpdate(BaseModel):
     postal_code: str | None = Field(None, max_length=20)
     city: str | None = Field(None, max_length=100)
     country: str | None = Field(None, max_length=100)
+    vat_number: str | None = Field(None, max_length=50)
 
     @field_validator("size_range")
     @classmethod
@@ -81,6 +83,7 @@ class CompanyResponse(BaseModel):
     country: str | None
     startup_radar_id: str | None = None
     lead_source: str | None = None
+    vat_number: str | None = None
     owner_id: str | None
     owner_name: str | None = None
     created_at: str

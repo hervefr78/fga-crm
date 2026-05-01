@@ -599,7 +599,3 @@ export default function AuditResultPanel({ metadata, subject, createdAt, content
     </div>
   );
 }
-
-// Export des sous-composants pour usage direct dans les sous-tabs
-export { MessagingAuditView, DetailedAuditView, GeoAuditView, RadarChart };
-export type { RadarAxis };
