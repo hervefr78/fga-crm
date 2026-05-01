@@ -45,6 +45,10 @@ export default function DealForm({ onSuccess, onCancel, defaultCompanyId }: Deal
   const [companyId, setCompanyId] = useState(defaultCompanyId || '');
   const [contactId, setContactId] = useState('');
   const [description, setDescription] = useState('');
+  // Raison de la perte (visible uniquement quand stage='lost'). On garde la
+  // valeur en state meme si le stage change : le user peut faire un aller-retour
+  // sans perdre sa saisie. La valeur n'est envoyee au backend que si stage='lost'.
+  const [lossReason, setLossReason] = useState('');
   const [error, setError] = useState('');
 
   // Tarification (DC10 : noms exacts du backend)
@@ -133,6 +137,10 @@ export default function DealForm({ onSuccess, onCancel, defaultCompanyId }: Deal
     if (companyId) data.company_id = companyId;
     if (contactId) data.contact_id = contactId;
     if (description.trim()) data.description = description.trim();
+    // loss_reason : transmis uniquement si stage='lost' ET valeur saisie
+    if (stage === 'lost' && lossReason.trim()) {
+      data.loss_reason = lossReason.trim();
+    }
 
     if (isRecurring) {
       // Recurrent : on envoie recurring_amount + commitment_months,
@@ -328,6 +336,17 @@ export default function DealForm({ onSuccess, onCancel, defaultCompanyId }: Deal
         onChange={(e) => setDescription(e.target.value)}
         placeholder="Notes sur le deal..."
       />
+
+      {/* Raison de la perte — visible uniquement quand stage='lost' */}
+      {stage === 'lost' && (
+        <Textarea
+          label="Raison de la perte"
+          value={lossReason}
+          onChange={(e) => setLossReason(e.target.value)}
+          placeholder="Ex : Budget non valide, choix d'un concurrent, projet annule..."
+          maxLength={255}
+        />
+      )}
 
       {/* Actions */}
       <div className="flex justify-end gap-3 pt-2">

@@ -25,6 +25,8 @@ class DealCreate(BaseModel):
     company_id: str | None = Field(None, max_length=36)
     contact_id: str | None = Field(None, max_length=36)
     description: str | None = Field(None, max_length=5000)
+    # Raison de perte (utilise pour la page Lost — saisie libre, bornee a 255 (DC1))
+    loss_reason: str | None = Field(None, max_length=255)
 
     # Pricing recurrent (DC1 — bornes ge/le, default safe one_shot)
     pricing_type: str = Field("one_shot", max_length=20)
@@ -85,6 +87,8 @@ class DealUpdate(BaseModel):
     company_id: str | None = Field(None, max_length=36)
     contact_id: str | None = Field(None, max_length=36)
     description: str | None = Field(None, max_length=5000)
+    # Raison de perte (PATCH — autoriser la mise a None pour reset)
+    loss_reason: str | None = Field(None, max_length=255)
 
     # Pricing recurrent (PATCH — tous optionnels)
     pricing_type: str | None = Field(None, max_length=20)
@@ -153,6 +157,11 @@ class DealResponse(BaseModel):
     description: str | None
     created_at: str
 
+    # Champs derives des relations (DC6 — populer via selectinload pour eviter N+1)
+    loss_reason: str | None = None
+    owner_name: str | None = None
+    company_name: str | None = None
+
     # Pricing recurrent
     pricing_type: str
     recurring_amount: float | None
@@ -170,3 +179,18 @@ class DealListResponse(BaseModel):
     page: int
     size: int
     pages: int
+
+
+class DealsStatsResponse(BaseModel):
+    """Stats agregees pour un sous-ensemble de deals (filtres list partages).
+
+    Tous les montants sont en EUR (ou la devise par defaut). Le MRR est normalise
+    en mois (annual/12, quarterly/3, etc.) — voir PERIOD_TO_MONTHS.
+    """
+
+    count: int
+    total_amount: float
+    one_shot_amount: float
+    mrr: float
+    arr: float
+    recurring_count: int

@@ -24,3 +24,17 @@ class UserRoleUpdate(BaseModel):
 
 class UserActiveToggle(BaseModel):
     is_active: bool
+
+
+class UserLookupResponse(BaseModel):
+    """Reponse minimale (id + full_name) pour les dropdowns/filtres frontend.
+
+    Pas de role, pas d'email, pas d'avatar — DC6 : selectinload ciblee, pas de
+    leak de donnees sensibles vers les sales.
+    """
+
+    id: str
+    full_name: str
+
+    class Config:
+        from_attributes = True

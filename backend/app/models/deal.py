@@ -21,6 +21,16 @@ if TYPE_CHECKING:
 # Pipeline stages
 DEAL_STAGES = ["new", "contacted", "meeting", "proposal", "negotiation", "won", "lost"]
 
+# Categories pour separer pipeline / signes / perdus dans l'UI (DC8 — source unique)
+PIPELINE_STAGES = ["new", "contacted", "meeting", "proposal", "negotiation"]
+SIGNED_STAGES = ["won"]
+LOST_STAGES = ["lost"]
+DEAL_CATEGORIES: dict[str, list[str]] = {
+    "pipeline": PIPELINE_STAGES,
+    "signed": SIGNED_STAGES,
+    "lost": LOST_STAGES,
+}
+
 # Types de pricing supportes (one-shot ou recurrent)
 PRICING_TYPES = ["one_shot", "monthly", "quarterly", "biannual", "annual"]
 

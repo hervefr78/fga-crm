@@ -244,3 +244,88 @@ async def test_list_users_role_filter(
 
     resp = await client.get("/api/v1/users?role=manager", headers=auth_headers)
     assert resp.json()["total"] == 1
+
+
+# ---------------------------------------------------------------------------
+# /users/lookup — endpoint minimal (id + full_name) accessible non-admin
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_users_lookup_admin_sees_all(
+    client: AsyncClient,
+    auth_headers: dict,
+    test_user: User,
+    sales_user: User,
+    manager_user: User,
+):
+    """Admin → liste complete (3 users actifs) avec id + full_name uniquement."""
+    resp = await client.get("/api/v1/users/lookup", headers=auth_headers)
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert isinstance(data, list)
+    assert len(data) == 3
+    # Chaque element ne doit exposer que id + full_name (DC6)
+    for item in data:
+        assert set(item.keys()) == {"id", "full_name"}
+    full_names = {item["full_name"] for item in data}
+    assert full_names == {"Test User", "Sales User", "Manager User"}
+
+
+@pytest.mark.asyncio
+async def test_users_lookup_manager_sees_all(
+    client: AsyncClient,
+    manager_headers: dict,
+    test_user: User,
+    sales_user: User,
+    manager_user: User,
+):
+    """Manager → liste complete (3 users actifs) — pas admin-only."""
+    resp = await client.get("/api/v1/users/lookup", headers=manager_headers)
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert len(data) == 3
+
+
+@pytest.mark.asyncio
+async def test_users_lookup_sales_sees_self_only(
+    client: AsyncClient,
+    sales_headers: dict,
+    test_user: User,
+    sales_user: User,
+    manager_user: User,
+):
+    """Sales → ne voit que son propre user (RBAC ownership)."""
+    resp = await client.get("/api/v1/users/lookup", headers=sales_headers)
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert len(data) == 1
+    assert data[0]["id"] == str(sales_user.id)
+    assert data[0]["full_name"] == "Sales User"
+
+
+@pytest.mark.asyncio
+async def test_users_lookup_excludes_inactive(
+    client: AsyncClient,
+    auth_headers: dict,
+    db_session,
+    test_user: User,
+    sales_user: User,
+):
+    """Admin → users desactives ne doivent pas apparaitre dans le lookup."""
+    sales_user.is_active = False
+    await db_session.commit()
+
+    resp = await client.get("/api/v1/users/lookup", headers=auth_headers)
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    # Seul l'admin actif doit etre retourne
+    assert len(data) == 1
+    assert data[0]["full_name"] == "Test User"
+
+
+@pytest.mark.asyncio
+async def test_users_lookup_unauthenticated(client: AsyncClient):
+    """Sans token → 403."""
+    resp = await client.get("/api/v1/users/lookup")
+    assert resp.status_code == 403

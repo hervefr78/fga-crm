@@ -14,15 +14,12 @@ from app.db.session import get_db
 from app.models.activity import Activity
 from app.models.company import Company
 from app.models.contact import Contact
-from app.models.deal import PERIOD_TO_MONTHS, Deal
+from app.models.deal import PERIOD_TO_MONTHS, PIPELINE_STAGES, Deal
 from app.models.task import Task
 from app.models.user import User
 from app.schemas.dashboard import ActivityByType, DashboardStats, DealsByStage
 
 router = APIRouter()
-
-# Stages consideres comme "pipeline ouvert" (ni gagne ni perdu)
-PIPELINE_STAGES = {"new", "contacted", "meeting", "proposal", "negotiation"}
 
 
 @router.get("/stats", response_model=DashboardStats)

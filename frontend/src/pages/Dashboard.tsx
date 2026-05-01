@@ -23,6 +23,7 @@ import {
 import clsx from 'clsx';
 import { getDeals, getActivities, getHealth, getDashboardStats } from '../api/client';
 import type { DashboardStats } from '../types';
+import { formatCurrency } from '../utils/format';
 import KpiCard from '../components/dashboard/KpiCard';
 import PipelineChart from '../components/dashboard/PipelineChart';
 import ActivityChart from '../components/dashboard/ActivityChart';
@@ -48,21 +49,6 @@ const ACTIVITY_TYPE_LABELS: Record<string, string> = {
   task: 'Tache',
   audit: 'Audit',
 };
-
-// Formatage montant EUR \u2014 precision adaptee : decimales pour petites valeurs (< 10k)
-function formatCurrency(amount: number): string {
-  if (amount >= 1_000_000) {
-    return `${(amount / 1_000_000).toFixed(1).replace('.0', '')} M\u00A0\u20AC`;
-  }
-  if (amount >= 10_000) {
-    return `${(amount / 1_000).toFixed(0)} k\u00A0\u20AC`;
-  }
-  if (amount >= 1_000) {
-    // Garde 1 decimale entre 1k et 10k pour eviter d'arrondir 1500 en "2 k"
-    return `${(amount / 1_000).toFixed(1).replace('.0', '')} k\u00A0\u20AC`;
-  }
-  return amount.toLocaleString('fr-FR', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 });
-}
 
 export default function Dashboard() {
   // Stats agregees (1 seul appel API)

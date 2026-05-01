@@ -49,10 +49,10 @@ export default function PipelinePage() {
   const [formOpen, setFormOpen] = useState(false);
   const [deletingDeal, setDeletingDeal] = useState<Deal | null>(null);
 
-  // Liste paginee + recherche (vue tableau unique)
+  // Liste paginee + recherche (vue tableau unique, category=pipeline pour exclure won/lost)
   const tableQuery = useQuery({
-    queryKey: ['deals', { page, search }],
-    queryFn: () => getDeals({ page, size: 25, search: search || undefined }),
+    queryKey: ['deals', { page, search, category: 'pipeline' }],
+    queryFn: () => getDeals({ page, size: 25, search: search || undefined, category: 'pipeline' }),
   });
 
   const data = tableQuery.data;

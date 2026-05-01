@@ -14,6 +14,14 @@ export interface User {
   created_at?: string;
 }
 
+// Reponse minimale du endpoint GET /users/lookup (id + full_name uniquement).
+// Accessible aux managers/admins ; pour un sales le backend retourne uniquement
+// son propre user, donc le filtre owner cote front sera masque (length <= 1).
+export interface UserLookup {
+  id: string;
+  full_name: string;
+}
+
 export interface Contact {
   id: string;
   first_name: string;
@@ -86,7 +94,24 @@ export interface Deal {
   recurring_amount: number | null;
   commitment_months: number | null;
   created_at: string;
+  // Champs derives backend (selectinload owner/company + loss_reason colonne)
+  loss_reason: string | null;
+  owner_name: string | null;
+  company_name: string | null;
 }
+
+// Stats agregees retournees par GET /api/v1/deals/stats
+export interface DealsStats {
+  count: number;
+  total_amount: number;
+  one_shot_amount: number;
+  mrr: number;
+  arr: number;
+  recurring_count: number;
+}
+
+// Categorie d'affichage cote backend (filtre /deals?category=...)
+export type DealCategory = 'pipeline' | 'signed' | 'lost';
 
 export interface Task {
   id: string;
@@ -179,6 +204,8 @@ export interface DealFormData {
   pricing_type: string;
   recurring_amount?: number;
   commitment_months?: number;
+  // Raison de perte (saisie libre, max 255 cote backend)
+  loss_reason?: string;
 }
 
 export interface TaskFormData {

@@ -14,6 +14,8 @@ import CompaniesPage from './pages/Companies';
 import CompanyDetailPage from './pages/CompanyDetail';
 import LoginPage from './pages/Login';
 import PipelinePage from './pages/Pipeline';
+import SignedPage from './pages/Signed';
+import LostPage from './pages/Lost';
 import DealDetailPage from './pages/DealDetail';
 import TasksPage from './pages/Tasks';
 import ActivitiesPage from './pages/Activities';
@@ -75,6 +77,8 @@ function AppRoutes() {
         <Route path="/companies/:id" element={<CompanyDetailPage />} />
         <Route path="/pipeline" element={<PipelinePage />} />
         <Route path="/pipeline/:id" element={<DealDetailPage />} />
+        <Route path="/signed" element={<SignedPage />} />
+        <Route path="/lost" element={<LostPage />} />
         <Route path="/tasks" element={<TasksPage />} />
         <Route path="/activities" element={<ActivitiesPage />} />
         <Route path="/email" element={<EmailPage />} />

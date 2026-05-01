@@ -8,10 +8,15 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.deps import get_current_admin
+from app.core.deps import get_current_admin, get_current_user
 from app.db.session import get_db
 from app.models.user import User
-from app.schemas.user import VALID_ROLES, UserActiveToggle, UserRoleUpdate
+from app.schemas.user import (
+    VALID_ROLES,
+    UserActiveToggle,
+    UserLookupResponse,
+    UserRoleUpdate,
+)
 
 router = APIRouter()
 
@@ -77,6 +82,35 @@ async def list_users(
         "size": size,
         "pages": (total + size - 1) // size,
     }
+
+
+# IMPORTANT: declare /lookup AVANT /{user_id} pour que FastAPI ne tente pas
+# de parser "lookup" comme un UUID.
+@router.get("/lookup", response_model=list[UserLookupResponse])
+async def list_users_lookup(
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Liste minimale (id + full_name) pour dropdowns/filtres frontend.
+
+    Visibilite (DC6) :
+    - admin / manager : tous les users actifs (filtre owner sur Pipeline/Signed/Lost)
+    - sales : uniquement leur propre user (un sales ne doit pas voir les autres
+      sales, conformement au RBAC ownership de l'app)
+    """
+    if user.role == "sales":
+        return [UserLookupResponse(id=str(user.id), full_name=user.full_name)]
+
+    # DC1 — pas de pagination explicite ici car on attend un nb users < 100 dans
+    # un CRM interne. Le `.limit(500)` est un garde-fou defensif (DC1).
+    result = await db.execute(
+        select(User)
+        .where(User.is_active.is_(True))
+        .order_by(User.full_name)
+        .limit(500)
+    )
+    users = result.scalars().all()
+    return [UserLookupResponse(id=str(u.id), full_name=u.full_name) for u in users]
 
 
 @router.get("/{user_id}", response_model=UserResponse)

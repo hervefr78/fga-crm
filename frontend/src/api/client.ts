@@ -4,6 +4,7 @@
 
 import axios from 'axios';
 import api, { API_ROOT } from './http';
+import type { UserLookup } from '../types';
 
 // ---------- Health ----------
 export const getHealth = async () => {
@@ -96,8 +97,17 @@ export const deleteCompany = async (id: string) => {
 };
 
 // ---------- Deals ----------
+// Params supportes : page, size, search, stage, contact_id, company_id,
+// category ('pipeline' | 'signed' | 'lost'), close_date_from, close_date_to,
+// pricing_type, owner_id (cf backend deals.py)
 export const getDeals = async (params?: Record<string, unknown>) => {
   const response = await api.get('/deals', { params });
+  return response.data;
+};
+
+// Stats agregees (memes filtres que getDeals, sans pagination)
+export const getDealsStats = async (params?: Record<string, unknown>) => {
+  const response = await api.get('/deals/stats', { params });
   return response.data;
 };
 
@@ -204,6 +214,13 @@ export const updateUserRole = async (id: string, role: string) => {
 
 export const toggleUserActive = async (id: string, is_active: boolean) => {
   const response = await api.patch(`/users/${id}/deactivate`, { is_active });
+  return response.data;
+};
+
+// Lookup minimal pour les filtres / dropdowns. Accessible aux managers et admins ;
+// pour les sales, le backend retourne uniquement leur propre user.
+export const getUsersLookup = async (): Promise<UserLookup[]> => {
+  const response = await api.get('/users/lookup');
   return response.data;
 };
 

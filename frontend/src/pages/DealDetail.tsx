@@ -87,6 +87,8 @@ interface EditForm {
   pricing_type: string;
   recurring_amount: string;
   commitment_months: string;
+  // Raison de perte (saisie libre, max 255 — visible uniquement si stage='lost')
+  loss_reason: string;
 }
 
 // Label "court" pour le champ recurrent (entre parentheses) — duplique de DealForm.tsx
@@ -192,6 +194,7 @@ export default function DealDetailPage() {
       pricing_type: deal.pricing_type,
       recurring_amount: deal.recurring_amount?.toString() ?? '',
       commitment_months: deal.commitment_months?.toString() ?? '',
+      loss_reason: deal.loss_reason || '',
     });
     setIsEditing(true);
   };
@@ -227,6 +230,15 @@ export default function DealDetailPage() {
     else data.contact_id = null;
     if (editForm.description.trim()) data.description = editForm.description.trim();
     else data.description = null;
+
+    // loss_reason : conserve uniquement si stage='lost'. Si on sort un deal de
+    // l'etat 'lost', on reset la raison cote backend (null) pour eviter qu'elle
+    // reste affichee de maniere incoherente.
+    if (editForm.stage === 'lost') {
+      data.loss_reason = editForm.loss_reason.trim() || null;
+    } else {
+      data.loss_reason = null;
+    }
 
     // Tarification — symetrique de DealForm.tsx (DC8 : meme logique de calcul amount)
     if (editForm.pricing_type === 'one_shot') {
@@ -538,19 +550,19 @@ export default function DealDetailPage() {
                   </span>
                 </div>
               )}
-              {/* Entreprise */}
+              {/* Entreprise — affichage du nom (company_name expose par le backend, DC10) */}
               <div className="flex items-center gap-2">
                 <Building2 className="w-4 h-4 text-slate-400 shrink-0" />
                 <span className="text-slate-400">Entreprise :</span>
                 {deal.company_id ? (
                   <Link to={`/companies/${deal.company_id}`} className="text-primary-600 hover:underline truncate">
-                    Voir l'entreprise
+                    {deal.company_name || "Voir l'entreprise"}
                   </Link>
                 ) : (
                   <span className="text-slate-300">—</span>
                 )}
               </div>
-              {/* Contact */}
+              {/* Contact (le nom du contact reste un fetch separe — non expose par DealResponse) */}
               <div className="flex items-center gap-2">
                 <User className="w-4 h-4 text-slate-400 shrink-0" />
                 <span className="text-slate-400">Contact :</span>
@@ -561,6 +573,12 @@ export default function DealDetailPage() {
                 ) : (
                   <span className="text-slate-300">—</span>
                 )}
+              </div>
+              {/* Owner (proprietaire du deal — full_name expose via selectinload) */}
+              <div className="flex items-center gap-2">
+                <User className="w-4 h-4 text-slate-400 shrink-0" />
+                <span className="text-slate-400">Owner :</span>
+                <span className="text-slate-700">{deal.owner_name || '—'}</span>
               </div>
               {/* Date de creation */}
               <div className="flex items-center gap-2">
@@ -625,6 +643,34 @@ export default function DealDetailPage() {
               <FileText className="w-4 h-4" /> Description
             </div>
             <p className="text-sm text-slate-700 whitespace-pre-wrap">{deal.description}</p>
+          </div>
+        ) : null}
+
+        {/* Raison de la perte — visible uniquement quand stage='lost'.
+            En edition : Textarea libre (max 255 cote backend, DC1).
+            En lecture : bloc affiche uniquement si une raison est saisie. */}
+        {isEditing && editForm && editForm.stage === 'lost' ? (
+          <div className="mb-5">
+            <label className="flex items-center gap-2 text-sm text-slate-400 mb-1">
+              <AlertCircle className="w-4 h-4" /> Raison de la perte
+            </label>
+            <textarea
+              value={editForm.loss_reason}
+              onChange={(e) => setEditForm({ ...editForm, loss_reason: e.target.value })}
+              maxLength={255}
+              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 min-h-[60px]"
+              placeholder="Ex : Budget non valide, choix d'un concurrent, projet annule..."
+            />
+            <p className="text-xs text-slate-400 mt-1">
+              {editForm.loss_reason.length}/255 caracteres
+            </p>
+          </div>
+        ) : !isEditing && deal.stage === 'lost' && deal.loss_reason ? (
+          <div className="mb-5">
+            <div className="flex items-center gap-2 text-sm text-slate-400 mb-1">
+              <AlertCircle className="w-4 h-4" /> Raison de la perte
+            </div>
+            <p className="text-sm text-slate-700 whitespace-pre-wrap">{deal.loss_reason}</p>
           </div>
         ) : null}
 

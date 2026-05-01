@@ -17,6 +17,8 @@ import {
   User,
   Zap,
   Shield,
+  Award,
+  XCircle,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { useAuth } from '../../contexts/AuthContext';
@@ -28,6 +30,8 @@ const baseNavigation = [
   { name: 'Contacts', href: '/contacts', icon: Users },
   { name: 'Entreprises', href: '/companies', icon: Building2 },
   { name: 'Pipeline', href: '/pipeline', icon: Target },
+  { name: 'Signés', href: '/signed', icon: Award },
+  { name: 'Perdus', href: '/lost', icon: XCircle },
   { name: 'Tâches', href: '/tasks', icon: ListTodo },
   { name: 'Activités', href: '/activities', icon: Activity },
   { name: 'Email', href: '/email', icon: Mail },
