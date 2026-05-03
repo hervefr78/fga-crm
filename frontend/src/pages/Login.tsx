@@ -4,7 +4,7 @@
 
 import { useState, FormEvent } from 'react';
 import { Zap, AlertCircle } from 'lucide-react';
-import { useAuth } from '../contexts/AuthContext';
+import { useAuth } from '../contexts/useAuth';
 
 export default function LoginPage() {
   const { login } = useAuth();

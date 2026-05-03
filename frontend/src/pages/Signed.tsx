@@ -10,7 +10,7 @@ import { Award } from 'lucide-react';
 import { getDeals, getDealsStats } from '../api/client';
 import type { Deal, DealsStats, PaginatedResponse } from '../types';
 import { isManagerOrAbove } from '../types';
-import { useAuth } from '../contexts/AuthContext';
+import { useAuth } from '../contexts/useAuth';
 import { Pagination, LoadingSpinner, EmptyState } from '../components/ui';
 import DealsTable from '../components/deals/DealsTable';
 import DealsStatsBar from '../components/deals/DealsStatsBar';

@@ -7,7 +7,7 @@ import { useMutation } from '@tanstack/react-query';
 import { Save, Lock } from 'lucide-react';
 
 import { updateProfile, changePassword } from '../api/client';
-import { useAuth } from '../contexts/AuthContext';
+import { useAuth } from '../contexts/useAuth';
 import { Button, Input } from '../components/ui';
 
 export default function SettingsPage() {
