@@ -44,3 +44,11 @@ frontend/dist/
 SKILL.md
 backend/test.db
 *.chous
+
+# Local references / data dumps (not source)
+CRM screenshot/
+tools/contacts.xlsx
+tools/contacts_emails.csv
+tools/contacts_*.xlsx
+tools/contacts_*.csv
+*.pen
