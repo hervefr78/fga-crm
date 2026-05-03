@@ -71,6 +71,10 @@ class Deal(Base, UUIDMixin, TimestampMixin):
     recurring_amount: Mapped[float | None] = mapped_column(Float, nullable=True)
     commitment_months: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
+    # Source d'attribution (ex: "mcp", "import", "manual"...) — DC1 borne a 100 chars,
+    # indexe pour permettre le filtre /deals?source=mcp sans full scan.
+    source: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
+
     # Flexible
     custom_fields: Mapped[dict | None] = mapped_column(JSONB, nullable=True, default=dict)
 

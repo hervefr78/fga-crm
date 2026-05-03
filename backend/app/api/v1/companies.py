@@ -2,11 +2,12 @@
 # FGA CRM - Companies Routes
 # =============================================================================
 
+import contextlib
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import ValidationError
-from sqlalchemy import func, select
+from sqlalchemy import String, cast, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import get_current_user
@@ -58,6 +59,7 @@ def _company_to_response(
         country=c.country,
         startup_radar_id=c.startup_radar_id,
         lead_source=c.lead_source,
+        vat_number=c.vat_number,
         owner_id=str(c.owner_id) if c.owner_id else None,
         owner_name=owner_name,
         created_at=c.created_at.isoformat(),
@@ -114,9 +116,9 @@ async def list_companies(
         audit_query = (
             select(
                 Activity.company_id,
-                Activity.metadata_["audit_type"].astext.label("audit_type"),
-                Activity.metadata_["total_score"].astext.label("total_score"),
-                Activity.metadata_["messaging_score"].astext.label("messaging_score"),
+                cast(Activity.metadata_["audit_type"], String).label("audit_type"),
+                cast(Activity.metadata_["total_score"], String).label("total_score"),
+                cast(Activity.metadata_["messaging_score"], String).label("messaging_score"),
             )
             .where(
                 Activity.company_id.in_(company_ids),
@@ -137,20 +139,16 @@ async def list_companies(
                 audit_map[cid]["has_messaging"] = True
                 # Score messaging (/10) — utilisé si pas de score detailed
                 if row.messaging_score and cid not in score_map:
-                    try:
+                    with contextlib.suppress(ValueError, TypeError):
                         score_map[cid] = int(float(row.messaging_score))
-                    except (ValueError, TypeError):
-                        pass
             elif atype == "detailed":
                 audit_map[cid]["has_detailed"] = True
                 # Score detailed (/75) — prioritaire sur messaging
                 if row.total_score:
-                    try:
+                    with contextlib.suppress(ValueError, TypeError):
                         score_val = int(float(row.total_score))
                         if cid not in score_map or score_val > score_map[cid]:
                             score_map[cid] = score_val
-                    except (ValueError, TypeError):
-                        pass
             elif atype == "geo":
                 audit_map[cid]["has_geo"] = True
 

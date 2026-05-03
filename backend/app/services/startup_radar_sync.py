@@ -389,8 +389,8 @@ async def sync_audits(
                             md_url, docx_url = client.get_detailed_audit_file_urls(sr_id)
                             metadata["file_md_url"] = md_url
                             metadata["file_docx_url"] = docx_url
-                        except Exception:
-                            pass  # Non bloquant
+                        except Exception as e:
+                            logger.debug("Echec recuperation fichiers audit %s: %s", sr_id, e)
 
                         # Recuperer le lien de presentation commerciale
                         try:
@@ -399,8 +399,8 @@ async def sync_audits(
                                 metadata["presentation_slug"] = pres.get("slug")
                                 metadata["presentation_url"] = pres.get("public_url")
                                 metadata["radar_axes"] = pres.get("radar_axes")
-                        except Exception:
-                            pass  # Non bloquant
+                        except Exception as e:
+                            logger.debug("Echec recuperation presentation %s: %s", sr_id, e)
 
                         activity = Activity(
                             id=uuid.uuid4(),
