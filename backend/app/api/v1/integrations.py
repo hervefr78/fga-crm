@@ -1,19 +1,24 @@
 # =============================================================================
-# FGA CRM - Integrations API (Startup Radar sync + audit avance)
+# FGA CRM - Integrations API (Startup Radar sync + audit avance + Nomo-IA)
 # =============================================================================
 
 import logging
 import uuid
+from datetime import date
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.core.deps import get_current_user
 from app.core.rbac import check_entity_access
 from app.db.session import get_db
 from app.models.activity import Activity
 from app.models.company import Company
+from app.models.contact import Contact
+from app.models.deal import Deal
 from app.models.user import User
 from app.schemas.integration import (
     CompanyAuditResponse,
@@ -25,7 +30,149 @@ from app.services.startup_radar_sync import full_sync, get_last_sync_result
 
 logger = logging.getLogger(__name__)
 
+
+# ---------- Schemas Nomo-IA ----------
+
+
+class NomoNewSubscriptionRequest(BaseModel):
+    company_name: str = Field(..., min_length=1, max_length=255)
+    first_name: str = Field(..., min_length=1, max_length=255)
+    last_name: str = Field("", max_length=255)
+    email: str = Field(..., max_length=255)
+    phone: str | None = Field(None, max_length=50)
+    address_line: str | None = Field(None, max_length=500)
+    postal_code: str | None = Field(None, max_length=20)
+    city: str | None = Field(None, max_length=100)
+    country: str | None = Field(None, max_length=100)
+    plan: str = Field(..., max_length=100)
+    amount_eur: float = Field(..., ge=0)
+    billing_cycle: str = Field("monthly", max_length=20)
+    subscription_date: str = Field(..., max_length=30)
+
+
+class NomoNewSubscriptionResponse(BaseModel):
+    company_id: str
+    contact_id: str
+    deal_id: str
+
 router = APIRouter()
+
+
+# ---------- POST /nomo-ia/new-subscription ----------
+
+_PLAN_PRICING_TYPE: dict[str, str] = {
+    "monthly": "monthly",
+    "semi_annual": "biannual",
+    "yearly": "annual",
+}
+
+
+async def _require_nomo_api_key(x_nomo_api_key: str | None = Header(None)) -> None:
+    if not settings.nomo_api_key:
+        raise HTTPException(status_code=503, detail="Nomo-IA integration not configured")
+    if x_nomo_api_key != settings.nomo_api_key:
+        raise HTTPException(status_code=401, detail="Invalid Nomo-IA API key")
+
+
+@router.post(
+    "/nomo-ia/new-subscription",
+    response_model=NomoNewSubscriptionResponse,
+    status_code=201,
+    dependencies=[Depends(_require_nomo_api_key)],
+)
+async def nomo_new_subscription(
+    payload: NomoNewSubscriptionRequest,
+    db: AsyncSession = Depends(get_db),
+) -> NomoNewSubscriptionResponse:
+    """Enregistrer un nouveau client Nomo-IA dans le CRM.
+
+    Cree (ou retrouve) la Company, cree le Contact et le Deal (stage=won).
+    Appelee par Marketing Assistant apres checkout.session.completed.
+    """
+    # Owner = premier admin (service call, pas d'utilisateur connecte)
+    admin = (await db.execute(
+        select(User).where(User.role == "admin", User.is_active.is_(True)).limit(1)
+    )).scalar_one_or_none()
+    if admin is None:
+        raise HTTPException(status_code=503, detail="No admin user found in CRM")
+
+    # 1. Trouver ou creer la Company
+    existing_company = (await db.execute(
+        select(Company).where(Company.name == payload.company_name)
+    )).scalar_one_or_none()
+
+    if existing_company:
+        company = existing_company
+    else:
+        company = Company(
+            id=uuid.uuid4(),
+            name=payload.company_name,
+            phone=payload.phone,
+            address_line=payload.address_line,
+            postal_code=payload.postal_code,
+            city=payload.city,
+            country=payload.country or "France",
+            lead_source="nomo-ia",
+            owner_id=admin.id,
+        )
+        db.add(company)
+        await db.flush()
+
+    # 2. Creer le Contact (verifier idempotence par email)
+    existing_contact = (await db.execute(
+        select(Contact).where(Contact.email == payload.email)
+    )).scalar_one_or_none()
+
+    if existing_contact:
+        contact = existing_contact
+    else:
+        contact = Contact(
+            id=uuid.uuid4(),
+            first_name=payload.first_name,
+            last_name=payload.last_name or "-",
+            email=payload.email,
+            phone=payload.phone,
+            company_id=company.id,
+            source="nomo-ia",
+            status="qualified",
+            is_decision_maker=True,
+            owner_id=admin.id,
+        )
+        db.add(contact)
+        await db.flush()
+
+    # 3. Creer le Deal
+    pricing_type = _PLAN_PRICING_TYPE.get(payload.billing_cycle, "monthly")
+    deal_title = f"Nomo-IA — {payload.plan.capitalize()} — {payload.company_name}"
+    deal = Deal(
+        id=uuid.uuid4(),
+        title=deal_title[:255],
+        stage="won",
+        amount=payload.amount_eur,
+        currency="EUR",
+        probability=100,
+        pricing_type=pricing_type,
+        recurring_amount=payload.amount_eur,
+        commitment_months=None,
+        company_id=company.id,
+        contact_id=contact.id,
+        description=f"Souscription Nomo-IA le {payload.subscription_date}. Plan : {payload.plan}.",
+        owner_id=admin.id,
+    )
+    db.add(deal)
+
+    await db.commit()
+
+    logger.info(
+        "[Nomo-IA] Nouveau client cree: company=%s contact=%s deal=%s plan=%s",
+        company.id, contact.id, deal.id, payload.plan,
+    )
+
+    return NomoNewSubscriptionResponse(
+        company_id=str(company.id),
+        contact_id=str(contact.id),
+        deal_id=str(deal.id),
+    )
 
 
 # ---------- POST /startup-radar/sync ----------

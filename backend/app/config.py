@@ -73,6 +73,9 @@ class Settings(BaseSettings):
     startup_radar_email: str | None = None
     startup_radar_password: str | None = None
 
+    # Nomo-IA Integration (incoming webhook from Marketing Assistant)
+    nomo_api_key: str | None = None
+
     # MinIO (S3-compatible)
     minio_endpoint: str = "minio:9000"
     minio_root_user: str = "minioadmin"
