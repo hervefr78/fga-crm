@@ -99,6 +99,7 @@ class ContactResponse(BaseModel):
     lead_score: int
     source: str | None
     company_id: str | None
+    company_name: str | None = None  # Champ derive (joined depuis Company.name)
     owner_id: str | None
     owner_name: str | None = None
     created_at: str

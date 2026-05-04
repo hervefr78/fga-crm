@@ -161,6 +161,7 @@ class DealResponse(BaseModel):
     loss_reason: str | None = None
     owner_name: str | None = None
     company_name: str | None = None
+    contact_name: str | None = None  # Champ derive (joined depuis Contact.full_name)
 
     # Pricing recurrent
     pricing_type: str

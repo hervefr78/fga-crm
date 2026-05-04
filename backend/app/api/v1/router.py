@@ -6,6 +6,7 @@ from fastapi import APIRouter
 
 from app.api.v1 import (
     activities,
+    ai,
     auth,
     companies,
     contacts,
@@ -33,3 +34,6 @@ api_router.include_router(emails.router, prefix="/emails", tags=["Emails"])
 api_router.include_router(email_templates.router, prefix="/email-templates", tags=["Email Templates"])
 api_router.include_router(integrations.router, prefix="/integrations", tags=["Integrations"])
 api_router.include_router(dashboard.router, prefix="/dashboard", tags=["Dashboard"])
+# AI router : routes absolues (/companies/{id}/next-action, /contacts/{id}/next-action,
+# /deals/{id}/next-action). Pas de prefix ici — chaque route porte son chemin complet.
+api_router.include_router(ai.router, tags=["AI"])

@@ -36,21 +36,22 @@ router = APIRouter()
 CLOSED_STAGES: set[str] = {"won", "lost"}
 
 # Options selectinload partagees pour eviter N+1 sur les relations exposees
-# dans DealResponse (owner.full_name, company.name) — DC6 + DC8.
+# dans DealResponse (owner.full_name, company.name, contact.full_name) — DC6 + DC8.
 # IMPORTANT : toute query qui sera passee a _deal_to_response doit appliquer
 # ces options sinon le helper declenchera un lazy load synchrone (erreur en async).
 DEAL_RESPONSE_LOADERS = (
     selectinload(Deal.owner),
     selectinload(Deal.company),
+    selectinload(Deal.contact),
 )
 
 
 def _deal_to_response(d: Deal) -> DealResponse:
     """Convertir un modele Deal en schema de reponse (DC8 — centralise).
 
-    Pre-condition : `d.owner` et `d.company` doivent avoir ete charges en amont
-    (selectinload via DEAL_RESPONSE_LOADERS). Sinon SQLAlchemy declenche un lazy
-    load synchrone qui leve MissingGreenlet en contexte async.
+    Pre-condition : `d.owner`, `d.company` et `d.contact` doivent avoir ete
+    charges en amont (selectinload via DEAL_RESPONSE_LOADERS). Sinon SQLAlchemy
+    declenche un lazy load synchrone qui leve MissingGreenlet en contexte async.
     """
     return DealResponse(
         id=str(d.id),
@@ -71,6 +72,7 @@ def _deal_to_response(d: Deal) -> DealResponse:
         loss_reason=d.loss_reason,
         owner_name=d.owner.full_name if d.owner else None,
         company_name=d.company.name if d.company else None,
+        contact_name=d.contact.full_name if d.contact else None,
         pricing_type=d.pricing_type,
         recurring_amount=d.recurring_amount,
         commitment_months=d.commitment_months,
