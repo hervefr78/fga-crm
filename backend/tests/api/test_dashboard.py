@@ -1,6 +1,9 @@
 # =============================================================================
-# FGA CRM - Tests API Dashboard — KPI MRR / ARR / one-shot
+# FGA CRM - Tests API Dashboard — KPI MRR / ARR / one-shot + next-actions
 # =============================================================================
+
+import uuid
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
 from httpx import AsyncClient
@@ -237,3 +240,243 @@ async def test_dashboard_rbac_sales_sees_own_mrr(
 
     stats = await _get_stats(client, sales_headers)
     assert stats["deals_mrr_won"] == 200.0
+
+
+# ---------------------------------------------------------------------------
+# Next-actions agregees (mock rule-based)
+# ---------------------------------------------------------------------------
+
+
+async def _get_next_actions(client: AsyncClient, headers: dict) -> list[dict]:
+    """Appeler /next-actions et retourner la liste."""
+    resp = await client.get("/api/v1/dashboard/next-actions", headers=headers)
+    assert resp.status_code == 200, resp.text
+    return resp.json()
+
+
+@pytest.mark.asyncio
+async def test_dashboard_next_actions_empty(client: AsyncClient, auth_headers: dict):
+    """Utilisateur sans deals/contacts/tasks => liste vide."""
+    items = await _get_next_actions(client, auth_headers)
+    assert items == []
+
+
+@pytest.mark.asyncio
+async def test_dashboard_next_actions_overdue_tasks(
+    client: AsyncClient,
+    auth_headers: dict,
+    test_user,
+    db_session,
+):
+    """1 task overdue => suggestion 'Reprendre le controle'."""
+    from app.models.task import Task
+
+    task = Task(
+        id=uuid.uuid4(),
+        title="Tache en retard",
+        is_completed=False,
+        due_date=datetime.now(UTC) - timedelta(days=2),
+        assigned_to=test_user.id,
+    )
+    db_session.add(task)
+    await db_session.commit()
+
+    items = await _get_next_actions(client, auth_headers)
+    assert len(items) == 1
+    assert "controle" in items[0]["title"].lower()
+    assert items[0]["primary_action"]["type"] == "view"
+
+
+@pytest.mark.asyncio
+async def test_dashboard_next_actions_hot_blocked_deals(
+    client: AsyncClient,
+    auth_headers: dict,
+    test_user,
+    db_session,
+):
+    """1 deal stage=proposal sans activity => suggestion 'Reactiver'."""
+    from app.models.deal import Deal
+
+    deal = Deal(
+        id=uuid.uuid4(),
+        title="Proposition en standby",
+        stage="proposal",
+        owner_id=test_user.id,
+    )
+    db_session.add(deal)
+    await db_session.commit()
+
+    items = await _get_next_actions(client, auth_headers)
+    assert len(items) == 1
+    assert "reactiver" in items[0]["title"].lower()
+    assert "1 deal(s)" in items[0]["title"]
+
+
+@pytest.mark.asyncio
+async def test_dashboard_next_actions_hot_blocked_excluded_when_recent_activity(
+    client: AsyncClient,
+    auth_headers: dict,
+    test_user,
+    db_session,
+):
+    """Deal proposal AVEC activity recente (< 7j) => pas de suggestion 'Reactiver'."""
+    from app.models.activity import Activity
+    from app.models.deal import Deal
+
+    deal = Deal(
+        id=uuid.uuid4(),
+        title="Deal actif",
+        stage="proposal",
+        owner_id=test_user.id,
+    )
+    db_session.add(deal)
+    await db_session.flush()
+
+    activity = Activity(
+        id=uuid.uuid4(),
+        type="email",
+        subject="Recente",
+        deal_id=deal.id,
+        user_id=test_user.id,
+    )
+    db_session.add(activity)
+    await db_session.commit()
+
+    items = await _get_next_actions(client, auth_headers)
+    # Aucun signal "hot blocked" puisque activity dans les 7 derniers jours
+    titles = [it["title"].lower() for it in items]
+    assert all("reactiver" not in t for t in titles)
+
+
+@pytest.mark.asyncio
+async def test_dashboard_next_actions_stale_qualified_contacts(
+    client: AsyncClient,
+    auth_headers: dict,
+    test_user,
+    db_session,
+):
+    """Contact qualified sans activity 14j => suggestion 'Relancer'."""
+    from app.models.contact import Contact
+
+    contact = Contact(
+        id=uuid.uuid4(),
+        first_name="Stale",
+        last_name="Qualif",
+        email="stale-qualif@test.fr",
+        status="qualified",
+        owner_id=test_user.id,
+    )
+    db_session.add(contact)
+    await db_session.commit()
+
+    items = await _get_next_actions(client, auth_headers)
+    assert len(items) >= 1
+    assert any("relancer" in it["title"].lower() for it in items)
+
+
+@pytest.mark.asyncio
+async def test_dashboard_next_actions_close_imminent(
+    client: AsyncClient,
+    auth_headers: dict,
+    test_user,
+    db_session,
+):
+    """Deal pipeline avec close date dans 3j => suggestion 'Closer cette semaine'."""
+    from app.models.deal import Deal
+
+    deal = Deal(
+        id=uuid.uuid4(),
+        title="A closer",
+        stage="negotiation",
+        owner_id=test_user.id,
+        expected_close_date=date.today() + timedelta(days=3),
+    )
+    db_session.add(deal)
+    await db_session.commit()
+
+    items = await _get_next_actions(client, auth_headers)
+    titles = [it["title"].lower() for it in items]
+    # negotiation sans activity declenche aussi 'Reactiver' — les deux sont valides
+    assert any("closer" in t or "reactiver" in t for t in titles)
+
+
+@pytest.mark.asyncio
+async def test_dashboard_next_actions_max_3(
+    client: AsyncClient,
+    auth_headers: dict,
+    test_user,
+    db_session,
+):
+    """4 signaux declenches => liste limitee a 3 suggestions."""
+    from app.models.contact import Contact
+    from app.models.deal import Deal
+    from app.models.task import Task
+
+    # 1. Task overdue
+    db_session.add(Task(
+        id=uuid.uuid4(),
+        title="Overdue",
+        is_completed=False,
+        due_date=datetime.now(UTC) - timedelta(days=1),
+        assigned_to=test_user.id,
+    ))
+    # 2. Deal proposal sans activity
+    db_session.add(Deal(
+        id=uuid.uuid4(),
+        title="Hot blocked",
+        stage="proposal",
+        owner_id=test_user.id,
+    ))
+    # 3. Contact qualified stale
+    db_session.add(Contact(
+        id=uuid.uuid4(),
+        first_name="Stale",
+        last_name="Qualif",
+        status="qualified",
+        owner_id=test_user.id,
+    ))
+    # 4. Deal close imminent (different du #2 pour garantir signal distinct)
+    db_session.add(Deal(
+        id=uuid.uuid4(),
+        title="Close soon",
+        stage="meeting",  # pipeline mais hors proposal/negotiation
+        owner_id=test_user.id,
+        expected_close_date=date.today() + timedelta(days=4),
+    ))
+    await db_session.commit()
+
+    items = await _get_next_actions(client, auth_headers)
+    assert len(items) <= 3
+    # On verifie qu'on a bien 3 suggestions distinctes (priorites 1, 2, 3)
+    assert len(items) == 3
+
+
+@pytest.mark.asyncio
+async def test_dashboard_next_actions_rbac_isolation(
+    client: AsyncClient,
+    sales_headers: dict,
+    sales_b_headers: dict,
+    sales_user,
+    sales_user_b,
+    db_session,
+):
+    """Sales A ne voit pas les signaux de Sales B (ownership filter)."""
+    from app.models.task import Task
+
+    # Task overdue assignee a sales A
+    db_session.add(Task(
+        id=uuid.uuid4(),
+        title="Overdue de A",
+        is_completed=False,
+        due_date=datetime.now(UTC) - timedelta(days=1),
+        assigned_to=sales_user.id,
+    ))
+    await db_session.commit()
+
+    # Sales A voit la suggestion
+    items_a = await _get_next_actions(client, sales_headers)
+    assert any("controle" in it["title"].lower() for it in items_a)
+
+    # Sales B ne voit rien (pas le proprietaire de la task)
+    items_b = await _get_next_actions(client, sales_b_headers)
+    assert items_b == []

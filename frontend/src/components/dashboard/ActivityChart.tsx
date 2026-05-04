@@ -36,7 +36,7 @@ function CustomTooltip({ active, payload }: { active?: boolean; payload?: Array<
   if (!active || !payload?.length) return null;
   const d = payload[0].payload;
   return (
-    <div className="bg-white border border-slate-200 shadow-lg rounded-lg px-3 py-2 text-sm">
+    <div className="bg-white border border-slate-200 shadow-sm rounded-lg px-3 py-2 text-sm">
       <p className="font-medium text-slate-700">{d.label}</p>
       <p className="text-slate-500">{d.count} activite{d.count > 1 ? 's' : ''}</p>
     </div>

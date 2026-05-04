@@ -282,6 +282,17 @@ export const getDashboardStats = async () => {
   return response.data;
 };
 
+// Suggestions hebdomadaires affichees en haut du dashboard (1 a 3 items).
+// DC7 : si l'endpoint n'est pas encore deploye, retourner [] silencieusement
+// pour que la card disparaisse au lieu de remonter une erreur.
+export const getDashboardNextActions = async (): Promise<NextActionResponse[]> => {
+  const response = await api.get('/dashboard/next-actions', {
+    validateStatus: (s) => (s >= 200 && s < 300) || s === 404,
+  });
+  if (response.status === 404) return [];
+  return Array.isArray(response.data) ? (response.data as NextActionResponse[]) : [];
+};
+
 // ---------- Recherche globale ----------
 export const globalSearch = async (q: string) => {
   const response = await api.get('/search', { params: { q } });

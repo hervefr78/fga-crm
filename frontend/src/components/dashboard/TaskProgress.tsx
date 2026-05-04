@@ -19,7 +19,7 @@ export default function TaskProgress({ total, completed, overdue }: TaskProgress
       <div>
         <div className="flex items-center justify-between mb-1.5">
           <span className="text-sm font-medium text-slate-700">Completion</span>
-          <span className="text-sm font-bold text-slate-800">{rate}%</span>
+          <span className="text-sm font-semibold text-slate-800 tabular-nums">{rate}%</span>
         </div>
         <div className="w-full bg-slate-100 rounded-full h-2.5">
           <div

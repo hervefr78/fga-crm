@@ -22,7 +22,7 @@ export default function KpiCard({ title, value, subtitle, icon: Icon, color, bgC
         </div>
         <div className="min-w-0">
           <p className="text-xs text-slate-400 font-medium">{title}</p>
-          <p className="text-xl font-bold text-slate-800 mt-0.5 truncate">{value}</p>
+          <p className="text-xl font-semibold text-slate-800 tabular-nums tracking-tight mt-0.5 truncate">{value}</p>
           {subtitle && (
             <p className="text-xs text-slate-400 mt-0.5">{subtitle}</p>
           )}

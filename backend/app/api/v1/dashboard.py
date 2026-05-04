@@ -2,7 +2,7 @@
 # FGA CRM - Dashboard API (stats agregees)
 # =============================================================================
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 from fastapi import APIRouter, Depends
 from sqlalchemy import func, select
@@ -17,9 +17,13 @@ from app.models.contact import Contact
 from app.models.deal import PERIOD_TO_MONTHS, PIPELINE_STAGES, Deal
 from app.models.task import Task
 from app.models.user import User
+from app.schemas.ai import NextActionAction, NextActionResponse
 from app.schemas.dashboard import ActivityByType, DashboardStats, DealsByStage
 
 router = APIRouter()
+
+# Limite globale des suggestions retournees (DC1 — borne en sortie)
+MAX_NEXT_ACTIONS = 3
 
 
 @router.get("/stats", response_model=DashboardStats)
@@ -203,3 +207,124 @@ async def get_dashboard_stats(
         deals_mrr_pipeline=deals_mrr_pipeline,
         deals_one_shot_won=deals_one_shot_won,
     )
+
+
+# ---------------------------------------------------------------------------
+# Next-actions agregees (mock rule-based, pas de LLM)
+# ---------------------------------------------------------------------------
+
+@router.get("/next-actions", response_model=list[NextActionResponse])
+async def get_dashboard_next_actions(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> list[NextActionResponse]:
+    """Suggestions hebdomadaires agregees pour le dashboard.
+
+    Logique entierement rule-based (pas d'appel LLM). Calcul de signaux sur
+    les entites visibles par l'utilisateur (RBAC via apply_ownership_filter).
+
+    Renvoie au plus 3 suggestions, dans l'ordre de priorite suivant :
+        1. Taches en retard
+        2. Deals chauds bloques (proposal/negotiation sans activity 7j)
+        3. Contacts qualifies stale (sans activity 14j)
+        4. Pipeline a closer dans les 7 prochains jours
+
+    Liste vide => le frontend masque l'AI card.
+    """
+    suggestions: list[NextActionResponse] = []
+    today = date.today()
+    now = datetime.now(UTC)
+    seven_days_ago = now - timedelta(days=7)
+    fourteen_days_ago = now - timedelta(days=14)
+    in_seven_days = today + timedelta(days=7)
+
+    # 1. Taches en retard (assignees a l'utilisateur, ou toutes pour manager/admin)
+    overdue_q = apply_ownership_filter(
+        select(func.count(Task.id)).where(
+            Task.is_completed.is_(False),
+            Task.due_date < func.now(),
+        ),
+        Task, current_user, owner_field="assigned_to",
+    )
+    overdue = (await db.execute(overdue_q)).scalar() or 0
+    if overdue > 0:
+        suggestions.append(NextActionResponse(
+            title="Reprendre le controle des taches en retard",
+            body=f"{overdue} tache(s) en retard. Prioriser celles liees aux deals chauds.",
+            primary_action=NextActionAction(label="Voir les taches", type="view"),
+        ))
+
+    # 2. Deals chauds bloques : stage proposal/negotiation sans activity dans les 7j
+    recent_act_deal_subq = (
+        select(Activity.deal_id)
+        .where(
+            Activity.created_at >= seven_days_ago,
+            Activity.deal_id.is_not(None),
+        )
+        .distinct()
+    )
+    hot_blocked_q = apply_ownership_filter(
+        select(func.count(Deal.id)).where(
+            Deal.stage.in_(["proposal", "negotiation"]),
+            Deal.id.not_in(recent_act_deal_subq),
+        ),
+        Deal, current_user,
+    )
+    hot_blocked = (await db.execute(hot_blocked_q)).scalar() or 0
+    if hot_blocked > 0:
+        suggestions.append(NextActionResponse(
+            title=f"Reactiver {hot_blocked} deal(s) chaud(s)",
+            body=(
+                f"Aucune activite depuis 7 jours sur {hot_blocked} deal(s) "
+                "en proposition/negociation."
+            ),
+            primary_action=NextActionAction(label="Voir le pipeline", type="view"),
+        ))
+
+    # 3. Contacts qualifies stale : status=qualified sans activity dans les 14j
+    recent_act_contact_subq = (
+        select(Activity.contact_id)
+        .where(
+            Activity.created_at >= fourteen_days_ago,
+            Activity.contact_id.is_not(None),
+        )
+        .distinct()
+    )
+    stale_contacts_q = apply_ownership_filter(
+        select(func.count(Contact.id)).where(
+            Contact.status == "qualified",
+            Contact.id.not_in(recent_act_contact_subq),
+        ),
+        Contact, current_user,
+    )
+    stale_contacts = (await db.execute(stale_contacts_q)).scalar() or 0
+    if stale_contacts > 0:
+        suggestions.append(NextActionResponse(
+            title=f"Relancer {stale_contacts} contact(s) qualifie(s) sans suivi",
+            body="Risque de refroidissement : aucun contact depuis 14 jours.",
+            primary_action=NextActionAction(label="Voir les contacts", type="view"),
+        ))
+
+    # 4. Pipeline a closer cette semaine (calcule seulement si on a < MAX suggestions)
+    if len(suggestions) < MAX_NEXT_ACTIONS:
+        close_q = apply_ownership_filter(
+            select(func.count(Deal.id)).where(
+                Deal.stage.in_(PIPELINE_STAGES),
+                Deal.expected_close_date.is_not(None),
+                Deal.expected_close_date >= today,
+                Deal.expected_close_date <= in_seven_days,
+            ),
+            Deal, current_user,
+        )
+        close_imminent = (await db.execute(close_q)).scalar() or 0
+        if close_imminent > 0:
+            suggestions.append(NextActionResponse(
+                title="Closer cette semaine",
+                body=(
+                    f"{close_imminent} deal(s) avec date de cloture prevue "
+                    "dans les 7 prochains jours."
+                ),
+                primary_action=NextActionAction(label="Voir le pipeline", type="view"),
+            ))
+
+    return suggestions[:MAX_NEXT_ACTIONS]
