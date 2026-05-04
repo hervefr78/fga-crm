@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import ValidationError
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.core.deps import get_current_user
 from app.core.rbac import apply_ownership_filter, check_entity_access
@@ -30,6 +31,11 @@ from app.schemas.import_export import (
 
 router = APIRouter()
 
+# Options selectinload partagees pour eviter N+1 sur Contact.company (DC6).
+# Toute query passee a _contact_to_response doit appliquer ces options sinon
+# l'acces a c.company.name declenche un lazy load synchrone (MissingGreenlet).
+CONTACT_RESPONSE_LOADERS = (selectinload(Contact.company),)
+
 
 def _parse_date(value: str, field_name: str) -> datetime:
     """Convertir un string ISO en datetime avec gestion d'erreur propre (DC3)."""
@@ -44,7 +50,12 @@ def _contact_to_response(
     owner_name: str | None = None,
     updated_by_name: str | None = None,
 ) -> ContactResponse:
-    """Convertir un modele Contact en schema de reponse."""
+    """Convertir un modele Contact en schema de reponse.
+
+    Pre-condition : `c.company` doit avoir ete charge en amont (selectinload
+    via CONTACT_RESPONSE_LOADERS). Sinon SQLAlchemy declenche un lazy load
+    synchrone qui leve MissingGreenlet en contexte async.
+    """
     return ContactResponse(
         id=str(c.id),
         first_name=c.first_name,
@@ -62,6 +73,7 @@ def _contact_to_response(
         lead_score=c.lead_score or 0,
         source=c.source,
         company_id=str(c.company_id) if c.company_id else None,
+        company_name=c.company.name if c.company else None,
         owner_id=str(c.owner_id) if c.owner_id else None,
         owner_name=owner_name,
         created_at=c.created_at.isoformat(),
@@ -87,7 +99,8 @@ async def list_contacts(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    query = select(Contact)
+    # selectinload(Contact.company) pour exposer company_name sans N+1 (DC6)
+    query = select(Contact).options(*CONTACT_RESPONSE_LOADERS)
     query = apply_ownership_filter(query, Contact, user)
 
     if search:
@@ -157,7 +170,12 @@ async def create_contact(
     contact = Contact(**contact_data, owner_id=user.id)
     db.add(contact)
     await db.flush()
-    await db.refresh(contact)
+
+    # Recharger avec selectinload(company) pour populer company_name (DC6)
+    result = await db.execute(
+        select(Contact).options(*CONTACT_RESPONSE_LOADERS).where(Contact.id == contact.id)
+    )
+    contact = result.scalar_one()
 
     return _contact_to_response(contact)
 
@@ -168,7 +186,10 @@ async def get_contact(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    result = await db.execute(select(Contact).where(Contact.id == contact_id))
+    # selectinload(company) pour exposer company_name sans N+1 (DC6)
+    result = await db.execute(
+        select(Contact).options(*CONTACT_RESPONSE_LOADERS).where(Contact.id == contact_id)
+    )
     contact = result.scalar_one_or_none()
     if not contact:
         raise HTTPException(status_code=404, detail="Contact non trouve")
@@ -195,7 +216,10 @@ async def update_contact(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    result = await db.execute(select(Contact).where(Contact.id == contact_id))
+    # selectinload(company) pour pouvoir retourner company_name sans lazy load (DC6)
+    result = await db.execute(
+        select(Contact).options(*CONTACT_RESPONSE_LOADERS).where(Contact.id == contact_id)
+    )
     contact = result.scalar_one_or_none()
     if not contact:
         raise HTTPException(status_code=404, detail="Contact non trouve")
@@ -217,7 +241,17 @@ async def update_contact(
     contact.updated_by = user.id
 
     await db.flush()
-    await db.refresh(contact)
+    # Re-fetch avec selectinload + populate_existing : si company_id a change,
+    # la relation chargee initialement pointe vers l'ancienne company. Sans
+    # populate_existing, l'identity map renvoie l'instance avec sa relation
+    # stale. populate_existing force le re-load des relations selectin (DC6).
+    result = await db.execute(
+        select(Contact)
+        .options(*CONTACT_RESPONSE_LOADERS)
+        .where(Contact.id == contact.id)
+        .execution_options(populate_existing=True)
+    )
+    contact = result.scalar_one()
     return _contact_to_response(contact, updated_by_name=user.full_name)
 
 

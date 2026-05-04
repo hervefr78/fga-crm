@@ -683,6 +683,44 @@ async def test_get_deal_without_company_returns_null_company_name(
     body = resp.json()
     assert body["company_id"] is None
     assert body["company_name"] is None
+    # contact_name est None aussi quand pas de contact_id
+    assert body["contact_id"] is None
+    assert body["contact_name"] is None
+
+
+@pytest.mark.asyncio
+async def test_list_deals_includes_contact_name(
+    client: AsyncClient, auth_headers: dict, db_session
+):
+    """list_deals expose contact_name si le deal est rattache a un Contact (DC6 selectinload)."""
+    import uuid as _uuid
+
+    from app.models.contact import Contact as _Contact
+
+    contact = _Contact(
+        id=_uuid.uuid4(), first_name="Marie", last_name="Curie", email="m@curie.fr"
+    )
+    db_session.add(contact)
+    await db_session.commit()
+
+    await _create_deal(
+        client, auth_headers,
+        title="Deal Curie",
+        contact_id=str(contact.id),
+    )
+
+    # GET list
+    resp = await client.get("/api/v1/deals", headers=auth_headers)
+    assert resp.status_code == 200, resp.text
+    items = resp.json()["items"]
+    assert len(items) == 1
+    assert items[0]["contact_id"] == str(contact.id)
+    assert items[0]["contact_name"] == "Marie Curie"
+
+    # GET detail
+    resp = await client.get(f"/api/v1/deals/{items[0]['id']}", headers=auth_headers)
+    assert resp.status_code == 200
+    assert resp.json()["contact_name"] == "Marie Curie"
 
 
 # ---------------------------------------------------------------------------

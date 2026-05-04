@@ -16,7 +16,7 @@ import {
 import FilterBar, { type FilterDef } from '../components/ui/FilterBar';
 import { getUsers, updateUserRole, toggleUserActive } from '../api/client';
 import { USER_ROLES, type User, type PaginatedResponse } from '../types';
-import { useAuth } from '../contexts/AuthContext';
+import { useAuth } from '../contexts/useAuth';
 
 // ---------- Constantes ----------
 

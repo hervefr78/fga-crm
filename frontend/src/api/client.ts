@@ -4,7 +4,7 @@
 
 import axios from 'axios';
 import api, { API_ROOT } from './http';
-import type { UserLookup } from '../types';
+import type { UserLookup, NextActionResponse } from '../types';
 
 // ---------- Health ----------
 export const getHealth = async () => {
@@ -286,4 +286,32 @@ export const getDashboardStats = async () => {
 export const globalSearch = async (q: string) => {
   const response = await api.get('/search', { params: { q } });
   return response.data;
+};
+
+// ---------- AI Next-Action (suggestions contextuelles) ----------
+// Cas particulier : sur deal.stage='lost' le backend renvoie 204 No Content,
+// on retourne alors null pour que l'AI card ne s'affiche pas (DC2 — explicit).
+
+export const getCompanyNextAction = async (id: string): Promise<NextActionResponse | null> => {
+  const response = await api.get(`/companies/${id}/next-action`, {
+    validateStatus: (s) => s === 200 || s === 204,
+  });
+  if (response.status === 204) return null;
+  return response.data as NextActionResponse;
+};
+
+export const getContactNextAction = async (id: string): Promise<NextActionResponse | null> => {
+  const response = await api.get(`/contacts/${id}/next-action`, {
+    validateStatus: (s) => s === 200 || s === 204,
+  });
+  if (response.status === 204) return null;
+  return response.data as NextActionResponse;
+};
+
+export const getDealNextAction = async (id: string): Promise<NextActionResponse | null> => {
+  const response = await api.get(`/deals/${id}/next-action`, {
+    validateStatus: (s) => s === 200 || s === 204,
+  });
+  if (response.status === 204) return null;
+  return response.data as NextActionResponse;
 };

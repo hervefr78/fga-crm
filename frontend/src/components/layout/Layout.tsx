@@ -21,7 +21,7 @@ import {
   XCircle,
 } from 'lucide-react';
 import clsx from 'clsx';
-import { useAuth } from '../../contexts/AuthContext';
+import { useAuth } from '../../contexts/useAuth';
 import { isAdmin, USER_ROLES } from '../../types';
 import GlobalSearch from './GlobalSearch';
 

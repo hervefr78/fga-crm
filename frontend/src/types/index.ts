@@ -39,6 +39,8 @@ export interface Contact {
   lead_score: number;
   source: string | null;
   company_id: string | null;
+  // Champ derive backend (joined depuis Company.name) — null si pas d'entreprise rattachee
+  company_name: string | null;
   owner_id: string | null;
   owner_name: string | null;
   created_at: string;
@@ -94,10 +96,12 @@ export interface Deal {
   recurring_amount: number | null;
   commitment_months: number | null;
   created_at: string;
-  // Champs derives backend (selectinload owner/company + loss_reason colonne)
+  // Champs derives backend (selectinload owner/company/contact + loss_reason colonne)
   loss_reason: string | null;
   owner_name: string | null;
   company_name: string | null;
+  // Champ derive backend (joined depuis Contact.full_name) — null si pas de contact
+  contact_name: string | null;
 }
 
 // Stats agregees retournees par GET /api/v1/deals/stats
@@ -485,4 +489,23 @@ export interface ImportRowError {
 export interface ImportResult {
   imported: number;
   errors: ImportRowError[];
+}
+
+// ---------- AI Next-Action ----------
+// Reponse des endpoints GET /companies|contacts|deals/{id}/next-action.
+// Cas particulier : sur un deal stage='lost', le backend retourne 204 No Content
+// — le client (api/client.ts) doit alors retourner null.
+
+export type NextActionType = 'compose_email' | 'create_task' | 'snooze' | 'view';
+
+export interface NextActionAction {
+  label: string;
+  type: NextActionType;
+}
+
+export interface NextActionResponse {
+  title: string;
+  body: string;
+  primary_action: NextActionAction | null;
+  secondary_action: NextActionAction | null;
 }
