@@ -142,6 +142,15 @@ Si une etape manque, la faire AVANT de repondre. Ne JAMAIS dire "c'est termine" 
 - Badge maps (TYPE_COLORS, etc.) au top du fichier page
 - FilterBar.onChange signature : `(key, value)` pas `(values)`
 
+#### UI Guidelines (OBLIGATOIRE pour tout travail frontend)
+**Reference unique** : [`UI_GUIDELINES.md`](UI_GUIDELINES.md) a la racine du repo.
+- TOUJOURS lire ce document avant de creer ou refactorer une page
+- Charte visuelle, patterns recurrents (DetailHeader, KpiStrip, AiCard, ActivityTimeline, SideCard, SplitView), regles d'interaction, anti-patterns
+- Checklist PR obligatoire en section 12 du document
+- Toute deviation du guide doit etre justifiee dans la PR ET ajoutee au document si elle devient un nouveau pattern
+- Stack : React 18 + TS + Tailwind 3.4 + Lucide + TanStack Query v5
+- Anti-patterns critiques : pas de `font-bold` (700+), pas de `shadow-md+`, pas de gradient, pas d'emoji, pas de stat inventee (afficher `—` si absente)
+
 ---
 
 ## Regles specifiques a ce projet
