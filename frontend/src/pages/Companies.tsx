@@ -19,7 +19,17 @@ import { exportToCsv, COMPANY_CSV_COLUMNS } from '../utils/csv';
 // Filtres disponibles
 const COMPANY_FILTERS: FilterDef[] = [
   { key: 'size_range', label: 'Taille', type: 'select', options: [...COMPANY_SIZE_RANGES] },
-  { key: 'country', label: 'Pays', type: 'select', options: [] }, // Texte libre via select vide → on utilisera un input
+  { key: 'country', label: 'Pays', type: 'select', options: [] },
+  {
+    key: 'lead_source',
+    label: 'Provenance',
+    type: 'select',
+    options: [
+      { value: 'startup_radar', label: 'Startup Radar' },
+      { value: 'nomo-ia', label: 'Nomo-IA' },
+      { value: 'pleinphare', label: 'Plein Phare Digital' },
+    ],
+  },
 ];
 
 const MAX_EXPORT_SIZE = 5000;

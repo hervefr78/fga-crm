@@ -63,6 +63,7 @@ export interface Company {
   city: string | null;
   country: string | null;
   startup_radar_id: string | null;
+  lead_source: string | null;
   owner_id: string | null;
   owner_name: string | null;
   created_at: string;

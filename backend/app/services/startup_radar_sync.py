@@ -126,6 +126,7 @@ async def sync_startups(
                         description=s.get("description"),
                         custom_fields=custom if custom else None,
                         startup_radar_id=sr_id,
+                        lead_source="startup_radar",
                         owner_id=user.id,
                     )
                     db.add(company)
@@ -208,6 +209,7 @@ async def sync_investors(
                         industry="Capital-risque",
                         custom_fields=custom if custom else None,
                         startup_radar_id=sr_id,
+                        lead_source="startup_radar",
                         owner_id=user.id,
                     )
                     db.add(company)

@@ -80,6 +80,7 @@ async def list_companies(
     industry: str | None = None,
     size_range: str | None = None,
     country: str | None = None,
+    lead_source: str | None = Query(None, max_length=100),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
@@ -96,6 +97,12 @@ async def list_companies(
         query = query.where(Company.size_range == size_range)
     if country:
         query = query.where(Company.country.ilike(f"%{country}%"))
+    if lead_source:
+        # Startup Radar : les entreprises existantes n'ont pas lead_source mais ont startup_radar_id
+        if lead_source == "startup_radar":
+            query = query.where(Company.startup_radar_id.is_not(None))
+        else:
+            query = query.where(Company.lead_source == lead_source)
 
     # Count
     count_query = select(func.count()).select_from(query.subquery())
