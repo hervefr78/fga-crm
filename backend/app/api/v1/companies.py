@@ -7,7 +7,7 @@ import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import ValidationError
-from sqlalchemy import String, cast, func, select
+from sqlalchemy import String, case, cast, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import get_current_user
@@ -31,6 +31,54 @@ from app.schemas.import_export import (
 )
 
 router = APIRouter()
+
+
+async def _fetch_audit_flags(
+    db: AsyncSession,
+    company_ids: list[uuid.UUID],
+) -> tuple[dict[uuid.UUID, dict], dict[uuid.UUID, int]]:
+    """Retourner (audit_map, score_map) pour une liste de company_ids."""
+    audit_map: dict[uuid.UUID, dict] = {}
+    score_map: dict[uuid.UUID, int] = {}
+    if not company_ids:
+        return audit_map, score_map
+
+    audit_query = (
+        select(
+            Activity.company_id,
+            cast(Activity.metadata_["audit_type"], String).label("audit_type"),
+            cast(Activity.metadata_["total_score"], String).label("total_score"),
+            cast(Activity.metadata_["messaging_score"], String).label("messaging_score"),
+        )
+        .where(
+            Activity.company_id.in_(company_ids),
+            Activity.type == "audit",
+            Activity.metadata_["audit_type"] != None,  # noqa: E711
+        )
+    )
+    audit_rows = (await db.execute(audit_query)).all()
+
+    for row in audit_rows:
+        cid = row.company_id
+        atype = row.audit_type
+        if cid not in audit_map:
+            audit_map[cid] = {"has_messaging": False, "has_detailed": False, "has_geo": False}
+        if atype == "messaging":
+            audit_map[cid]["has_messaging"] = True
+            if row.messaging_score and cid not in score_map:
+                with contextlib.suppress(ValueError, TypeError):
+                    score_map[cid] = int(float(row.messaging_score))
+        elif atype == "detailed":
+            audit_map[cid]["has_detailed"] = True
+            if row.total_score:
+                with contextlib.suppress(ValueError, TypeError):
+                    score_val = int(float(row.total_score))
+                    if cid not in score_map or score_val > score_map[cid]:
+                        score_map[cid] = score_val
+        elif atype == "geo":
+            audit_map[cid]["has_geo"] = True
+
+    return audit_map, score_map
 
 
 def _company_to_response(
@@ -81,6 +129,8 @@ async def list_companies(
     size_range: str | None = None,
     country: str | None = None,
     lead_source: str | None = Query(None, max_length=100),
+    sort_by: str | None = Query(None, max_length=20),
+    sort_dir: str = Query("desc", pattern="^(asc|desc)$"),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
@@ -108,56 +158,29 @@ async def list_companies(
     count_query = select(func.count()).select_from(query.subquery())
     total = (await db.execute(count_query)).scalar() or 0
 
+    # Tri dynamique
+    _SORTABLE = {"name", "industry", "size_range", "created_at"}
+    if sort_by in _SORTABLE:
+        if sort_by == "size_range":
+            sort_col = case(
+                {"1-10": 1, "11-50": 2, "51-200": 3, "201-500": 4, "500+": 5},
+                value=Company.size_range,
+                else_=6,
+            )
+        else:
+            sort_col = getattr(Company, sort_by)
+        query = query.order_by(sort_col.desc() if sort_dir == "desc" else sort_col.asc())
+    else:
+        query = query.order_by(Company.created_at.desc())
+
     # Paginate
-    query = query.order_by(Company.created_at.desc()).offset((page - 1) * size).limit(size)
+    query = query.offset((page - 1) * size).limit(size)
     result = await db.execute(query)
     companies = result.scalars().all()
 
     # Charger les flags d'audit SR et score pour les companies de cette page
     company_ids = [c.id for c in companies]
-    audit_map: dict[uuid.UUID, dict] = {}
-    score_map: dict[uuid.UUID, int] = {}
-
-    if company_ids:
-        # Recuperer toutes les activites audit de ces companies (company_id + audit_type)
-        audit_query = (
-            select(
-                Activity.company_id,
-                cast(Activity.metadata_["audit_type"], String).label("audit_type"),
-                cast(Activity.metadata_["total_score"], String).label("total_score"),
-                cast(Activity.metadata_["messaging_score"], String).label("messaging_score"),
-            )
-            .where(
-                Activity.company_id.in_(company_ids),
-                Activity.type == "audit",
-                Activity.metadata_["audit_type"] != None,  # noqa: E711
-            )
-        )
-        audit_rows = (await db.execute(audit_query)).all()
-
-        for row in audit_rows:
-            cid = row.company_id
-            atype = row.audit_type
-
-            if cid not in audit_map:
-                audit_map[cid] = {"has_messaging": False, "has_detailed": False, "has_geo": False}
-
-            if atype == "messaging":
-                audit_map[cid]["has_messaging"] = True
-                # Score messaging (/10) — utilisé si pas de score detailed
-                if row.messaging_score and cid not in score_map:
-                    with contextlib.suppress(ValueError, TypeError):
-                        score_map[cid] = int(float(row.messaging_score))
-            elif atype == "detailed":
-                audit_map[cid]["has_detailed"] = True
-                # Score detailed (/75) — prioritaire sur messaging
-                if row.total_score:
-                    with contextlib.suppress(ValueError, TypeError):
-                        score_val = int(float(row.total_score))
-                        if cid not in score_map or score_val > score_map[cid]:
-                            score_map[cid] = score_val
-            elif atype == "geo":
-                audit_map[cid]["has_geo"] = True
+    audit_map, score_map = await _fetch_audit_flags(db, company_ids)
 
     return CompanyListResponse(
         items=[
@@ -214,7 +237,16 @@ async def get_company(
         ub_result = await db.execute(select(User.full_name).where(User.id == company.updated_by))
         updated_by_name = ub_result.scalar_one_or_none()
 
-    return _company_to_response(company, owner_name=owner_name, updated_by_name=updated_by_name)
+    audit_map, score_map = await _fetch_audit_flags(db, [company.id])
+    return _company_to_response(
+        company,
+        owner_name=owner_name,
+        updated_by_name=updated_by_name,
+        has_audit_messaging=audit_map.get(company.id, {}).get("has_messaging", False),
+        has_audit_detailed=audit_map.get(company.id, {}).get("has_detailed", False),
+        has_audit_geo=audit_map.get(company.id, {}).get("has_geo", False),
+        audit_score=score_map.get(company.id),
+    )
 
 
 @router.put("/{company_id}", response_model=CompanyResponse)

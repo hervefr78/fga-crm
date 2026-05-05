@@ -5,7 +5,10 @@
 import { useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Building2, Plus, Trash2, Download, Upload, FileText, FileSearch, Globe } from 'lucide-react';
+import {
+  Building2, Plus, Trash2, Download, Upload,
+  FileText, FileSearch, Globe, ChevronUp, ChevronDown, ChevronsUpDown,
+} from 'lucide-react';
 
 import { getCompanies, deleteCompany } from '../api/client';
 import type { Company } from '../types';
@@ -15,6 +18,7 @@ import type { FilterDef } from '../components/ui';
 import CompanyForm from '../components/companies/CompanyForm';
 import CsvImportModal from '../components/import/CsvImportModal';
 import { exportToCsv, COMPANY_CSV_COLUMNS } from '../utils/csv';
+import { formatDateFR } from '../utils/format';
 
 // Filtres disponibles
 const COMPANY_FILTERS: FilterDef[] = [
@@ -32,6 +36,9 @@ const COMPANY_FILTERS: FilterDef[] = [
   },
 ];
 
+// Colonnes triables côté backend
+type SortKey = 'name' | 'industry' | 'size_range' | 'created_at';
+
 const MAX_EXPORT_SIZE = 5000;
 
 export default function CompaniesPage() {
@@ -40,6 +47,8 @@ export default function CompaniesPage() {
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const [filters, setFilters] = useState<Record<string, string>>({});
+  const [sortBy, setSortBy] = useState<SortKey>('created_at');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
   const [importOpen, setImportOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
 
@@ -54,8 +63,12 @@ export default function CompaniesPage() {
   );
 
   const { data, isLoading } = useQuery({
-    queryKey: ['companies', { page, search, ...activeFilters }],
-    queryFn: () => getCompanies({ page, size: 25, search: search || undefined, ...activeFilters }),
+    queryKey: ['companies', { page, search, sortBy, sortDir, ...activeFilters }],
+    queryFn: () => getCompanies({
+      page, size: 25, search: search || undefined,
+      sort_by: sortBy, sort_dir: sortDir,
+      ...activeFilters,
+    }),
   });
 
   const deleteMutation = useMutation({
@@ -81,10 +94,24 @@ export default function CompaniesPage() {
     setPage(1);
   }, []);
 
+  const handleSort = useCallback((col: SortKey) => {
+    if (sortBy === col) {
+      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortBy(col);
+      setSortDir('asc');
+    }
+    setPage(1);
+  }, [sortBy]);
+
   const handleExport = async () => {
     setExporting(true);
     try {
-      const res = await getCompanies({ page: 1, size: MAX_EXPORT_SIZE, search: search || undefined, ...activeFilters });
+      const res = await getCompanies({
+        page: 1, size: MAX_EXPORT_SIZE, search: search || undefined,
+        sort_by: sortBy, sort_dir: sortDir,
+        ...activeFilters,
+      });
       exportToCsv(res.items, 'entreprises.csv', COMPANY_CSV_COLUMNS);
     } catch (err) {
       console.error('[Companies] Export failed:', err);
@@ -150,11 +177,12 @@ export default function CompaniesPage() {
             <table className="w-full">
               <thead className="bg-slate-50">
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wide">Entreprise</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wide">Secteur</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wide">Taille</th>
+                  <SortTh col="name" label="Entreprise" sortBy={sortBy} sortDir={sortDir} onSort={handleSort} align="left" />
+                  <SortTh col="industry" label="Secteur" sortBy={sortBy} sortDir={sortDir} onSort={handleSort} align="left" />
+                  <SortTh col="size_range" label="Taille" sortBy={sortBy} sortDir={sortDir} onSort={handleSort} align="left" />
                   <th className="px-6 py-3 text-center text-xs font-medium text-slate-400 uppercase tracking-wide">Score</th>
                   <th className="px-6 py-3 text-center text-xs font-medium text-slate-400 uppercase tracking-wide">Audits</th>
+                  <SortTh col="created_at" label="Créé le" sortBy={sortBy} sortDir={sortDir} onSort={handleSort} align="left" />
                   <th className="px-6 py-3 w-12" />
                 </tr>
               </thead>
@@ -198,6 +226,9 @@ export default function CompaniesPage() {
                           <Globe className={`w-4 h-4 ${company.has_audit_geo ? 'text-emerald-500' : 'text-slate-200'}`} />
                         </span>
                       </div>
+                    </td>
+                    <td className="px-6 py-4 text-sm text-slate-400 whitespace-nowrap">
+                      {formatDateFR(company.created_at)}
                     </td>
                     <td className="px-6 py-4">
                       <button
@@ -258,5 +289,34 @@ export default function CompaniesPage() {
         onSuccess={() => void queryClient.invalidateQueries({ queryKey: ['companies'] })}
       />
     </div>
+  );
+}
+
+// -----------------------------------------------------------------------------
+// Composant header de colonne triable
+// -----------------------------------------------------------------------------
+
+function SortTh({
+  col, label, sortBy, sortDir, onSort, align = 'left',
+}: {
+  col: SortKey;
+  label: string;
+  sortBy: SortKey;
+  sortDir: 'asc' | 'desc';
+  onSort: (col: SortKey) => void;
+  align?: 'left' | 'center';
+}) {
+  const active = sortBy === col;
+  const Icon = active ? (sortDir === 'asc' ? ChevronUp : ChevronDown) : ChevronsUpDown;
+  return (
+    <th
+      className={`px-6 py-3 text-${align} text-xs font-medium text-slate-400 uppercase tracking-wide cursor-pointer select-none hover:text-slate-600 transition-colors`}
+      onClick={() => onSort(col)}
+    >
+      <span className="inline-flex items-center gap-1">
+        {label}
+        <Icon className={`w-3 h-3 ${active ? 'text-primary-500' : 'text-slate-300'}`} />
+      </span>
+    </th>
   );
 }
