@@ -7,7 +7,7 @@ import logging
 import uuid
 from dataclasses import dataclass, field
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.activity import Activity
@@ -78,9 +78,21 @@ async def sync_startups(
 
         try:
             async with db.begin_nested():
-                # Chercher si la company existe deja via startup_radar_id
+                # 1. Chercher par startup_radar_id (idempotence principale)
                 stmt = select(Company).where(Company.startup_radar_id == sr_id)
                 existing = (await db.execute(stmt)).scalar_one_or_none()
+
+                # 2. Fallback : chercher par nom (case-insensitive) si pas encore lie a SR
+                #    Evite les doublons quand la company existe deja cree manuellement
+                if not existing and s.get("name"):
+                    stmt2 = select(Company).where(
+                        func.lower(Company.name) == s["name"].lower(),
+                        Company.startup_radar_id.is_(None),
+                    )
+                    existing = (await db.execute(stmt2)).scalar_one_or_none()
+                    if existing:
+                        # Lier la company existante a SR (pas de creation)
+                        existing.startup_radar_id = sr_id
 
                 # Preparer les custom_fields
                 custom = {}
@@ -99,7 +111,6 @@ async def sync_startups(
                     existing.website = s.get("website") or existing.website
                     existing.industry = s.get("sector") or existing.industry
                     existing.description = s.get("description") or existing.description
-                    # Merger les custom_fields existants avec les nouveaux
                     merged = {**(existing.custom_fields or {}), **custom}
                     existing.custom_fields = merged
                     sr_to_crm[sr_id] = existing.id
@@ -162,8 +173,19 @@ async def sync_investors(
 
         try:
             async with db.begin_nested():
+                # 1. Chercher par startup_radar_id
                 stmt = select(Company).where(Company.startup_radar_id == sr_id)
                 existing = (await db.execute(stmt)).scalar_one_or_none()
+
+                # 2. Fallback nom case-insensitive (evite doublons si cree manuellement)
+                if not existing and inv.get("name"):
+                    stmt2 = select(Company).where(
+                        func.lower(Company.name) == inv["name"].lower(),
+                        Company.startup_radar_id.is_(None),
+                    )
+                    existing = (await db.execute(stmt2)).scalar_one_or_none()
+                    if existing:
+                        existing.startup_radar_id = sr_id
 
                 custom = {}
                 if inv.get("startups_count"):

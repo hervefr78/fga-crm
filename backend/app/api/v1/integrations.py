@@ -8,7 +8,7 @@ from datetime import date
 
 from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -97,16 +97,27 @@ async def nomo_new_subscription(
         raise HTTPException(status_code=503, detail="No admin user found in CRM")
 
     # 1. Trouver ou creer la Company
-    existing_company = (await db.execute(
-        select(Company).where(Company.name == payload.company_name)
-    )).scalar_one_or_none()
+    #    Priorite : domaine email (unique en DB) → nom case-insensitive → creation
+    email_domain = payload.email.split("@")[1] if "@" in payload.email else None
+    company: Company | None = None
 
-    if existing_company:
-        company = existing_company
-    else:
+    if email_domain:
+        company = (await db.execute(
+            select(Company).where(Company.domain == email_domain)
+        )).scalar_one_or_none()
+
+    if not company:
+        company = (await db.execute(
+            select(Company).where(
+                func.lower(Company.name) == payload.company_name.lower()
+            )
+        )).scalar_one_or_none()
+
+    if not company:
         company = Company(
             id=uuid.uuid4(),
             name=payload.company_name,
+            domain=email_domain,
             phone=payload.phone,
             address_line=payload.address_line,
             postal_code=payload.postal_code,
@@ -117,14 +128,19 @@ async def nomo_new_subscription(
         )
         db.add(company)
         await db.flush()
+    elif email_domain and not company.domain:
+        # Enrichir la company existante avec le domaine si elle n'en avait pas
+        company.domain = email_domain
 
-    # 2. Creer le Contact (verifier idempotence par email)
-    existing_contact = (await db.execute(
+    # 2. Trouver ou creer le Contact (idempotence par email)
+    contact = (await db.execute(
         select(Contact).where(Contact.email == payload.email)
     )).scalar_one_or_none()
 
-    if existing_contact:
-        contact = existing_contact
+    if contact:
+        # Relier a la company si pas encore fait
+        if not contact.company_id:
+            contact.company_id = company.id
     else:
         contact = Contact(
             id=uuid.uuid4(),
@@ -141,25 +157,36 @@ async def nomo_new_subscription(
         db.add(contact)
         await db.flush()
 
-    # 3. Creer le Deal
+    # 3. Creer le Deal (idempotence : verifier si un deal identique existe deja)
     pricing_type = _PLAN_PRICING_TYPE.get(payload.billing_cycle, "monthly")
     deal_title = f"Nomo-IA — {payload.plan.capitalize()} — {payload.company_name}"
-    deal = Deal(
-        id=uuid.uuid4(),
-        title=deal_title[:255],
-        stage="won",
-        amount=payload.amount_eur,
-        currency="EUR",
-        probability=100,
-        pricing_type=pricing_type,
-        recurring_amount=payload.amount_eur,
-        commitment_months=None,
-        company_id=company.id,
-        contact_id=contact.id,
-        description=f"Souscription Nomo-IA le {payload.subscription_date}. Plan : {payload.plan}.",
-        owner_id=admin.id,
-    )
-    db.add(deal)
+    existing_deal = (await db.execute(
+        select(Deal).where(
+            Deal.contact_id == contact.id,
+            Deal.title == deal_title[:255],
+            Deal.stage == "won",
+        )
+    )).scalar_one_or_none()
+
+    if existing_deal:
+        deal = existing_deal
+    else:
+        deal = Deal(
+            id=uuid.uuid4(),
+            title=deal_title[:255],
+            stage="won",
+            amount=payload.amount_eur,
+            currency="EUR",
+            probability=100,
+            pricing_type=pricing_type,
+            recurring_amount=payload.amount_eur,
+            commitment_months=None,
+            company_id=company.id,
+            contact_id=contact.id,
+            description=f"Souscription Nomo-IA le {payload.subscription_date}. Plan : {payload.plan}.",
+            owner_id=admin.id,
+        )
+        db.add(deal)
 
     await db.commit()
 
