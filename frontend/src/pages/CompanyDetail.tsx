@@ -141,6 +141,7 @@ export default function CompanyDetailPage() {
     mutationFn: () => triggerCompanyAudit(id!),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['activities', { company_id: id }] });
+      void queryClient.invalidateQueries({ queryKey: ['company', id] });
       setActiveTab('audit');
     },
   });
