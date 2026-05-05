@@ -7,7 +7,7 @@ import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import ValidationError
-from sqlalchemy import String, case, cast, func, select
+from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import get_current_user
@@ -46,9 +46,9 @@ async def _fetch_audit_flags(
     audit_query = (
         select(
             Activity.company_id,
-            cast(Activity.metadata_["audit_type"], String).label("audit_type"),
-            cast(Activity.metadata_["total_score"], String).label("total_score"),
-            cast(Activity.metadata_["messaging_score"], String).label("messaging_score"),
+            Activity.metadata_["audit_type"].as_string().label("audit_type"),
+            Activity.metadata_["total_score"].as_string().label("total_score"),
+            Activity.metadata_["messaging_score"].as_string().label("messaging_score"),
         )
         .where(
             Activity.company_id.in_(company_ids),
