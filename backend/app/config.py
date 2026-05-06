@@ -76,6 +76,9 @@ class Settings(BaseSettings):
     # Nomo-IA Integration (incoming webhook from Marketing Assistant)
     nomo_api_key: str | None = None
 
+    # Plein Phare Digital Integration (incoming webhook from plein-phare-api)
+    plein_phare_api_key: str = ""
+
     # MinIO (S3-compatible)
     minio_endpoint: str = "minio:9000"
     minio_root_user: str = "minioadmin"
