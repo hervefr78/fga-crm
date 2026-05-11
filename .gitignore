@@ -52,3 +52,6 @@ tools/contacts_emails.csv
 tools/contacts_*.xlsx
 tools/contacts_*.csv
 *.pen
+
+# Scaffolding leftovers (UI refactor drop-ins, already applied)
+refactor-output/
