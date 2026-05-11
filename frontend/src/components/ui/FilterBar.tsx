@@ -10,8 +10,9 @@ import clsx from 'clsx';
 export interface FilterDef {
   key: string;
   label: string;
-  type: 'select' | 'date' | 'boolean' | 'text';
+  type: 'select' | 'date' | 'boolean' | 'text' | 'number';
   options?: { value: string; label: string }[];
+  placeholder?: string;
 }
 
 interface FilterBarProps {
@@ -77,6 +78,17 @@ export default function FilterBar({ filters, values, onChange, onReset }: Filter
               value={values[filter.key] || ''}
               onChange={(e) => onChange(filter.key, e.target.value)}
               className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-colors"
+            />
+          )}
+
+          {filter.type === 'number' && (
+            <input
+              type="number"
+              min={0}
+              placeholder={filter.placeholder || filter.label}
+              value={values[filter.key] || ''}
+              onChange={(e) => onChange(filter.key, e.target.value)}
+              className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-colors"
             />
           )}
         </div>

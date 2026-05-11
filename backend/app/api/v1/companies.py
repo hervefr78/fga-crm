@@ -137,6 +137,10 @@ async def list_companies(
     lead_source: str | None = Query(None, max_length=100),
     sort_by: str | None = Query(None, max_length=20),
     sort_dir: str = Query("desc", pattern="^(asc|desc)$"),
+    # Funding multi-source filters (Phase B 2026-05)
+    funding_series: str | None = Query(None, max_length=50),
+    funding_amount_min: int | None = Query(None, ge=0),  # euros
+    funding_date_after: str | None = Query(None, max_length=10),  # ISO YYYY-MM-DD
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
@@ -159,6 +163,20 @@ async def list_companies(
             query = query.where(Company.startup_radar_id.is_not(None))
         else:
             query = query.where(Company.lead_source == lead_source)
+    # --- Funding filters ---
+    if funding_series:
+        query = query.where(Company.funding_series == funding_series)
+    if funding_amount_min:
+        query = query.where(Company.funding_amount >= funding_amount_min)
+    if funding_date_after:
+        try:
+            after_date = date.fromisoformat(funding_date_after)
+        except (ValueError, TypeError) as e:
+            raise HTTPException(
+                status_code=422,
+                detail=f"funding_date_after invalide (ISO YYYY-MM-DD attendu) : {e}",
+            ) from e
+        query = query.where(Company.funding_date >= after_date)
 
     # Count
     count_query = select(func.count()).select_from(query.subquery())

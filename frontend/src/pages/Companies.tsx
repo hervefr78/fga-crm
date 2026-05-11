@@ -34,6 +34,26 @@ const COMPANY_FILTERS: FilterDef[] = [
       { value: 'pleinphare', label: 'Plein Phare Digital' },
     ],
   },
+  // Funding multi-source (Phase B 2026-05) — filtres sur les levees detectees par SR
+  {
+    key: 'funding_series',
+    label: 'Serie',
+    type: 'select',
+    options: [
+      { value: 'Pre-seed', label: 'Pre-seed' },
+      { value: 'Seed', label: 'Seed' },
+      { value: 'Serie A', label: 'Serie A' },
+      { value: 'Serie B', label: 'Serie B' },
+      { value: 'Serie C', label: 'Serie C+' },
+    ],
+  },
+  {
+    key: 'funding_amount_min',
+    label: 'Montant min (€)',
+    type: 'number',
+    placeholder: 'ex: 1000000',
+  },
+  { key: 'funding_date_after', label: 'Levee apres', type: 'date' },
 ];
 
 // Colonnes triables côté backend

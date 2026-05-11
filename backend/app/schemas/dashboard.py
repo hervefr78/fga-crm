@@ -53,3 +53,11 @@ class DashboardStats(BaseModel):
 
     # Emails
     emails_sent_30d: int = Field(0, description="Emails envoyes 30 derniers jours")
+
+    # Funding multi-source (Phase B 2026-05) — levees detectees recemment
+    recent_funding_count: int = Field(
+        0, description="Nombre de companies avec funding_date dans les 7 derniers jours",
+    )
+    recent_funding_amount: int = Field(
+        0, description="Somme des funding_amount sur les 7 derniers jours (euros)",
+    )

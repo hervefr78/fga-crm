@@ -148,8 +148,8 @@ export default function Dashboard() {
         />
       </div>
 
-      {/* ===== Sous-strip recurrent — 3 colonnes ===== */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      {/* ===== Sous-strip recurrent — 4 colonnes ===== */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <KpiCard
           title="MRR actif"
           value={formatCurrency(stats?.deals_mrr_won || 0)}
@@ -173,6 +173,18 @@ export default function Dashboard() {
           icon={Target}
           color="text-violet-600"
           bgColor="bg-violet-50"
+        />
+        <KpiCard
+          title="Levees 7j"
+          value={String(stats?.recent_funding_count ?? 0)}
+          subtitle={
+            stats?.recent_funding_amount && stats.recent_funding_amount > 0
+              ? formatCurrency(stats.recent_funding_amount)
+              : 'Detectees par Startup Radar'
+          }
+          icon={TrendingUp}
+          color="text-emerald-600"
+          bgColor="bg-emerald-50"
         />
       </div>
 

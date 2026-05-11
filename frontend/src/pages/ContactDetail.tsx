@@ -25,6 +25,8 @@ import ContactForm from '../components/contacts/ContactForm';
 import ComposeModal from '../components/email/ComposeModal';
 import AiCard from '../components/ai/AiCard';
 import ComposerModal, { ComposerChannel } from '../components/activities/ComposerModal';
+import EmailIndicator from '../components/contacts/EmailIndicator';
+import LinkedinIndicator from '../components/contacts/LinkedinIndicator';
 
 // -----------------------------------------------------------------------------
 // Constantes
@@ -367,9 +369,28 @@ export default function ContactDetailPage() {
               <div className="flex flex-col gap-4">
                 <Card title="Coordonnees">
                   <div className="-mx-4 -my-4">
-                    <SideLink icon={Mail} label="Email" value={contact.email} href={contact.email ? `mailto:${contact.email}` : null} />
+                    <SideLink
+                      icon={Mail}
+                      label="Email"
+                      value={contact.email}
+                      href={contact.email ? `mailto:${contact.email}` : null}
+                      trailing={contact.email ? (
+                        <EmailIndicator
+                          emailStatus={contact.email_status}
+                          emailPattern={contact.email_pattern_used}
+                        />
+                      ) : null}
+                    />
                     <SideLink icon={Phone} label="Telephone" value={contact.phone} href={contact.phone ? `tel:${contact.phone}` : null} />
-                    <SideLink icon={Linkedin} label="LinkedIn" value={contact.linkedin_url ? 'Voir profil' : null} href={contact.linkedin_url} />
+                    <SideLink
+                      icon={Linkedin}
+                      label="LinkedIn"
+                      value={contact.linkedin_url ? 'Voir profil' : null}
+                      href={contact.linkedin_url}
+                      trailing={contact.linkedin_url ? (
+                        <LinkedinIndicator status={contact.linkedin_url_status} />
+                      ) : null}
+                    />
                     <SideLink icon={Building2} label="Entreprise" value={contact.company_name} href={contact.company_id ? `/companies/${contact.company_id}` : null} internal />
                   </div>
                 </Card>
@@ -498,8 +519,10 @@ function Tab({ active, onClick, icon: Icon, label, count }: {
   );
 }
 
-function SideLink({ icon: Icon, label, value, href, internal }: {
+function SideLink({ icon: Icon, label, value, href, internal, trailing }: {
   icon: React.ElementType; label: string; value?: string | null; href?: string | null; internal?: boolean;
+  // Slot optionnel pour afficher un badge a droite (ex: EmailIndicator, LinkedinIndicator)
+  trailing?: React.ReactNode;
 }) {
   const content = (
     <>
@@ -510,6 +533,7 @@ function SideLink({ icon: Icon, label, value, href, internal }: {
       <div className="text-sm font-medium text-slate-800 truncate max-w-[160px]">
         {value || <span className="text-slate-300">—</span>}
       </div>
+      {trailing && <div className="flex-shrink-0">{trailing}</div>}
     </>
   );
   if (href && value) {

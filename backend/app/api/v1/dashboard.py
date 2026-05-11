@@ -147,6 +147,26 @@ async def get_dashboard_stats(
     )
     emails_sent_30d = (await db.execute(emails_q)).scalar() or 0
 
+    # --- Funding multi-source (Phase B 2026-05) : levees 7 derniers jours ---
+    # Filtrer sur Company.funding_date (renseigne par le sync SR multi-source).
+    # Pas de filtre lead_source : peut etre 'startup_radar' ou autre (futurs flux).
+    seven_days_ago = date.today() - timedelta(days=7)
+    recent_funding_count_q = apply_ownership_filter(
+        select(func.count(Company.id)).where(
+            Company.funding_date >= seven_days_ago,
+        ),
+        Company, current_user,
+    )
+    recent_funding_count = (await db.execute(recent_funding_count_q)).scalar() or 0
+
+    recent_funding_amount_q = apply_ownership_filter(
+        select(func.coalesce(func.sum(Company.funding_amount), 0)).where(
+            Company.funding_date >= seven_days_ago,
+        ),
+        Company, current_user,
+    )
+    recent_funding_amount = int((await db.execute(recent_funding_amount_q)).scalar() or 0)
+
     # --- KPI pricing : MRR / ARR / one-shot (DC6 select minimal, RBAC applique) ---
     # On charge uniquement les 3 colonnes utiles puis on normalise en Python.
     pricing_won_q = apply_ownership_filter(
@@ -206,6 +226,8 @@ async def get_dashboard_stats(
         deals_arr_won=deals_arr_won,
         deals_mrr_pipeline=deals_mrr_pipeline,
         deals_one_shot_won=deals_one_shot_won,
+        recent_funding_count=recent_funding_count,
+        recent_funding_amount=recent_funding_amount,
     )
 
 

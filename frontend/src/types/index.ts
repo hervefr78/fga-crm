@@ -46,6 +46,10 @@ export interface Contact {
   created_at: string;
   updated_at: string | null;
   updated_by_name: string | null;
+  // Enrichment (synced from SR multi-source pipeline)
+  enrichment_source?: string | null;
+  email_pattern_used?: string | null;
+  linkedin_url_status?: 'candidate' | 'verified' | 'invalid' | string | null;
 }
 
 export interface Company {
@@ -73,6 +77,12 @@ export interface Company {
   has_audit_detailed: boolean;
   has_audit_geo: boolean;
   audit_score: number | null;
+  // Funding (synced from SR multi-source pipeline)
+  siren?: string | null;
+  funding_date?: string | null;  // ISO date YYYY-MM-DD
+  funding_amount?: number | null;  // euros
+  funding_series?: string | null;
+  funding_sources?: string[] | null;
 }
 
 export interface Deal {
@@ -130,6 +140,7 @@ export interface Task {
   assigned_to: string | null;
   contact_id: string | null;
   deal_id: string | null;
+  company_id?: string | null;
   created_at: string;
 }
 
@@ -297,6 +308,7 @@ export const TASK_TYPES = [
   { value: 'call', label: 'Appel' },
   { value: 'email', label: 'Email' },
   { value: 'meeting', label: 'Meeting' },
+  { value: 'qualification', label: 'Qualification levée' },
 ] as const;
 
 export const TASK_PRIORITIES = [
@@ -325,6 +337,7 @@ export const ACTIVITY_TYPES = [
   { value: 'linkedin', label: 'LinkedIn' },
   { value: 'task', label: 'Tâche' },
   { value: 'audit', label: 'Audit' },
+  { value: 'funding_detected', label: 'Levée détectée' },
 ] as const;
 
 // ---------- Roles & Permissions ----------
@@ -415,6 +428,9 @@ export interface SyncResult {
   investors_created: number;
   investors_updated: number;
   audits_created: number;
+  // Funding multi-source (Phase B 2026-05)
+  funding_activities_created?: number;
+  qualification_tasks_created?: number;
   errors: string[];
 }
 
@@ -463,6 +479,9 @@ export interface DashboardStats {
   deals_arr_won: number;
   deals_mrr_pipeline: number;
   deals_one_shot_won: number;
+  // Funding multi-source (Phase B 2026-05) — optional, backend ajoutera prochainement
+  recent_funding_count?: number;
+  recent_funding_amount?: number;
 }
 
 // ---------- Recherche globale ----------

@@ -60,3 +60,19 @@ export function formatDateFR(iso: string | null | undefined, placeholder = '—'
   if (!match) return placeholder;
   return `${match[3]}/${match[2]}/${match[1]}`;
 }
+
+/**
+ * Formate un montant en euros en notation compacte "M€" ou "k€" (specifique
+ * funding rounds — plus compact que formatCurrency pour les badges).
+ *
+ * @param amountEur - montant en euros (null/undefined/0/NaN -> '—')
+ * @returns "8.0 M€", "500 k€", "—" si invalide
+ */
+export function formatAmountMillions(amountEur: number | null | undefined): string {
+  if (typeof amountEur !== 'number' || !Number.isFinite(amountEur) || amountEur <= 0) {
+    return '—';
+  }
+  const m = amountEur / 1_000_000;
+  if (m >= 1) return `${m.toFixed(1)} M€`;
+  return `${(amountEur / 1_000).toFixed(0)} k€`;
+}
