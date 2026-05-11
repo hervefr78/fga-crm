@@ -139,6 +139,32 @@ services:
       - fga-internal
 
   # ---------------------------------------------------------------------------
+  # Celery Beat (Scheduler — sync incrementale SR, dev local optionnel)
+  # ---------------------------------------------------------------------------
+  beat:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: fga-crm-beat
+    restart: unless-stopped
+    env_file:
+      - .env
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://fga_crm:devpassword@db:5432/fga_crm
+      - REDIS_URL=redis://redis:6379/0
+      - RUN_MIGRATIONS=0
+    volumes:
+      - ./backend:/app
+    command: celery -A app.tasks.celery_app beat --loglevel=info --pidfile=/tmp/celerybeat.pid --schedule=/tmp/celerybeat-schedule
+    networks:
+      - fga-internal
+
+  # ---------------------------------------------------------------------------
   # Frontend (React + Vite)
   # ---------------------------------------------------------------------------
   frontend:

@@ -6,6 +6,7 @@
 import logging
 import uuid
 from dataclasses import dataclass, field
+from datetime import date, datetime, timedelta
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.activity import Activity
 from app.models.company import Company
 from app.models.contact import Contact
+from app.models.task import Task
 from app.models.user import User
 from app.services.startup_radar import StartupRadarClient, StartupRadarError
 
@@ -30,7 +32,169 @@ class SyncResult:
     investors_created: int = 0
     investors_updated: int = 0
     audits_created: int = 0
+    # Funding multi-source (Phase B 2026-05)
+    funding_activities_created: int = 0
+    qualification_tasks_created: int = 0
     errors: list[str] = field(default_factory=list)
+
+
+# ---------------------------------------------------------------------------
+# Helpers funding (Phase B 2026-05)
+# ---------------------------------------------------------------------------
+
+
+def _parse_iso_date(value: str | None) -> date | None:
+    """Convertir une chaine ISO YYYY-MM-DD en date, ou None si invalide.
+
+    Tolere None et string vide (retour None sans erreur). Utilise pour les
+    champs funding_date qui peuvent etre absents/mal formes dans la reponse SR.
+    """
+    if not value:
+        return None
+    try:
+        return date.fromisoformat(value)
+    except (ValueError, TypeError):
+        return None
+
+
+def _format_amount_subject(amount_eur: int, series: str | None) -> str:
+    """Sujet stable pour Activity 'funding_detected' (cle d'idempotence).
+
+    Inclut le montant en M€ et la serie pour permettre des rounds successifs
+    sur la meme company (Seed → Serie A → Serie B = 3 activities distinctes).
+    """
+    amount_m = amount_eur / 1_000_000
+    series_label = series or "Levée"
+    return f"Levée détectée : {amount_m:.1f}M€ ({series_label})"
+
+
+async def create_funding_activity(
+    db: AsyncSession,
+    company_id: uuid.UUID,
+    user_id: uuid.UUID,
+    startup_data: dict,
+) -> bool:
+    """Cree une Activity 'funding_detected' depuis les donnees SR. Idempotente.
+
+    Idempotence : (company_id, type='funding_detected', subject) — le subject
+    inclut le montant + la serie donc un nouveau round produit une nouvelle activity.
+
+    Retourne True si activity creee, False si elle existait deja ou si pas de montant.
+    """
+    amount_eur = startup_data.get("amount", 0)
+    if not amount_eur:
+        return False
+
+    series = startup_data.get("series") or "Levée"
+    sources = startup_data.get("source_names") or ["startup_radar"]
+    investors = startup_data.get("investors") or []
+
+    subject = _format_amount_subject(amount_eur, series)
+
+    # Flush pour rendre visible les inserts precedents de la session (l'autoflush
+    # peut etre desactivee, ex: session de test). Indispensable pour l'idempotence
+    # entre appels successifs au sein de la meme transaction.
+    await db.flush()
+
+    # Idempotence : verifier si l'activity existe deja
+    stmt = select(Activity).where(
+        Activity.company_id == company_id,
+        Activity.type == "funding_detected",
+        Activity.subject == subject,
+    )
+    if (await db.execute(stmt)).scalar_one_or_none():
+        return False
+
+    amount_m = amount_eur / 1_000_000
+    metadata = {
+        "amount_eur": amount_eur,
+        "series": series,
+        "sources": sources,
+        "investors": investors[:10],  # cap pour eviter blob enorme
+        "funding_date": startup_data.get("funding_date"),
+        "siren": startup_data.get("siren"),
+    }
+
+    content_lines = [
+        f"Montant : {amount_m:.1f}M€",
+        f"Série : {series}",
+        f"Sources détectées : {', '.join(sources)}",
+    ]
+    if investors:
+        content_lines.append(f"Investisseurs : {', '.join(investors[:5])}")
+
+    activity = Activity(
+        id=uuid.uuid4(),
+        type="funding_detected",
+        subject=subject,
+        content="\n".join(content_lines),
+        metadata_=metadata,
+        company_id=company_id,
+        user_id=user_id,
+    )
+    db.add(activity)
+    # Flush pour que les appels suivants au sein de la meme transaction voient
+    # cette activity et appliquent correctement l'idempotence (autoflush=False
+    # sur session de test). En prod autoflush=True donc no-op effectif.
+    await db.flush()
+    return True
+
+
+async def create_qualification_task(
+    db: AsyncSession,
+    company_id: uuid.UUID,
+    assigned_to: uuid.UUID,
+    startup_data: dict,
+) -> bool:
+    """Cree une Task 'qualification' pour qualifier la levee. Idempotente.
+
+    Le seuil de filtrage est applique cote SR (pipeline funding_ingest) : si la
+    startup arrive ici, c'est qu'elle est qualifying. CRM cree donc la task
+    systematiquement quand amount > 0.
+
+    Idempotence : (company_id, type='qualification', is_completed=False) —
+    une seule task ouverte a la fois. Si l'ancienne est completee, une nouvelle
+    peut etre creee (ex: nouveau round 6 mois plus tard).
+
+    Retourne True si task creee, False sinon.
+    """
+    amount_eur = startup_data.get("amount", 0)
+    if not amount_eur:
+        return False
+
+    # Flush pour rendre visible les inserts precedents (cf. create_funding_activity).
+    await db.flush()
+
+    # Idempotence : verifier qu'aucune task qualification ouverte n'existe deja
+    stmt = select(Task).where(
+        Task.company_id == company_id,
+        Task.type == "qualification",
+        Task.is_completed.is_(False),
+    )
+    if (await db.execute(stmt)).scalar_one_or_none():
+        return False
+
+    amount_m = amount_eur / 1_000_000
+    startup_name = startup_data.get("name", "Startup")
+    series = startup_data.get("series") or "Levée"
+    title = f"Qualifier la levée : {startup_name} ({amount_m:.1f}M€ — {series})"
+
+    # Echeance 7 jours (timezone-naive — DateTime(timezone=True) accepte naive en PG)
+    due_date = datetime.utcnow() + timedelta(days=7)
+
+    task = Task(
+        id=uuid.uuid4(),
+        title=title[:500],  # DC1 — respecter max_length
+        type="qualification",
+        priority="medium",
+        due_date=due_date,
+        company_id=company_id,
+        assigned_to=assigned_to,
+        is_completed=False,
+    )
+    db.add(task)
+    await db.flush()  # cf. note dans create_funding_activity
+    return True
 
 
 # Stockage en memoire du dernier resultat de sync
@@ -113,8 +277,27 @@ async def sync_startups(
                     existing.description = s.get("description") or existing.description
                     merged = {**(existing.custom_fields or {}), **custom}
                     existing.custom_fields = merged
+
+                    # --- Funding fields (additif, ne pas ecraser le commercial) ---
+                    if s.get("siren") and not existing.siren:
+                        existing.siren = s["siren"][:9]
+                    funding_date_parsed = _parse_iso_date(s.get("funding_date"))
+                    if funding_date_parsed and not existing.funding_date:
+                        existing.funding_date = funding_date_parsed
+                    if s.get("amount"):
+                        # Conserver le montant le plus eleve (round le plus important)
+                        if not existing.funding_amount or s["amount"] > existing.funding_amount:
+                            existing.funding_amount = s["amount"]
+                    if s.get("series") and not existing.funding_series:
+                        existing.funding_series = s["series"][:50]
+                    if s.get("source_names"):
+                        existing_sources = set(existing.funding_sources or [])
+                        merged_sources = sorted(existing_sources | set(s["source_names"]))
+                        existing.funding_sources = merged_sources
+
                     sr_to_crm[sr_id] = existing.id
                     result.companies_updated += 1
+                    company_id = existing.id
                 else:
                     # Insert
                     company_id = uuid.uuid4()
@@ -128,10 +311,27 @@ async def sync_startups(
                         startup_radar_id=sr_id,
                         lead_source="startup_radar",
                         owner_id=user.id,
+                        siren=(s.get("siren") or "")[:9] or None,
+                        funding_date=_parse_iso_date(s.get("funding_date")),
+                        funding_amount=s.get("amount"),
+                        funding_series=(s.get("series") or "")[:50] or None,
+                        funding_sources=s.get("source_names"),
                     )
                     db.add(company)
                     sr_to_crm[sr_id] = company_id
                     result.companies_created += 1
+
+                # --- Activity 'funding_detected' + Task 'qualification' ---
+                # Appele pour insert ET update (les helpers gerent l'idempotence).
+                # SR filtre cote source : si la startup arrive ici avec amount,
+                # c'est qu'elle est qualifying (cf. doc maitre 13.1).
+                if s.get("amount"):
+                    # Flush pour que company_id existe avant les FK des Activity/Task
+                    await db.flush()
+                    if await create_funding_activity(db, company_id, user.id, s):
+                        result.funding_activities_created += 1
+                    if await create_qualification_task(db, company_id, user.id, s):
+                        result.qualification_tasks_created += 1
 
         except Exception as e:
             result.errors.append(f"Startup {s.get('name', sr_id)}: {e}")
@@ -276,6 +476,16 @@ async def sync_contacts(
                     existing.is_decision_maker = c.get("is_decision_maker", existing.is_decision_maker)
                     if company_id:
                         existing.company_id = company_id
+                    # --- Enrichment fields (Phase B 2026-05) ---
+                    # enrichment_source : ecrasable (toujours mettre la derniere source)
+                    if c.get("enrichment_source"):
+                        existing.enrichment_source = c["enrichment_source"][:50]
+                    # email_pattern_used : conserve la premiere valeur (heuristique stable)
+                    if c.get("email_pattern_used") and not existing.email_pattern_used:
+                        existing.email_pattern_used = c["email_pattern_used"][:50]
+                    # linkedin_url_status : ecrasable (verified > candidate > invalid)
+                    if c.get("linkedin_url_status"):
+                        existing.linkedin_url_status = c["linkedin_url_status"][:20]
                     result.contacts_updated += 1
                 else:
                     contact = Contact(
@@ -291,6 +501,9 @@ async def sync_contacts(
                         company_id=company_id,
                         startup_radar_id=sr_id,
                         owner_id=user.id,
+                        enrichment_source=(c.get("enrichment_source") or "")[:50] or None,
+                        email_pattern_used=(c.get("email_pattern_used") or "")[:50] or None,
+                        linkedin_url_status=(c.get("linkedin_url_status") or "")[:20] or None,
                     )
                     db.add(contact)
                     result.contacts_created += 1
@@ -567,4 +780,133 @@ def _merge_results(total: SyncResult, partial: SyncResult) -> None:
     total.investors_created += partial.investors_created
     total.investors_updated += partial.investors_updated
     total.audits_created += partial.audits_created
+    total.funding_activities_created += partial.funding_activities_created
+    total.qualification_tasks_created += partial.qualification_tasks_created
     total.errors.extend(partial.errors)
+
+
+# ---------------------------------------------------------------------------
+# Sync incrementale (Phase B 2026-05) — pull recent startups uniquement
+# ---------------------------------------------------------------------------
+
+
+async def sync_recent_startups(
+    db: AsyncSession,
+    user: User,
+    days_back: int = 7,
+) -> SyncResult:
+    """Sync incrementale : pull uniquement les startups SR creees/modifiees recemment.
+
+    Cible un cron quotidien CRM qui ramene les nouvelles levees detectees, sans
+    refaire une full sync (couteux : 200+ requetes a SR).
+
+    Necessite que GET /api/v1/startups cote SR accepte ?since=<ISO datetime>
+    (cf. FUNDING_SYNC_INTEGRATION.md section 2.5).
+
+    Args:
+        days_back: fenetre de remontee en jours (defaut 7).
+
+    Returns:
+        SyncResult agrege (companies + contacts + funding activities + tasks).
+    """
+    result = SyncResult()
+    sr_client = StartupRadarClient()
+
+    # Auth (fallback anonyme si echec — l'API SR peut etre publique en lecture)
+    try:
+        await sr_client.authenticate()
+    except StartupRadarError as e:
+        logger.warning("[SRSync recent] Auth echec, mode anonyme: %s", e)
+
+    since = (datetime.utcnow() - timedelta(days=days_back)).isoformat()
+
+    # 1. Fetch startups recentes
+    try:
+        # API SR : GET /startups?since=...&size=200 (cf. doc maitre 13.2)
+        data = await sr_client._get(f"/startups?since={since}&size=200")
+        # SR peut retourner soit {"items": [...]} (paginated) soit [...] (legacy)
+        if isinstance(data, dict):
+            items = data.get("items", [])
+        elif isinstance(data, list):
+            items = data
+        else:
+            items = []
+    except StartupRadarError as e:
+        result.errors.append(f"Fetch recent startups: {e}")
+        _set_last_sync_result(result)
+        return result
+    except Exception as e:
+        result.errors.append(f"Fetch recent startups: {e}")
+        _set_last_sync_result(result)
+        return result
+
+    logger.info("[SRSync recent] %d startups depuis %s", len(items), since)
+
+    # 2. Upsert chaque startup via la meme logique que sync_startups()
+    #    On reuse sync_startups en lui passant un client qui retourne `items`.
+    #    Comme sync_startups appelle client.get_startups(), on patche localement.
+    class _PartialClient:
+        """Mock partiel : fournit get_startups() qui retourne `items`,
+        delegue le reste au vrai client (pour audits/contacts notamment)."""
+
+        def __init__(self, real_client, startups):
+            self._real = real_client
+            self._startups = startups
+
+        async def get_startups(self):
+            return self._startups
+
+        def __getattr__(self, name):
+            return getattr(self._real, name)
+
+    partial_client = _PartialClient(sr_client, items)
+    startups_result, sr_to_crm = await sync_startups(db, partial_client, user)  # type: ignore[arg-type]
+    _merge_results(result, startups_result)
+
+    # 3. Sync contacts uniquement pour les startups touchees (eviter full pull)
+    try:
+        contacts = await sr_client.get_contacts()
+    except StartupRadarError as e:
+        result.errors.append(f"Fetch contacts: {e}")
+        contacts = []
+
+    relevant_contacts = [
+        c for c in contacts
+        if str(c.get("startup_id", "")) in sr_to_crm
+    ]
+    if relevant_contacts:
+        # Reuse sync_contacts via partial client (memes contacts)
+        class _ContactsClient:
+            def __init__(self, real_client, contacts):
+                self._real = real_client
+                self._contacts = contacts
+
+            async def get_contacts(self):
+                return self._contacts
+
+            def __getattr__(self, name):
+                return getattr(self._real, name)
+
+        contacts_client = _ContactsClient(sr_client, relevant_contacts)
+        contacts_result = await sync_contacts(db, contacts_client, user, sr_to_crm)  # type: ignore[arg-type]
+        _merge_results(result, contacts_result)
+
+    # 4. Commit final
+    try:
+        await db.commit()
+    except Exception as e:
+        await db.rollback()
+        result.errors.append(f"Commit recent sync: {e}")
+
+    _set_last_sync_result(result)
+
+    logger.info(
+        "[SRSync recent] Termine — Companies: +%d/~%d, Contacts: +%d/~%d, "
+        "Funding activities: +%d, Tasks: +%d, Erreurs: %d",
+        result.companies_created, result.companies_updated,
+        result.contacts_created, result.contacts_updated,
+        result.funding_activities_created, result.qualification_tasks_created,
+        len(result.errors),
+    )
+
+    return result

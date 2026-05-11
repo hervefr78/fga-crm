@@ -124,6 +124,33 @@ services:
       - caddy-net
 
   # ---------------------------------------------------------------------------
+  # Celery Beat (Scheduler — sync incrementale Startup Radar)
+  # ---------------------------------------------------------------------------
+  beat:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: fga-crm-beat
+    restart: always
+    env_file:
+      - .env.production
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      - REDIS_URL=redis://redis:6379/0
+      - APP_ENV=production
+      - RUN_MIGRATIONS=0
+    # --pidfile=/tmp/celerybeat.pid pour eviter conflit avec un beat survivant
+    # apres restart violent. Le scheduler stocke son state dans /tmp/celerybeat-schedule.
+    command: celery -A app.tasks.celery_app beat --loglevel=info --pidfile=/tmp/celerybeat.pid --schedule=/tmp/celerybeat-schedule
+    networks:
+      - internal
+
+  # ---------------------------------------------------------------------------
   # Frontend (React + Vite)
   # ---------------------------------------------------------------------------
   frontend:

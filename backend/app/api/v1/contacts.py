@@ -79,6 +79,9 @@ def _contact_to_response(
         created_at=c.created_at.isoformat(),
         updated_at=c.updated_at.isoformat() if c.updated_at else None,
         updated_by_name=updated_by_name,
+        enrichment_source=c.enrichment_source,
+        email_pattern_used=c.email_pattern_used,
+        linkedin_url_status=c.linkedin_url_status,
     )
 
 

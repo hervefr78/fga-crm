@@ -25,6 +25,10 @@ class ContactCreate(BaseModel):
     source: str | None = Field(None, max_length=100)
     status: str = Field("new", max_length=50)
     is_decision_maker: bool = False
+    # Enrichment (synced from SR multi-source pipeline)
+    enrichment_source: str | None = Field(None, max_length=50)
+    email_pattern_used: str | None = Field(None, max_length=50)
+    linkedin_url_status: str | None = Field(None, max_length=20)
 
     @field_validator("status")
     @classmethod
@@ -60,6 +64,10 @@ class ContactUpdate(BaseModel):
     source: str | None = Field(None, max_length=100)
     status: str | None = Field(None, max_length=50)
     is_decision_maker: bool | None = None
+    # Enrichment (editable via API si correction manuelle)
+    enrichment_source: str | None = Field(None, max_length=50)
+    email_pattern_used: str | None = Field(None, max_length=50)
+    linkedin_url_status: str | None = Field(None, max_length=20)
 
     @field_validator("status")
     @classmethod
@@ -105,6 +113,10 @@ class ContactResponse(BaseModel):
     created_at: str
     updated_at: str | None = None
     updated_by_name: str | None = None
+    # Enrichment (synced from SR)
+    enrichment_source: str | None = None
+    email_pattern_used: str | None = None
+    linkedin_url_status: str | None = None
 
     class Config:
         from_attributes = True

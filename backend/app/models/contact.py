@@ -73,6 +73,14 @@ class Contact(Base, UUIDMixin, TimestampMixin):
     # Integration — Startup Radar
     startup_radar_id: Mapped[str | None] = mapped_column(String(255), nullable=True, unique=True)
 
+    # Enrichment metadata (synced from Startup Radar multi-source pipeline)
+    # enrichment_source : pappers, sirene, scraping, manual, etc.
+    enrichment_source: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    # email_pattern_used : first.last, f.last, firstlast, etc. (uniquement si email genere heuristiquement)
+    email_pattern_used: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    # linkedin_url_status : candidate (genere auto), verified (verifie manuellement), invalid
+    linkedin_url_status: Mapped[str | None] = mapped_column(String(20), nullable=True)
+
     # Relationships
     company: Mapped[Optional["Company"]] = relationship(back_populates="contacts")
     deals: Mapped[list["Deal"]] = relationship(back_populates="contact", lazy="selectin")

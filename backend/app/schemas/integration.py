@@ -15,6 +15,13 @@ class SyncResultResponse(BaseModel):
     investors_created: int = Field(0, description="Nombre d'investisseurs crees")
     investors_updated: int = Field(0, description="Nombre d'investisseurs mis a jour")
     audits_created: int = Field(0, description="Nombre d'audits importes")
+    # Funding multi-source (Phase B 2026-05)
+    funding_activities_created: int = Field(
+        0, description="Nombre d'Activity 'funding_detected' crees"
+    )
+    qualification_tasks_created: int = Field(
+        0, description="Nombre de Task 'qualification' creees pour qualifier la levee"
+    )
     errors: list[str] = Field(default_factory=list, description="Erreurs rencontrees")
 
 

@@ -6,7 +6,8 @@
 from pydantic import BaseModel, Field, field_validator
 
 # Valeurs autorisees (DC1 — validation contre Set)
-TASK_TYPES = {"todo", "call", "email", "meeting"}
+# "qualification" : task auto creee par le sync SR pour les levees detectees
+TASK_TYPES = {"todo", "call", "email", "meeting", "qualification"}
 TASK_PRIORITIES = {"low", "medium", "high", "urgent"}
 
 
@@ -21,6 +22,7 @@ class TaskCreate(BaseModel):
     assigned_to: str | None = Field(None, max_length=36)
     contact_id: str | None = Field(None, max_length=36)
     deal_id: str | None = Field(None, max_length=36)
+    company_id: str | None = Field(None, max_length=36)
 
     @field_validator("type")
     @classmethod
@@ -52,6 +54,7 @@ class TaskUpdate(BaseModel):
     assigned_to: str | None = Field(None, max_length=36)
     contact_id: str | None = Field(None, max_length=36)
     deal_id: str | None = Field(None, max_length=36)
+    company_id: str | None = Field(None, max_length=36)
 
     @field_validator("type")
     @classmethod
@@ -92,6 +95,7 @@ class TaskResponse(BaseModel):
     assigned_to: str | None
     contact_id: str | None
     deal_id: str | None
+    company_id: str | None = None
     created_at: str
 
     class Config:

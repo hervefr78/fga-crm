@@ -4,6 +4,7 @@
 
 import contextlib
 import uuid
+from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import ValidationError
@@ -117,6 +118,11 @@ def _company_to_response(
         has_audit_detailed=has_audit_detailed,
         has_audit_geo=has_audit_geo,
         audit_score=audit_score,
+        siren=c.siren,
+        funding_date=c.funding_date.isoformat() if c.funding_date else None,
+        funding_amount=c.funding_amount,
+        funding_series=c.funding_series,
+        funding_sources=c.funding_sources,
     )
 
 
@@ -200,13 +206,31 @@ async def list_companies(
     )
 
 
+def _parse_funding_date(payload: dict) -> None:
+    """Convertir funding_date str → date.fromisoformat dans le payload.
+
+    Mute le dict en place. Si la conversion echoue, leve HTTPException 422
+    (cf. ADR-001 : Pydantic stocke en str, SQLAlchemy attend un objet date natif).
+    """
+    if "funding_date" in payload and payload["funding_date"]:
+        try:
+            payload["funding_date"] = date.fromisoformat(payload["funding_date"])
+        except (ValueError, TypeError) as e:
+            raise HTTPException(
+                status_code=422,
+                detail=f"funding_date invalide (ISO YYYY-MM-DD attendu) : {e}",
+            ) from e
+
+
 @router.post("", response_model=CompanyResponse, status_code=201)
 async def create_company(
     data: CompanyCreate,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    company = Company(**data.model_dump(), owner_id=user.id)
+    payload = data.model_dump()
+    _parse_funding_date(payload)
+    company = Company(**payload, owner_id=user.id)
     db.add(company)
     await db.flush()
     await db.refresh(company)
@@ -263,6 +287,7 @@ async def update_company(
     check_entity_access(company, user)
 
     update_data = data.model_dump(exclude_unset=True)
+    _parse_funding_date(update_data)
     for field, value in update_data.items():
         setattr(company, field, value)
 

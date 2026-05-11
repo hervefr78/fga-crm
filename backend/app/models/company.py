@@ -3,9 +3,10 @@
 # =============================================================================
 
 import uuid
+from datetime import date
 from typing import TYPE_CHECKING, Optional
 
-from sqlalchemy import ForeignKey, String, Text
+from sqlalchemy import BigInteger, Date, ForeignKey, String, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -65,6 +66,13 @@ class Company(Base, UUIDMixin, TimestampMixin):
 
     # N° de TVA intracommunautaire
     vat_number: Mapped[str | None] = mapped_column(String(50), nullable=True)
+
+    # Funding (synced from Startup Radar multi-source pipeline)
+    siren: Mapped[str | None] = mapped_column(String(9), nullable=True, index=True)
+    funding_date: Mapped[date | None] = mapped_column(Date, nullable=True, index=True)
+    funding_amount: Mapped[int | None] = mapped_column(BigInteger, nullable=True, index=True)  # euros
+    funding_series: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    funding_sources: Mapped[list | None] = mapped_column(JSONB, nullable=True)
 
     # Relationships
     owner: Mapped[Optional["User"]] = relationship(back_populates="owned_companies", foreign_keys=[owner_id])

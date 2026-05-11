@@ -26,7 +26,11 @@ from app.schemas.integration import (
     SyncStatusResponse,
 )
 from app.services.startup_radar import StartupRadarClient, StartupRadarError
-from app.services.startup_radar_sync import full_sync, get_last_sync_result
+from app.services.startup_radar_sync import (
+    full_sync,
+    get_last_sync_result,
+    sync_recent_startups,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -491,6 +495,63 @@ async def sync_startup_radar(
         investors_created=result.investors_created,
         investors_updated=result.investors_updated,
         audits_created=result.audits_created,
+        funding_activities_created=result.funding_activities_created,
+        qualification_tasks_created=result.qualification_tasks_created,
+        errors=result.errors,
+    )
+
+
+# ---------- POST /startup-radar/sync-recent-funding ----------
+
+
+@router.post(
+    "/startup-radar/sync-recent-funding",
+    response_model=SyncResultResponse,
+    status_code=200,
+)
+async def sync_recent_funding(
+    days_back: int = 7,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> SyncResultResponse:
+    """Synchroniser uniquement les startups SR creees/modifiees recemment.
+
+    Cible : ramener les nouvelles levees detectees par le pipeline SR
+    multi-source (LesPepitesTech, Maddyness, Eldorado, L'Usine Digitale, BODACC)
+    sans refaire une full sync (couteuse).
+
+    Cree pour chaque startup avec amount > 0 :
+    - Activity 'funding_detected' (idempotent par subject incluant montant+serie)
+    - Task 'qualification' (idempotent : 1 task ouverte par company a la fois)
+
+    Args:
+        days_back: fenetre de remontee en jours (defaut 7, max 90).
+    """
+    # DC1 — borner days_back
+    if days_back < 1 or days_back > 90:
+        raise HTTPException(
+            status_code=422,
+            detail="days_back doit etre entre 1 et 90",
+        )
+
+    try:
+        result = await sync_recent_startups(db, current_user, days_back=days_back)
+    except StartupRadarError as e:
+        logger.error("[Integrations] Erreur sync-recent-funding: %s", e)
+        raise HTTPException(
+            status_code=503, detail=f"Erreur Startup Radar: {e}",
+        ) from e
+
+    return SyncResultResponse(
+        companies_created=result.companies_created,
+        companies_updated=result.companies_updated,
+        contacts_created=result.contacts_created,
+        contacts_updated=result.contacts_updated,
+        investors_created=result.investors_created,
+        investors_updated=result.investors_updated,
+        audits_created=result.audits_created,
+        funding_activities_created=result.funding_activities_created,
+        qualification_tasks_created=result.qualification_tasks_created,
         errors=result.errors,
     )
 
@@ -518,6 +579,8 @@ async def get_sync_status(
             investors_created=last.investors_created,
             investors_updated=last.investors_updated,
             audits_created=last.audits_created,
+            funding_activities_created=last.funding_activities_created,
+            qualification_tasks_created=last.qualification_tasks_created,
             errors=last.errors,
         ),
     )

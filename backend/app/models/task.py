@@ -13,6 +13,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.models.base import Base, TimestampMixin, UUIDMixin
 
 if TYPE_CHECKING:
+    from app.models.company import Company
     from app.models.contact import Contact
     from app.models.deal import Deal
     from app.models.user import User
@@ -23,7 +24,7 @@ class Task(Base, UUIDMixin, TimestampMixin):
 
     title: Mapped[str] = mapped_column(String(500), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
-    type: Mapped[str] = mapped_column(String(50), default="todo", nullable=False)  # todo, call, email, meeting
+    type: Mapped[str] = mapped_column(String(50), default="todo", nullable=False)  # todo, call, email, meeting, qualification
     priority: Mapped[str] = mapped_column(String(20), default="medium", nullable=False)  # low, medium, high, urgent
     is_completed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     due_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -39,11 +40,18 @@ class Task(Base, UUIDMixin, TimestampMixin):
     deal_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("deals.id", ondelete="SET NULL"), nullable=True
     )
+    # Permet de rattacher une task directement a une company (cas "Qualifier la levee"
+    # sans contact decideur identifie). Distinct de contact.company_id : la task
+    # peut viser la company elle-meme, pas un contact specifique.
+    company_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("companies.id", ondelete="SET NULL"), nullable=True, index=True
+    )
 
     # Relationships
     assigned_to_user: Mapped[Optional["User"]] = relationship(back_populates="tasks", lazy="selectin")
     contact: Mapped[Optional["Contact"]] = relationship(lazy="selectin")
     deal: Mapped[Optional["Deal"]] = relationship(lazy="selectin")
+    company: Mapped[Optional["Company"]] = relationship(lazy="selectin")
 
     def __repr__(self) -> str:
         return f"<Task {self.title}>"

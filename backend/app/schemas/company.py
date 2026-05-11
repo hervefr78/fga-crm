@@ -27,6 +27,12 @@ class CompanyCreate(BaseModel):
     startup_radar_id: str | None = Field(None, max_length=255)
     lead_source: str | None = Field(None, max_length=100)
     vat_number: str | None = Field(None, max_length=50)
+    # Funding (synced from SR)
+    siren: str | None = Field(None, max_length=9)
+    funding_date: str | None = Field(None, max_length=10)  # ISO date string, converti dans la route
+    funding_amount: int | None = Field(None, ge=0)
+    funding_series: str | None = Field(None, max_length=50)
+    funding_sources: list[str] | None = None
 
     @field_validator("size_range")
     @classmethod
@@ -54,6 +60,12 @@ class CompanyUpdate(BaseModel):
     city: str | None = Field(None, max_length=100)
     country: str | None = Field(None, max_length=100)
     vat_number: str | None = Field(None, max_length=50)
+    # Funding (editable via API si correction manuelle)
+    siren: str | None = Field(None, max_length=9)
+    funding_date: str | None = Field(None, max_length=10)
+    funding_amount: int | None = Field(None, ge=0)
+    funding_series: str | None = Field(None, max_length=50)
+    funding_sources: list[str] | None = None
 
     @field_validator("size_range")
     @classmethod
@@ -94,6 +106,12 @@ class CompanyResponse(BaseModel):
     has_audit_detailed: bool = False
     has_audit_geo: bool = False
     audit_score: int | None = None
+    # Funding (synced from SR multi-source pipeline)
+    siren: str | None = None
+    funding_date: str | None = None  # ISO date string
+    funding_amount: int | None = None  # euros
+    funding_series: str | None = None
+    funding_sources: list[str] | None = None
 
     class Config:
         from_attributes = True

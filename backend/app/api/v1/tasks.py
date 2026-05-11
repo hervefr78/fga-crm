@@ -39,6 +39,7 @@ def _task_to_response(t: Task) -> TaskResponse:
         assigned_to=str(t.assigned_to) if t.assigned_to else None,
         contact_id=str(t.contact_id) if t.contact_id else None,
         deal_id=str(t.deal_id) if t.deal_id else None,
+        company_id=str(t.company_id) if t.company_id else None,
         created_at=t.created_at.isoformat(),
     )
 
@@ -63,6 +64,7 @@ async def list_tasks(
     assigned_to: str | None = None,
     contact_id: str | None = None,
     deal_id: str | None = None,
+    company_id: str | None = None,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
@@ -88,6 +90,8 @@ async def list_tasks(
         query = query.where(Task.contact_id == _parse_uuid(contact_id, "contact_id"))
     if deal_id:
         query = query.where(Task.deal_id == _parse_uuid(deal_id, "deal_id"))
+    if company_id:
+        query = query.where(Task.company_id == _parse_uuid(company_id, "company_id"))
 
     # Comptage
     count_query = select(func.count()).select_from(query.subquery())
@@ -120,7 +124,7 @@ async def create_task(
     task_data = data.model_dump()
 
     # Convertir les FK string → UUID
-    for key in ("assigned_to", "contact_id", "deal_id"):
+    for key in ("assigned_to", "contact_id", "deal_id", "company_id"):
         if task_data.get(key):
             task_data[key] = _parse_uuid(task_data[key], key)
 
@@ -174,7 +178,7 @@ async def update_task(
     update_data = data.model_dump(exclude_unset=True)
 
     # Convertir les FK string → UUID
-    for key in ("assigned_to", "contact_id", "deal_id"):
+    for key in ("assigned_to", "contact_id", "deal_id", "company_id"):
         if key in update_data and update_data[key]:
             update_data[key] = _parse_uuid(update_data[key], key)
 
