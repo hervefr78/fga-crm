@@ -106,10 +106,15 @@ async def create_funding_activity(
         return False
 
     amount_m = amount_eur / 1_000_000
+    # source_urls : dict source_name -> URL article (utile pour click-through
+    # depuis la fiche company vers l'article source ayant detecte la levee).
+    # SR retourne ca dans GET /startups/{id} (cf. handoff doc section 1.1).
+    source_urls = startup_data.get("source_urls") or {}
     metadata = {
         "amount_eur": amount_eur,
         "series": series,
         "sources": sources,
+        "source_urls": source_urls if isinstance(source_urls, dict) else {},
         "investors": investors[:10],  # cap pour eviter blob enorme
         "funding_date": startup_data.get("funding_date"),
         "siren": startup_data.get("siren"),
@@ -246,8 +251,24 @@ async def sync_startups(
                 stmt = select(Company).where(Company.startup_radar_id == sr_id)
                 existing = (await db.execute(stmt)).scalar_one_or_none()
 
-                # 2. Fallback : chercher par nom (case-insensitive) si pas encore lie a SR
+                # 2. Fallback SIREN : si SR fournit un siren, chercher une company
+                #    deja creee (manuellement) avec ce siren. Evite les doublons
+                #    quand le commercial a deja saisi la societe avec son SIREN.
+                if not existing and s.get("siren"):
+                    siren_clean = (s["siren"] or "").strip()[:9]
+                    if siren_clean:
+                        stmt_siren = select(Company).where(
+                            Company.siren == siren_clean,
+                            Company.startup_radar_id.is_(None),
+                        )
+                        existing = (await db.execute(stmt_siren)).scalar_one_or_none()
+                        if existing:
+                            # Lier la company existante a SR
+                            existing.startup_radar_id = sr_id
+
+                # 3. Fallback nom : chercher par nom (case-insensitive) si pas encore lie a SR
                 #    Evite les doublons quand la company existe deja cree manuellement
+                #    sans SIREN renseigne.
                 if not existing and s.get("name"):
                     stmt2 = select(Company).where(
                         func.lower(Company.name) == s["name"].lower(),

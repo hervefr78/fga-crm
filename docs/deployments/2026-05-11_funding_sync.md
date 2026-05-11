@@ -69,7 +69,7 @@ alembic upgrade head
 
 ---
 
-## 4. Stack Celery beat (nouvelle)
+## 4. Stack Celery beat (nouvelle — cron désactivé en V1)
 
 **Nouveau container** : `fga-crm-beat` (Celery beat scheduler, distinct du worker existant).
 
@@ -77,11 +77,20 @@ alembic upgrade head
 
 | Task | Cron | Action |
 |---|---|---|
-| `app.tasks.funding_sync.sync_recent_funding_task` | **09:00 quotidien** (Europe/Paris) | Pull startups SR modifiées les 7 derniers jours, crée Activity "Levée détectée" + Task "Qualification" |
+| `app.tasks.funding_sync.sync_recent_funding_task` | **DÉSACTIVÉ** (V1 2026-05-11) | Pull startups SR modifiées les 7 derniers jours, crée Activity "Levée détectée" + Task "Qualification" |
 
-C'est **le seul cron actif** côté CRM (avant cette feature, aucun cron n'existait).
+⚠️ **Le cron est volontairement désactivé** dans cette PR. La task reste enregistrée dans le worker et peut être déclenchée :
+- **Via l'endpoint manuel** : `POST /api/v1/integrations/startup-radar/sync-recent-funding?days_back=N`
+- **Via Celery direct** : `docker exec fga-crm-worker celery -A app.tasks.celery_app call app.tasks.funding_sync.sync_recent_funding_task --args='[7]'`
 
-**Déploiement** :
+**Raison de la désactivation** : la task consomme `GET /api/v1/startups?since=` côté SR, mais ce query param **n'est pas encore implémenté côté SR** (cf. handoff doc SR §3, §12). Sans `?since=`, le cron ferait un full pull quotidien (coût réseau + latence).
+
+**Réactivation** (à faire plus tard) :
+1. Côté SR : ajouter `since: datetime | None` à `GET /api/v1/startups` (filtre `WHERE scraped_at >= since`)
+2. Côté CRM : décommenter le bloc `beat_schedule` dans `backend/app/tasks/celery_app.py`
+3. Redéployer le container `fga-crm-beat` (pas besoin de migration)
+
+**Déploiement V1** :
 ```bash
 cd /home/ubuntu/fga-crm
 docker compose -f docker-compose.vps.yml build backend beat
@@ -89,6 +98,7 @@ docker compose -f docker-compose.vps.yml up -d backend beat worker frontend
 ```
 
 Le worker existant **doit aussi être recréé** (nouvelle task `funding_sync` à enregistrer).
+Le beat tournera "à vide" (pas de schedule) jusqu'à la réactivation.
 
 ---
 
@@ -106,6 +116,7 @@ Le `beat` container hérite des mêmes `.env.production` que le worker.
 
 | Entité | Clé d'idempotence | Comportement |
 |---|---|---|
+| `Company` (dedup à la sync) | 1. `startup_radar_id` (matching SR direct), 2. `siren` (fallback si Company manuelle a un SIREN), 3. `name` lowercase (fallback ultime) | 3 niveaux de fallback. La 2 évite les doublons quand le commercial a déjà saisi la société avec son SIREN avant que SR ne la voie. |
 | `Activity` (funding_detected) | `(company_id, type, subject incluant montant+série)` | Un round = un Activity. Round suivant = nouveau subject = nouveau Activity. |
 | `Task` (qualification) | `(company_id, type='qualification', is_completed=False)` | Une seule task ouverte à la fois. Si complétée, une nouvelle peut être créée plus tard (nouveau round). |
 | `Company.funding_*` | Update additif | Garde le montant le plus élevé, merge les `funding_sources` (set union), préserve les autres champs sur première valeur. |
@@ -204,9 +215,15 @@ Tant que Phase A n'est pas mergée côté SR :
 
 ---
 
-## 11. Hors scope
+## 11. Hors scope (V1 — reporté)
 
-Reporté à un déploiement ultérieur (cf. décisions Hervé 2026-05-11) :
-- Notification email récap quotidien
-- Filtrage par seuil de qualification (géré côté SR, pas CRM)
-- Frontend dédié à la stat "Levées 7j" au-delà du KPI Dashboard
+Décisions Hervé 2026-05-11 :
+- **Cron 09:00** : désactivé en V1 (cf. §4) — réactivation après ajout `?since=` côté SR
+- **Seuil de qualification** : pas de filtrage côté CRM — Hervé gère manuellement le tri des tasks
+- **Flag email "pas fiable"** : feature UI complémentaire au badge "Candidat" (V2)
+- **Notification email récap quotidien**
+- **Frontend dédié à la stat "Levées 7j"** au-delà du KPI Dashboard
+
+## 12. Tickets à ouvrir côté SR
+
+- [ ] Ajouter `since: datetime | None` query param à `GET /api/v1/startups` (filtre `WHERE scraped_at >= since`). Sans ça, le cron CRM reste désactivé et chaque exécution manuelle de `sync-recent-funding` retombe sur un full pull.

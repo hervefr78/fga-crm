@@ -5,7 +5,7 @@
 import os
 
 from celery import Celery
-from celery.schedules import crontab
+from celery.schedules import crontab  # noqa: F401  — utilise quand beat_schedule sera reactive
 
 # Broker et backend via Redis
 REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379/0")
@@ -36,19 +36,30 @@ app.conf.update(
 #
 # Timezone = Europe/Paris (cf. conf ci-dessus).
 #
-# Tasks actives :
-# - sync_recent_funding : 09:00 quotidien (Europe/Paris)
-#   Pull les startups SR creees/modifiees les 7 derniers jours et cree
-#   les Activity 'funding_detected' + Task 'qualification' pour chaque levee.
-#   Apres le pipeline SR 06:00 (ingest multi-source) + 08:30 (enrichissement).
+# ⚠ CRON DESACTIVE (2026-05-11) — voir TODO ci-dessous.
+# La task `sync_recent_funding_task` consomme `GET /api/v1/startups?since=...`
+# cote Startup Radar, mais ce filtre query param n'est pas encore implemente
+# cote SR (ticket a ouvrir). Sans `?since=`, le cron ferait un full pull
+# quotidien (cout reseau + latence).
+#
+# A REACTIVER quand :
+#   1. cote SR : ajouter `since: datetime | None` dans GET /api/v1/startups
+#      (filtre WHERE scraped_at >= since) — cf. doc maitre section 12
+#   2. cote CRM : decommenter le bloc beat_schedule ci-dessous
+#   3. redeployer le container fga-crm-beat (pas besoin de migration)
+#
+# La task reste enregistree dans le worker et peut etre declenchee
+# manuellement via l'endpoint POST /integrations/startup-radar/sync-recent-funding
+# ou via celery call (pour test ad-hoc).
 # ---------------------------------------------------------------------------
-app.conf.beat_schedule = {
-    "sync-recent-funding-daily": {
-        "task": "app.tasks.funding_sync.sync_recent_funding_task",
-        "schedule": crontab(hour=9, minute=0),
-        "args": (7,),  # days_back = 7
-    },
-}
+# app.conf.beat_schedule = {
+#     "sync-recent-funding-daily": {
+#         "task": "app.tasks.funding_sync.sync_recent_funding_task",
+#         "schedule": crontab(hour=9, minute=0),
+#         "args": (7,),  # days_back = 7
+#     },
+# }
+app.conf.beat_schedule = {}
 
 # Decouverte automatique : autodiscover_tasks scanne pour `tasks.py` dans
 # les packages listes (convention Celery). On a un layout different

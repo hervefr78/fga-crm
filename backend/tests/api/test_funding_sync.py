@@ -120,6 +120,10 @@ async def test_create_funding_activity_creates_activity(db_session: AsyncSession
         "amount": 5_000_000,
         "series": "Serie A",
         "source_names": ["lespepitestech", "maddyness"],
+        "source_urls": {
+            "lespepitestech": "https://lespepitestech.com/blog/article-1",
+            "maddyness": "https://maddyness.com/article-2",
+        },
         "investors": ["VC One", "VC Two"],
         "funding_date": "2026-05-01",
         "siren": "123456789",
@@ -140,6 +144,41 @@ async def test_create_funding_activity_creates_activity(db_session: AsyncSession
     assert activity.metadata_["amount_eur"] == 5_000_000
     assert activity.metadata_["siren"] == "123456789"
     assert "VC One" in activity.metadata_["investors"]
+    # source_urls : dict permettant click-through vers les articles sources
+    assert activity.metadata_["source_urls"] == {
+        "lespepitestech": "https://lespepitestech.com/blog/article-1",
+        "maddyness": "https://maddyness.com/article-2",
+    }
+
+
+@pytest.mark.asyncio
+async def test_create_funding_activity_source_urls_defaults_to_empty(db_session: AsyncSession):
+    """Si source_urls absent ou non-dict, metadata['source_urls'] = {} (DC2 — defensive)."""
+    user = await _make_admin(db_session)
+    company = await _make_company(db_session, user)
+
+    # Cas 1 : pas de source_urls
+    await create_funding_activity(
+        db_session, company.id, user.id,
+        {"name": "x", "amount": 1_000_000, "series": "Seed"},
+    )
+    await db_session.flush()
+    activity = (await db_session.execute(
+        select(Activity).where(Activity.company_id == company.id),
+    )).scalar_one()
+    assert activity.metadata_["source_urls"] == {}
+
+    # Cas 2 : source_urls = list (invalide) → tolere
+    company2 = await _make_company(db_session, user, name="Acme 2")
+    await create_funding_activity(
+        db_session, company2.id, user.id,
+        {"name": "x", "amount": 2_000_000, "series": "Seed", "source_urls": ["not", "a", "dict"]},
+    )
+    await db_session.flush()
+    activity2 = (await db_session.execute(
+        select(Activity).where(Activity.company_id == company2.id),
+    )).scalar_one()
+    assert activity2.metadata_["source_urls"] == {}
 
 
 @pytest.mark.asyncio
@@ -386,6 +425,95 @@ async def test_sync_startups_keeps_highest_amount_on_update(db_session: AsyncSes
         select(Company).where(Company.startup_radar_id == "sr-amount-1")
     )).scalar_one()
     assert company2.funding_amount == 10_000_000  # inchange
+
+
+@pytest.mark.asyncio
+async def test_sync_startups_dedupe_by_siren_when_company_exists(db_session: AsyncSession):
+    """Une Company creee manuellement avec SIREN doit etre liee a SR (pas dupliquee)."""
+    user = await _make_admin(db_session)
+
+    # Simule une company creee manuellement avec SIREN, sans startup_radar_id
+    manual_company = Company(
+        id=uuid.uuid4(),
+        name="Manual Company",  # nom different de la version SR
+        siren="111222333",
+        lead_source=None,  # pas encore SR
+        owner_id=user.id,
+    )
+    db_session.add(manual_company)
+    await db_session.flush()
+
+    mock_client = _MockSRClient(startups=[{
+        "id": "sr-siren-fallback",
+        "name": "SR Name Different",  # nom different → name fallback ne matcherait pas
+        "siren": "111222333",  # SIREN identique → siren fallback doit matcher
+        "amount": 2_000_000,
+        "series": "Seed",
+    }])
+
+    result, sr_to_crm = await sync_startups(db_session, mock_client, user)  # type: ignore[arg-type]
+    # Pas de nouvelle company (update de la manuelle)
+    assert result.companies_created == 0
+    assert result.companies_updated == 1
+
+    # Verifier que la company manuelle a maintenant startup_radar_id
+    refreshed = (await db_session.execute(
+        select(Company).where(Company.id == manual_company.id)
+    )).scalar_one()
+    assert refreshed.startup_radar_id == "sr-siren-fallback"
+    assert refreshed.funding_amount == 2_000_000  # funding propage
+
+
+@pytest.mark.asyncio
+async def test_sync_startups_dedupe_priority_radar_id_over_siren(db_session: AsyncSession):
+    """Priorite : startup_radar_id avant SIREN, avant nom."""
+    user = await _make_admin(db_session)
+
+    # 1ere company avec startup_radar_id mais SIREN different
+    company_a = Company(
+        id=uuid.uuid4(),
+        name="Company A",
+        siren="000000001",
+        startup_radar_id="sr-priority",
+        lead_source="startup_radar",
+        owner_id=user.id,
+    )
+    db_session.add(company_a)
+    # 2eme company avec le meme SIREN que le SR data, mais sans startup_radar_id
+    company_b = Company(
+        id=uuid.uuid4(),
+        name="Company B",
+        siren="999888777",
+        lead_source=None,
+        owner_id=user.id,
+    )
+    db_session.add(company_b)
+    await db_session.flush()
+
+    # SR retourne sr-priority avec SIREN=999888777 (qui match company_b)
+    # → on doit matcher company_a (par radar_id) pas company_b (par siren)
+    mock_client = _MockSRClient(startups=[{
+        "id": "sr-priority",
+        "name": "X",
+        "siren": "999888777",
+        "amount": 5_000_000,
+        "series": "Serie A",
+    }])
+
+    await sync_startups(db_session, mock_client, user)  # type: ignore[arg-type]
+
+    refreshed_a = (await db_session.execute(
+        select(Company).where(Company.id == company_a.id)
+    )).scalar_one()
+    refreshed_b = (await db_session.execute(
+        select(Company).where(Company.id == company_b.id)
+    )).scalar_one()
+
+    # company_a a ete update (matched by radar_id, donc funding_amount propage)
+    assert refreshed_a.funding_amount == 5_000_000
+    # company_b n'a pas ete touchee (pas matched)
+    assert refreshed_b.funding_amount is None
+    assert refreshed_b.startup_radar_id is None
 
 
 @pytest.mark.asyncio
