@@ -378,6 +378,7 @@ export default function ContactDetailPage() {
                         <EmailIndicator
                           emailStatus={contact.email_status}
                           emailPattern={contact.email_pattern_used}
+                          enrichmentSource={contact.enrichment_source}
                         />
                       ) : null}
                     />

@@ -23,6 +23,25 @@ import { formatDateFR } from '../utils/format';
 // Filtres disponibles
 const COMPANY_FILTERS: FilterDef[] = [
   { key: 'size_range', label: 'Taille', type: 'select', options: [...COMPANY_SIZE_RANGES] },
+  {
+    key: 'industry',
+    label: 'Secteur',
+    type: 'select',
+    options: [
+      { value: 'Intelligence Artificielle', label: 'IA' },
+      { value: 'Santé, MedTech', label: 'Santé / MedTech' },
+      { value: 'Biotech', label: 'Biotech' },
+      { value: 'Finance, FinTech', label: 'FinTech' },
+      { value: 'Deep Tech', label: 'Deep Tech' },
+      { value: 'Energie', label: 'Énergie' },
+      { value: 'Software', label: 'Software' },
+      { value: 'Mobilité', label: 'Mobilité' },
+      { value: 'Education, EdTech', label: 'EdTech' },
+      { value: 'Recrutement, RH', label: 'RH' },
+      { value: 'Environnement', label: 'Environnement' },
+      { value: 'Industriel', label: 'Industriel' },
+    ],
+  },
   { key: 'country', label: 'Pays', type: 'select', options: [] },
   {
     key: 'lead_source',

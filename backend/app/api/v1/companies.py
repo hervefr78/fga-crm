@@ -150,7 +150,7 @@ async def list_companies(
     if search:
         query = query.where(Company.name.ilike(f"%{search}%"))
     if industry:
-        query = query.where(Company.industry == industry)
+        query = query.where(Company.industry.ilike(f"%{industry}%"))
     if size_range:
         if size_range not in SIZE_RANGES:
             raise HTTPException(status_code=422, detail=f"size_range invalide. Valeurs : {', '.join(sorted(SIZE_RANGES))}")
