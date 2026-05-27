@@ -3,8 +3,10 @@
 # =============================================================================
 
 import uuid
+from collections.abc import Callable, Coroutine
+from typing import Any
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,7 +16,11 @@ from app.core.security import decode_token
 from app.db.session import get_db
 from app.models.user import User
 
+# Bearer pour les utilisateurs humains (JWT)
 security = HTTPBearer(auto_error=not settings.auth_bypass)
+
+# Bearer optionnel — utilisé pour la validation de clés API service
+security_optional = HTTPBearer(auto_error=False)
 
 
 async def get_current_user(
@@ -69,3 +75,69 @@ async def get_current_manager(user: User = Depends(get_current_user)) -> User:
     if not user.is_manager:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Manager access required")
     return user
+
+
+# =============================================================================
+# Service Authentication (API Keys — standard 2026-05)
+# =============================================================================
+
+
+async def get_service_user(
+    request: Request,
+    credentials: HTTPAuthorizationCredentials | None = Depends(security_optional),
+    db: AsyncSession = Depends(get_db),
+) -> User:
+    """Valide une API key service et retourne le User associé.
+
+    Lit l'en-tête : Authorization: Bearer crm_<32bytes_hex>
+    Stocke les scopes dans request.state.api_key_scopes pour un contrôle fin.
+    Retourne 401 si la clé est absente, invalide ou expirée.
+    """
+    from app.services.api_keys import (
+        validate_api_key,  # import tardif pour éviter les cycles
+    )
+
+    if credentials is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="API key service requise (Authorization: Bearer crm_xxx)",
+        )
+
+    raw_key = credentials.credentials
+    result = await validate_api_key(db, raw_key)
+    if result is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="API key invalide, révoquée ou expirée",
+        )
+
+    api_key, user = result
+    # Stocker les scopes pour require_service_scope
+    request.state.api_key_scopes = list(api_key.scopes or [])
+    request.state.api_key_name = api_key.name
+
+    return user
+
+
+def require_service_scope(scope: str) -> Callable[..., Coroutine[Any, Any, User]]:
+    """Factory de dépendance FastAPI qui vérifie qu'un scope est présent.
+
+    Usage :
+        @router.get("/secret", dependencies=[Depends(require_service_scope("read:deals"))])
+    """
+    async def _check(
+        request: Request,
+        user: User = Depends(get_service_user),
+    ) -> User:
+        scopes: list[str] = getattr(request.state, "api_key_scopes", [])
+        # Wildcard : "read:*" donne accès à tout ce qui commence par "read:"
+        resource = scope.split(":")[0] if ":" in scope else scope
+        wildcard = f"{resource}:*"
+        if scope not in scopes and wildcard not in scopes and "read:*" not in scopes:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Scope '{scope}' requis pour cette ressource",
+            )
+        return user
+
+    return _check

@@ -7,12 +7,13 @@ import uuid
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi.security import HTTPAuthorizationCredentials
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.core.deps import get_current_user
+from app.core.deps import get_current_user, security_optional
 from app.core.rbac import check_entity_access
 from app.db.session import get_db
 from app.models.activity import Activity
@@ -120,11 +121,31 @@ _PLAN_PRICING_TYPE: dict[str, str] = {
 }
 
 
-async def _require_nomo_api_key(x_nomo_api_key: str | None = Header(None)) -> None:
+async def _require_nomo_api_key(
+    x_nomo_api_key: str | None = Header(None),
+    credentials: HTTPAuthorizationCredentials | None = Depends(security_optional),
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    """Auth Nomo-IA : accepte l'ancien header OU le nouveau Bearer crm_xxx.
+
+    Transition : les deux méthodes coexistent pendant la migration.
+    Supprimer le fallback X-Nomo-API-Key après 2026-07-01 (1 mois post-migration).
+    """
+    # Nouveau standard : Bearer crm_xxx
+    if credentials and credentials.credentials.startswith("crm_"):
+        from app.services.api_keys import validate_api_key
+        result = await validate_api_key(db, credentials.credentials)
+        if result is not None:
+            return  # Clé valide
+        raise HTTPException(status_code=401, detail="API key invalide ou expirée")
+
+    # Héritage : X-Nomo-API-Key header (deprecated — supprimer après 2026-07-01)
+    if settings.nomo_api_key and x_nomo_api_key == settings.nomo_api_key:
+        return
+
     if not settings.nomo_api_key:
         raise HTTPException(status_code=503, detail="Nomo-IA integration not configured")
-    if x_nomo_api_key != settings.nomo_api_key:
-        raise HTTPException(status_code=401, detail="Invalid Nomo-IA API key")
+    raise HTTPException(status_code=401, detail="Authentification requise (Bearer crm_xxx ou X-Nomo-API-Key)")
 
 
 @router.post(
@@ -260,13 +281,29 @@ async def nomo_new_subscription(
 
 async def _require_plein_phare_api_key(
     x_pleinphare_api_key: str | None = Header(None, alias="X-PleinPhare-API-Key"),
+    credentials: HTTPAuthorizationCredentials | None = Depends(security_optional),
+    db: AsyncSession = Depends(get_db),
 ) -> None:
+    """Auth Plein Phare : accepte l'ancien header OU le nouveau Bearer crm_xxx.
+
+    Transition : les deux méthodes coexistent pendant la migration.
+    Supprimer le fallback X-PleinPhare-API-Key après 2026-07-01 (1 mois post-migration).
+    """
+    # Nouveau standard : Bearer crm_xxx
+    if credentials and credentials.credentials.startswith("crm_"):
+        from app.services.api_keys import validate_api_key
+        result = await validate_api_key(db, credentials.credentials)
+        if result is not None:
+            return  # Clé valide
+        raise HTTPException(status_code=401, detail="API key invalide ou expirée")
+
+    # Héritage : X-PleinPhare-API-Key header (deprecated — supprimer après 2026-07-01)
+    if settings.plein_phare_api_key and x_pleinphare_api_key == settings.plein_phare_api_key:
+        return
+
     if not settings.plein_phare_api_key:
-        raise HTTPException(
-            status_code=503, detail="Plein Phare integration not configured"
-        )
-    if x_pleinphare_api_key != settings.plein_phare_api_key:
-        raise HTTPException(status_code=401, detail="Invalid Plein Phare API key")
+        raise HTTPException(status_code=503, detail="Plein Phare integration not configured")
+    raise HTTPException(status_code=401, detail="Authentification requise (Bearer crm_xxx ou X-PleinPhare-API-Key)")
 
 
 def _plein_phare_deal_title(audit_order_id: str) -> str:
