@@ -25,6 +25,8 @@ class User(Base, UUIDMixin, TimestampMixin):
     full_name: Mapped[str] = mapped_column(String(255), nullable=False)
     role: Mapped[str] = mapped_column(String(50), default="sales", nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    # Service accounts (mcp@crm.internal, nomo-ia@crm.internal) — ne peuvent pas se connecter via UI
+    is_service: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
     avatar_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
     # Relationships

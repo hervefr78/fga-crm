@@ -3,6 +3,7 @@
 # =============================================================================
 
 from app.models.activity import Activity
+from app.models.api_key import ApiKey
 from app.models.base import Base, TimestampMixin, UUIDMixin
 from app.models.company import Company
 from app.models.contact import Contact
@@ -27,4 +28,5 @@ __all__ = [
     "Task",
     "Tag",
     "TagAssignment",
+    "ApiKey",
 ]
