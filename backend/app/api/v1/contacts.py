@@ -88,7 +88,7 @@ def _contact_to_response(
 @router.get("", response_model=ContactListResponse)
 async def list_contacts(
     page: int = Query(1, ge=1),
-    size: int = Query(25, ge=1, le=100),
+    size: int = Query(25, ge=1, le=5000),
     search: str | None = Query(None, max_length=255),
     status: str | None = None,
     job_level: str | None = None,

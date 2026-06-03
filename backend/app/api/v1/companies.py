@@ -129,7 +129,7 @@ def _company_to_response(
 @router.get("", response_model=CompanyListResponse)
 async def list_companies(
     page: int = Query(1, ge=1),
-    size: int = Query(25, ge=1, le=100),
+    size: int = Query(25, ge=1, le=5000),
     search: str | None = Query(None, max_length=255),
     industry: str | None = None,
     size_range: str | None = None,
