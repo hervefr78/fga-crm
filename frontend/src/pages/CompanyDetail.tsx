@@ -3,7 +3,7 @@
 // Split-view + KPI strip + AI suggestions + timeline activite + Audit SR
 // =============================================================================
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
@@ -19,10 +19,11 @@ import clsx from 'clsx';
 import {
   getCompany, getCompanies, getContacts, getDeals, getActivities,
   deleteCompany, triggerCompanyAudit, getCompanyNextAction,
+  generateCompanyAudit, getCompanyAuditGenerateStatus,
 } from '../api/client';
 import type {
   Company, Contact, Deal, Activity, CompanyAuditResponse,
-  NextActionAction,
+  NextActionAction, AuditGenerateStatus,
 } from '../types';
 import { Badge, Button, ConfirmDialog, LoadingSpinner, Modal } from '../components/ui';
 import AuditResultPanel from '../components/audit/AuditResultPanel';
@@ -138,6 +139,7 @@ export default function CompanyDetailPage() {
     },
   });
 
+  // Import d'un audit SR existant (pull du resultat deja calcule cote SR)
   const auditMutation = useMutation<CompanyAuditResponse, Error>({
     mutationFn: () => triggerCompanyAudit(id!),
     onSuccess: () => {
@@ -146,6 +148,49 @@ export default function CompanyDetailPage() {
       setActiveTab('audit');
     },
   });
+
+  // --- Generation d'audit a la demande : trigger SR -> poll -> import auto ---
+  const [isGeneratingAudit, setIsGeneratingAudit] = useState(false);
+  const { mutate: importAudit } = auditMutation;
+
+  const generateAuditMutation = useMutation({
+    mutationFn: () => generateCompanyAudit(id!),
+    onSuccess: () => {
+      setIsGeneratingAudit(true);
+      setActiveTab('audit');
+    },
+    onError: (err) => {
+      // 409 = un audit tourne deja cote SR -> on poll quand meme
+      if ((err as { response?: { status?: number } })?.response?.status === 409) {
+        setIsGeneratingAudit(true);
+        setActiveTab('audit');
+      }
+    },
+  });
+
+  const { data: auditGenStatus } = useQuery<AuditGenerateStatus>({
+    queryKey: ['audit-generate-status', id],
+    queryFn: () => getCompanyAuditGenerateStatus(id!),
+    enabled: isGeneratingAudit && !!id,
+    refetchInterval: (q) => {
+      const s = q.state.data?.status;
+      return s === 'completed' || s === 'failed' ? false : 5000;
+    },
+  });
+
+  // Transitions du pipeline SR : completed -> importer le resultat ; failed -> stop
+  useEffect(() => {
+    if (!isGeneratingAudit) return;
+    if (auditGenStatus?.status === 'completed') {
+      setIsGeneratingAudit(false);
+      importAudit();
+    } else if (auditGenStatus?.status === 'failed') {
+      setIsGeneratingAudit(false);
+    }
+  }, [auditGenStatus?.status, isGeneratingAudit, importAudit]);
+
+  const auditBusy =
+    generateAuditMutation.isPending || isGeneratingAudit || auditMutation.isPending;
 
   // Memoize les arrays derives pour stabiliser les references (evite les
   // re-render inutiles des sous-composants et stabilise les deps de useMemo).
@@ -331,8 +376,8 @@ export default function CompanyDetailPage() {
                       variant="secondary"
                       size="sm"
                       icon={Zap}
-                      onClick={() => auditMutation.mutate()}
-                      loading={auditMutation.isPending}
+                      onClick={() => generateAuditMutation.mutate()}
+                      loading={auditBusy}
                     >
                       Audit Startup Radar
                     </Button>
@@ -394,8 +439,26 @@ export default function CompanyDetailPage() {
                   onAction={handleAiAction}
                 />
 
-                {/* Audit feedback (mutation result) */}
-                {auditMutation.isSuccess && auditMutation.data && (
+                {/* Generation d'audit en cours (pipeline SR) */}
+                {isGeneratingAudit && (
+                  <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-3 text-sm text-indigo-700 flex items-center gap-2">
+                    <Zap className="w-4 h-4 flex-shrink-0 animate-pulse" />
+                    <span>
+                      Generation de l'audit en cours cote Startup Radar
+                      {auditGenStatus?.step ? ` — ${auditGenStatus.step}` : '...'}
+                    </span>
+                  </div>
+                )}
+                {/* Echec de generation */}
+                {!isGeneratingAudit && auditGenStatus?.status === 'failed' && (
+                  <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-700 flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                    <span>{auditGenStatus.error || 'La generation de l\'audit a echoue.'}</span>
+                  </div>
+                )}
+
+                {/* Audit feedback (import result) */}
+                {!isGeneratingAudit && auditMutation.isSuccess && auditMutation.data && (
                   <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 text-sm text-emerald-700">
                     {auditMutation.data.audits_created > 0 && (
                       <span>{auditMutation.data.audits_created} audit{auditMutation.data.audits_created > 1 ? 's' : ''} cree{auditMutation.data.audits_created > 1 ? 's' : ''}</span>
@@ -515,8 +578,8 @@ export default function CompanyDetailPage() {
                       detailed={detailedAudits}
                       geo={geoAudits}
                       canAudit={canAudit}
-                      auditPending={auditMutation.isPending}
-                      onLaunchAudit={() => auditMutation.mutate()}
+                      auditPending={auditBusy}
+                      onLaunchAudit={() => generateAuditMutation.mutate()}
                     />
                   )}
                 </div>

@@ -458,6 +458,13 @@ export interface CompanyAuditResponse {
   errors: string[];
 }
 
+// Statut de generation d'un audit SR a la demande (proxy du statut SR)
+export interface AuditGenerateStatus {
+  status: 'idle' | 'running' | 'completed' | 'failed';
+  step: string;
+  error: string | null;
+}
+
 // ---------- Dashboard Stats ----------
 
 export interface DealsByStage {

@@ -276,6 +276,18 @@ export const triggerCompanyAudit = async (companyId: string) => {
   return response.data;
 };
 
+// Generation d'audit a la demande : declenche le pipeline SR (detaille + GEO),
+// le frontend poll getCompanyAuditGenerateStatus jusqu'a completed puis importe.
+export const generateCompanyAudit = async (companyId: string) => {
+  const response = await api.post(`/integrations/startup-radar/audit/${companyId}/generate`);
+  return response.data;
+};
+
+export const getCompanyAuditGenerateStatus = async (companyId: string) => {
+  const response = await api.get(`/integrations/startup-radar/audit/${companyId}/generate-status`);
+  return response.data;
+};
+
 // ---------- Dashboard ----------
 export const getDashboardStats = async () => {
   const response = await api.get('/dashboard/stats');

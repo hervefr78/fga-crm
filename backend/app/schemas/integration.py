@@ -26,11 +26,29 @@ class SyncResultResponse(BaseModel):
 
 
 class CompanyAuditResponse(BaseModel):
-    """Resultat du lancement d'un audit avance sur une entreprise."""
+    """Resultat de l'import d'un audit avance sur une entreprise."""
 
     audits_created: int = Field(0, description="Nombre d'audits crees")
     audits_skipped: int = Field(0, description="Nombre d'audits deja existants")
     errors: list[str] = Field(default_factory=list, description="Erreurs rencontrees")
+
+
+class AuditGenerateResponse(BaseModel):
+    """Reponse au declenchement d'un audit SR (genere en arriere-plan cote SR)."""
+
+    status: str = Field(..., description="running")
+    message: str = Field("", description="Message informatif")
+
+
+class AuditGenerateStatusResponse(BaseModel):
+    """Statut de generation d'un audit SR (proxy du statut SR).
+
+    `status` (DC5) : idle (aucun en cours) | running | completed | failed.
+    """
+
+    status: str = Field("idle", description="idle | running | completed | failed")
+    step: str = Field("", description="Etape courante du pipeline SR")
+    error: str | None = Field(None, description="Message d'erreur si status=failed")
 
 
 class SyncStatusResponse(BaseModel):

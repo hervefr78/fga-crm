@@ -22,13 +22,19 @@ from app.models.contact import Contact
 from app.models.deal import Deal
 from app.models.user import User
 from app.schemas.integration import (
+    AuditGenerateResponse,
+    AuditGenerateStatusResponse,
     CompanyAuditResponse,
     SyncEnqueuedResponse,
     SyncResultResponse,
     SyncStatusResponse,
 )
 from app.services import sync_status
-from app.services.startup_radar import StartupRadarClient, StartupRadarError
+from app.services.startup_radar import (
+    StartupRadarClient,
+    StartupRadarConflict,
+    StartupRadarError,
+)
 from app.services.startup_radar_sync import sync_recent_startups
 from app.tasks.startup_radar_full_sync import full_sync_task
 
@@ -844,4 +850,117 @@ async def trigger_company_audit(
         audits_created=audits_created,
         audits_skipped=audits_skipped,
         errors=errors,
+    )
+
+
+# ---------- Generation d'audit a la demande (trigger SR + polling) ----------
+
+
+async def _resolve_sr_company(db: AsyncSession, company_id: str, user: User) -> Company:
+    """Charge une company auditable SR + valide (sr_id, pas investisseur, RBAC).
+
+    Partage par les endpoints generate / generate-status (DC8). Leve HTTPException
+    en cas d'invalidite.
+    """
+    try:
+        cid = uuid.UUID(company_id)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="company_id invalide") from None
+
+    company = (
+        await db.execute(select(Company).where(Company.id == cid))
+    ).scalar_one_or_none()
+    if not company:
+        raise HTTPException(status_code=404, detail="Entreprise non trouvee")
+    if not company.startup_radar_id:
+        raise HTTPException(
+            status_code=422, detail="Cette entreprise n'a pas de lien Startup Radar",
+        )
+    if company.startup_radar_id.startswith("inv:"):
+        raise HTTPException(
+            status_code=422,
+            detail="Les audits ne sont pas disponibles pour les investisseurs",
+        )
+    check_entity_access(company, user)
+    return company
+
+
+@router.post(
+    "/startup-radar/audit/{company_id}/generate",
+    response_model=AuditGenerateResponse,
+    status_code=202,
+)
+async def generate_company_audit(
+    company_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_manager),
+):
+    """Declencher la GENERATION d'un audit SR (detaille + GEO + presentation).
+
+    Reserve manager+. SR calcule l'audit en arriere-plan (pipeline LLM, plusieurs
+    minutes). Le frontend poll GET .../generate-status jusqu'a completed, puis
+    importe le resultat via POST .../audit/{company_id}.
+    """
+    company = await _resolve_sr_company(db, company_id, current_user)
+
+    sr_client = StartupRadarClient()
+    try:
+        await sr_client.authenticate()
+    except StartupRadarError as e:
+        logger.error("[Integrations] Auth SR (generate audit): %s", e)
+        raise HTTPException(
+            status_code=503, detail=f"Erreur auth Startup Radar: {e}",
+        ) from e
+
+    try:
+        result = await sr_client.launch_diagnostic_audit(company.startup_radar_id)
+    except StartupRadarConflict:
+        raise HTTPException(
+            status_code=409,
+            detail="Un audit est deja en cours pour cette entreprise.",
+        ) from None
+    except StartupRadarError as e:
+        logger.error("[Integrations] Generate audit SR: %s", e)
+        raise HTTPException(
+            status_code=503, detail=f"Erreur Startup Radar: {e}",
+        ) from e
+
+    return AuditGenerateResponse(
+        status="running",
+        message=result.get("message", "Audit lance"),
+    )
+
+
+@router.get(
+    "/startup-radar/audit/{company_id}/generate-status",
+    response_model=AuditGenerateStatusResponse,
+)
+async def get_company_audit_generate_status(
+    company_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_manager),
+):
+    """Statut de generation d'un audit SR (proxy du statut SR).
+
+    `idle` si aucun audit en cours, sinon running / completed / failed.
+    """
+    company = await _resolve_sr_company(db, company_id, current_user)
+
+    sr_client = StartupRadarClient()
+    try:
+        await sr_client.authenticate()
+        st = await sr_client.get_diagnostic_status(company.startup_radar_id)
+    except StartupRadarError as e:
+        logger.error("[Integrations] Statut generation audit SR: %s", e)
+        raise HTTPException(
+            status_code=503, detail=f"Erreur Startup Radar: {e}",
+        ) from e
+
+    if st is None:
+        return AuditGenerateStatusResponse(status="idle")
+
+    return AuditGenerateStatusResponse(
+        status=st.get("status", "idle"),
+        step=st.get("step", ""),
+        error=st.get("error"),
     )

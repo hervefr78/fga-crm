@@ -21,6 +21,10 @@ class StartupRadarError(Exception):
     """Erreur lors de la communication avec Startup Radar."""
 
 
+class StartupRadarConflict(StartupRadarError):
+    """Un audit/operation est deja en cours cote SR (HTTP 409)."""
+
+
 class StartupRadarClient:
     """Client HTTP async pour l'API Startup Radar."""
 
@@ -148,6 +152,37 @@ class StartupRadarClient:
     async def get_geo_audit(self, startup_id: str) -> dict | None:
         """Recuperer l'audit GEO d'une startup."""
         return await self._get(f"/geo-audit/{startup_id}")
+
+    async def launch_diagnostic_audit(self, startup_id: str) -> dict:
+        """Declencher un audit diagnostic complet cote SR (detaille + GEO +
+        presentation), execute en arriere-plan par SR.
+
+        Leve StartupRadarConflict si un audit tourne deja (SR 409),
+        StartupRadarError sinon.
+        """
+        async with httpx.AsyncClient(timeout=SR_TIMEOUT) as client:
+            resp = await client.post(
+                f"{self.base_url}/analysis/diagnostic/{startup_id}",
+                headers=self._headers(),
+            )
+
+        if resp.status_code == 409:
+            raise StartupRadarConflict(
+                "Un audit est deja en cours pour cette entreprise cote Startup Radar"
+            )
+        if resp.status_code not in (200, 201, 202):
+            raise StartupRadarError(
+                f"Erreur SR POST diagnostic {startup_id}: {resp.status_code} — {resp.text}"
+            )
+        return resp.json()
+
+    async def get_diagnostic_status(self, startup_id: str) -> dict | None:
+        """Statut de l'audit diagnostic SR en cours.
+
+        None si aucun audit n'est en cours (SR renvoie 404 par design via _get).
+        Sinon : {status: running|completed|failed, step, presentation_url, error}.
+        """
+        return await self._get(f"/analysis/diagnostic/{startup_id}/status")
 
     def get_detailed_audit_file_urls(self, startup_id: str) -> tuple[str, str]:
         """Construire les URLs de telechargement MD et DOCX de l'audit detaille.
