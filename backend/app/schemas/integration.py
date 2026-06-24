@@ -34,7 +34,26 @@ class CompanyAuditResponse(BaseModel):
 
 
 class SyncStatusResponse(BaseModel):
-    """Statut de la derniere synchronisation."""
+    """Statut de la full sync Startup Radar (stocke dans Redis).
 
-    has_synced: bool = Field(False, description="True si au moins une sync a ete faite")
+    `status` (DC5 — etats exhaustifs) :
+    - idle       : aucune sync n'a jamais tourne
+    - running    : une sync est en cours (le frontend poll)
+    - completed  : derniere sync terminee (resultat dans last_result)
+    - failed     : derniere sync a echoue (detail dans error)
+    """
+
+    has_synced: bool = Field(False, description="True si une sync s'est deja terminee")
+    status: str = Field("idle", description="idle | running | completed | failed")
+    started_at: str | None = Field(None, description="ISO — debut de la sync en cours/derniere")
+    finished_at: str | None = Field(None, description="ISO — fin de la derniere sync")
+    error: str | None = Field(None, description="Message d'erreur si status=failed")
     last_result: SyncResultResponse | None = Field(None, description="Dernier resultat de sync")
+
+
+class SyncEnqueuedResponse(BaseModel):
+    """Reponse 202 du lancement d'une full sync (tache de fond)."""
+
+    status: str = Field("running", description="Statut initial du job")
+    job_id: str = Field(..., description="Identifiant du job de sync")
+    started_at: str = Field(..., description="ISO — horodatage du lancement")

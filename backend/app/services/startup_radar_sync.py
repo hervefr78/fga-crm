@@ -202,19 +202,11 @@ async def create_qualification_task(
     return True
 
 
-# Stockage en memoire du dernier resultat de sync
-_last_sync_result: SyncResult | None = None
-
-
-def get_last_sync_result() -> SyncResult | None:
-    """Retourne le dernier resultat de sync."""
-    return _last_sync_result
-
-
-def _set_last_sync_result(result: SyncResult) -> None:
-    """Met a jour le dernier resultat de sync."""
-    global _last_sync_result
-    _last_sync_result = result
+# Le statut de la full sync est stocke dans Redis (cf. services/sync_status.py),
+# pas dans un global memoire : la prod a plusieurs workers uvicorn + un process
+# Celery, un global ne serait visible que dans le process qui l'ecrit.
+# full_sync() / sync_recent_startups() restent du calcul pur : elles retournent
+# un SyncResult, l'orchestration (task Celery + endpoint) enregistre le statut.
 
 
 # ---------------------------------------------------------------------------
@@ -738,13 +730,13 @@ async def full_sync(db: AsyncSession, user: User) -> SyncResult:
     sr_client = StartupRadarClient()
     total = SyncResult()
 
-    # 1. Authentification
+    # 1. Authentification — erreur fatale : on remonte pour que la task marque
+    # le job 'failed' (et non 'completed' avec 0 element, qui serait trompeur).
     try:
         await sr_client.authenticate()
-    except StartupRadarError as e:
-        total.errors.append(f"Authentification: {e}")
-        _set_last_sync_result(total)
-        return total
+    except StartupRadarError:
+        logger.error("[SRSync] Authentification SR echouee — sync annulee")
+        raise
 
     # 2. Sync startups → Companies
     startups_result, sr_to_crm = await sync_startups(db, sr_client, user)
@@ -775,8 +767,6 @@ async def full_sync(db: AsyncSession, user: User) -> SyncResult:
     except Exception as e:
         await db.rollback()
         total.errors.append(f"Commit final: {e}")
-
-    _set_last_sync_result(total)
 
     logger.info(
         "[SRSync] Sync terminee — Companies: +%d/~%d, Contacts: +%d/~%d, "
@@ -853,11 +843,9 @@ async def sync_recent_startups(
             items = []
     except StartupRadarError as e:
         result.errors.append(f"Fetch recent startups: {e}")
-        _set_last_sync_result(result)
         return result
     except Exception as e:
         result.errors.append(f"Fetch recent startups: {e}")
-        _set_last_sync_result(result)
         return result
 
     logger.info("[SRSync recent] %d startups depuis %s", len(items), since)
@@ -917,8 +905,6 @@ async def sync_recent_startups(
     except Exception as e:
         await db.rollback()
         result.errors.append(f"Commit recent sync: {e}")
-
-    _set_last_sync_result(result)
 
     logger.info(
         "[SRSync recent] Termine — Companies: +%d/~%d, Contacts: +%d/~%d, "

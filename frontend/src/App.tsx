@@ -6,7 +6,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AuthProvider } from './contexts/AuthContext';
 import { useAuth } from './contexts/useAuth';
-import { isAdmin } from './types';
+import { isAdmin, isManagerOrAbove } from './types';
 import Layout from './components/layout/Layout';
 import Dashboard from './pages/Dashboard';
 import ContactsPage from './pages/Contacts';
@@ -25,6 +25,7 @@ import AdminUsersPage from './pages/AdminUsers';
 import EmailPage from './pages/Email';
 import IntegrationsPage from './pages/Integrations';
 import DraftsPage from './pages/Drafts';
+import GEOPage from './pages/GEO';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -56,6 +57,12 @@ function AdminRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+function ManagerRoute({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
+  if (!isManagerOrAbove(user)) return <Navigate to="/" replace />;
+  return <>{children}</>;
+}
+
 function AppRoutes() {
   const { isAuthenticated, isLoading } = useAuth();
 
@@ -84,8 +91,9 @@ function AppRoutes() {
         <Route path="/tasks" element={<TasksPage />} />
         <Route path="/activities" element={<ActivitiesPage />} />
         <Route path="/drafts" element={<DraftsPage />} />
+        <Route path="/geo" element={<GEOPage />} />
         <Route path="/email" element={<EmailPage />} />
-        <Route path="/integrations" element={<IntegrationsPage />} />
+        <Route path="/integrations" element={<ManagerRoute><IntegrationsPage /></ManagerRoute>} />
         <Route path="/settings" element={<SettingsPage />} />
         <Route path="/admin/users" element={<AdminRoute><AdminUsersPage /></AdminRoute>} />
       </Route>

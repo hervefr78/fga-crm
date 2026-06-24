@@ -86,6 +86,15 @@ class Settings(BaseSettings):
     # uniquement, jamais exposee au navigateur. Vide = proxy desactive (503).
     compass_service_api_key: str = ""
 
+    # GEO — Generative Engine Optimization
+    perplexity_api_key: str | None = None
+    gemini_api_key: str | None = None
+    serpapi_key: str | None = None       # Google AI Overviews (P3)
+    geo_extractor_model: str = "gpt-4o-mini"   # modele extraction (distinct du collecteur)
+    geo_runs_per_prompt: int = 3               # N runs par prompt par defaut
+    geo_raw_answer_max_chars: int = 4000       # troncature avant stockage
+    geo_extract_input_max_chars: int = 2000    # troncature avant envoi a l'extracteur
+
     # MinIO (S3-compatible)
     minio_endpoint: str = "minio:9000"
     minio_root_user: str = "minioadmin"

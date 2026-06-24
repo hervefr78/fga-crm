@@ -9,6 +9,7 @@ from app.models.company import Company
 from app.models.contact import Contact
 from app.models.deal import Deal
 from app.models.email_template import EmailTemplate
+from app.models.geo import GeoBrand, GeoMetricsDaily, GeoPrompt, GeoRun
 from app.models.tag import Tag, TagAssignment
 from app.models.task import Task
 from app.models.user import User
@@ -29,4 +30,8 @@ __all__ = [
     "Tag",
     "TagAssignment",
     "ApiKey",
+    "GeoBrand",
+    "GeoPrompt",
+    "GeoRun",
+    "GeoMetricsDaily",
 ]

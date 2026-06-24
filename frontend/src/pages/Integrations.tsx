@@ -2,38 +2,53 @@
 // FGA CRM - Page Integrations (Startup Radar sync)
 // =============================================================================
 
-import { useState } from 'react';
+import { useEffect, useRef } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { RefreshCw, CheckCircle, AlertTriangle, Building2, Users, Briefcase, FileText } from 'lucide-react';
 import { syncStartupRadar, getSyncStatus } from '../api/client';
-import type { SyncResult, SyncStatus } from '../types';
+import type { SyncStatus } from '../types';
+
+// Intervalle de polling du statut pendant une sync en cours (ms)
+const SYNC_POLL_INTERVAL = 3000;
 
 export default function IntegrationsPage() {
   const queryClient = useQueryClient();
-  const [lastResult, setLastResult] = useState<SyncResult | null>(null);
+  const prevStatusRef = useRef<string | undefined>(undefined);
 
-  // Recuperer le statut de la derniere sync
+  // Statut de la full sync. Tant qu'une sync tourne (status='running'), on poll
+  // toutes les 3s ; sinon on arrete (refetchInterval=false).
   const { data: status } = useQuery<SyncStatus>({
     queryKey: ['sync-status'],
     queryFn: getSyncStatus,
+    refetchInterval: (query) =>
+      query.state.data?.status === 'running' ? SYNC_POLL_INTERVAL : false,
   });
 
-  // Mutation pour lancer la sync
+  const isRunning = status?.status === 'running';
+  const isFailed = status?.status === 'failed';
+
+  // Mutation : lance la sync (202). Le polling du statut prend le relais.
   const syncMutation = useMutation({
     mutationFn: syncStartupRadar,
-    onSuccess: (data: SyncResult) => {
-      setLastResult(data);
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['sync-status'] });
-      // Invalider les listes qui ont pu changer
-      queryClient.invalidateQueries({ queryKey: ['companies'] });
-      queryClient.invalidateQueries({ queryKey: ['contacts'] });
-      queryClient.invalidateQueries({ queryKey: ['activities'] });
     },
   });
 
-  // Afficher le dernier resultat (soit de la mutation, soit du statut)
-  const displayResult = lastResult ?? status?.last_result ?? null;
+  // Transition running -> completed : rafraichir les listes impactees.
+  useEffect(() => {
+    if (prevStatusRef.current === 'running' && status?.status === 'completed') {
+      queryClient.invalidateQueries({ queryKey: ['companies'] });
+      queryClient.invalidateQueries({ queryKey: ['contacts'] });
+      queryClient.invalidateQueries({ queryKey: ['activities'] });
+    }
+    prevStatusRef.current = status?.status;
+  }, [status?.status, queryClient]);
+
+  // Source unique de verite : le dernier resultat vient du statut (Redis).
+  const displayResult = status?.last_result ?? null;
   const hasErrors = displayResult && displayResult.errors.length > 0;
+  const busy = isRunning || syncMutation.isPending;
   const totalCreated = displayResult
     ? displayResult.companies_created + displayResult.contacts_created +
       displayResult.investors_created + displayResult.audits_created
@@ -65,18 +80,18 @@ export default function IntegrationsPage() {
 
           <button
             onClick={() => syncMutation.mutate()}
-            disabled={syncMutation.isPending}
+            disabled={busy}
             className="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
-            <RefreshCw className={`w-4 h-4 ${syncMutation.isPending ? 'animate-spin' : ''}`} />
-            {syncMutation.isPending ? 'Synchronisation...' : 'Synchroniser'}
+            <RefreshCw className={`w-4 h-4 ${busy ? 'animate-spin' : ''}`} />
+            {busy ? 'Synchronisation...' : 'Synchroniser'}
           </button>
         </div>
 
         {/* Contenu */}
         <div className="px-6 py-5">
           {/* Etat initial — jamais synchro */}
-          {!displayResult && !syncMutation.isPending && (
+          {!displayResult && !busy && !isFailed && (
             <div className="text-center py-8 text-slate-400">
               <RefreshCw className="w-12 h-12 mx-auto mb-3 text-slate-300" />
               <p className="text-sm">Aucune synchronisation effectuee</p>
@@ -84,30 +99,48 @@ export default function IntegrationsPage() {
             </div>
           )}
 
-          {/* Loading */}
-          {syncMutation.isPending && (
+          {/* En cours (tache de fond — statut poll toutes les 3s) */}
+          {busy && (
             <div className="text-center py-8">
               <RefreshCw className="w-12 h-12 mx-auto mb-3 text-indigo-400 animate-spin" />
               <p className="text-sm text-slate-600 font-medium">Synchronisation en cours...</p>
-              <p className="text-xs text-slate-400 mt-1">Cela peut prendre quelques secondes</p>
+              <p className="text-xs text-slate-400 mt-1">
+                Elle tourne en arriere-plan — vous pouvez quitter cette page, elle continuera.
+              </p>
             </div>
           )}
 
-          {/* Erreur mutation */}
-          {syncMutation.isError && (
+          {/* Erreur de lancement (mutation : 409 deja en cours, 503 file indispo) */}
+          {syncMutation.isError && !busy && (
             <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-4">
               <div className="flex items-center gap-2 text-red-700">
                 <AlertTriangle className="w-4 h-4" />
-                <span className="text-sm font-medium">Erreur de synchronisation</span>
+                <span className="text-sm font-medium">Lancement impossible</span>
               </div>
               <p className="text-sm text-red-600 mt-1">
-                {(syncMutation.error as Error)?.message || 'Une erreur est survenue'}
+                {(syncMutation.error as { response?: { data?: { detail?: string } } })
+                  ?.response?.data?.detail ||
+                  (syncMutation.error as Error)?.message ||
+                  'Une erreur est survenue'}
+              </p>
+            </div>
+          )}
+
+          {/* Sync echouee (statut Redis : la task a leve une exception) */}
+          {isFailed && !busy && (
+            <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-4">
+              <div className="flex items-center gap-2 text-red-700">
+                <AlertTriangle className="w-4 h-4" />
+                <span className="text-sm font-medium">La derniere synchronisation a echoue</span>
+              </div>
+              <p className="text-sm text-red-600 mt-1">
+                {status?.error || 'Erreur inconnue'}
               </p>
             </div>
           )}
 
           {/* Resultat */}
-          {displayResult && !syncMutation.isPending && (
+          {displayResult && !isRunning && (
             <>
               {/* Resume */}
               <div className="flex items-center gap-2 mb-4">

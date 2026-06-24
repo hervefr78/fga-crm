@@ -12,6 +12,7 @@ import {
   Activity,
   Mail,
   FileCheck,
+  TrendingUp,
   Link2,
   Settings,
   LogOut,
@@ -23,7 +24,7 @@ import {
 } from 'lucide-react';
 import clsx from 'clsx';
 import { useAuth } from '../../contexts/useAuth';
-import { isAdmin, USER_ROLES } from '../../types';
+import { isAdmin, isManagerOrAbove, USER_ROLES } from '../../types';
 import GlobalSearch from './GlobalSearch';
 
 const baseNavigation = [
@@ -37,7 +38,6 @@ const baseNavigation = [
   { name: 'Activités', href: '/activities', icon: Activity },
   { name: 'Drafts à valider', href: '/drafts', icon: FileCheck },
   { name: 'Email', href: '/email', icon: Mail },
-  { name: 'Integrations', href: '/integrations', icon: Link2 },
   { name: 'Paramètres', href: '/settings', icon: Settings },
 ];
 
@@ -49,8 +49,24 @@ export default function Layout() {
   const location = useLocation();
   const { user, logout } = useAuth();
 
+  // GEO : module reserve aux managers/admins — masque pour les sales
+  // (cf garde RBAC dans GEOPage). Insere juste avant 'Email'.
+  const geoNav = isManagerOrAbove(user)
+    ? [{ name: 'GEO', href: '/geo', icon: TrendingUp }]
+    : [];
+
+  // Integrations : op couteuse reservee aux managers/admins (cf garde RBAC
+  // backend get_current_manager + ManagerRoute frontend). Masque pour les sales.
+  const integrationsNav = isManagerOrAbove(user)
+    ? [{ name: 'Integrations', href: '/integrations', icon: Link2 }]
+    : [];
+
   const navigation = [
-    ...baseNavigation,
+    ...baseNavigation.slice(0, 9), // jusqu'a 'Drafts à valider' inclus
+    ...geoNav,
+    ...baseNavigation.slice(9, 10), // 'Email'
+    ...integrationsNav,
+    ...baseNavigation.slice(10), // 'Paramètres'
     ...(isAdmin(user) ? [{ name: 'Utilisateurs', href: '/admin/users', icon: Shield }] : []),
   ];
 

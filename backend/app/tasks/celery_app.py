@@ -5,9 +5,7 @@
 import os
 
 from celery import Celery
-from celery.schedules import (
-    crontab,  # noqa: F401  — utilise quand beat_schedule sera reactive
-)
+from celery.schedules import crontab
 
 # Broker et backend via Redis
 REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379/0")
@@ -54,18 +52,29 @@ app.conf.update(
 # manuellement via l'endpoint POST /integrations/startup-radar/sync-recent-funding
 # ou via celery call (pour test ad-hoc).
 # ---------------------------------------------------------------------------
-# app.conf.beat_schedule = {
+# Le funding_sync reste DESACTIVE (cf. TODO ci-dessus, filtre `?since=` cote SR
+# manquant). Il pourra etre rajoute ici quand le filtre SR sera disponible :
 #     "sync-recent-funding-daily": {
 #         "task": "app.tasks.funding_sync.sync_recent_funding_task",
 #         "schedule": crontab(hour=9, minute=0),
 #         "args": (7,),  # days_back = 7
 #     },
-# }
-app.conf.beat_schedule = {}
+app.conf.beat_schedule = {
+    # Metriques GEO — calcul quotidien a 07:00 (apres les runs nocturnes)
+    "geo-compute-metrics-daily": {
+        "task": "app.tasks.geo.geo_compute_metrics_task",
+        "schedule": crontab(hour=7, minute=0),
+        "args": (),
+    },
+}
 
 # Decouverte automatique : autodiscover_tasks scanne pour `tasks.py` dans
 # les packages listes (convention Celery). On a un layout different
 # (chaque task = un module dans app.tasks/), donc on importe explicitement
 # les modules pour declencher l'enregistrement des @app.task.
 app.autodiscover_tasks(["app.tasks"])
-from app.tasks import funding_sync  # noqa: E402, F401  — register task
+from app.tasks import (  # noqa: E402, F401, I001  — register tasks
+    funding_sync,
+    geo,
+    startup_radar_full_sync,
+)

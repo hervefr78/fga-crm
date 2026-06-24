@@ -16,6 +16,7 @@ from app.api.v1 import (
     drafts_review,
     email_templates,
     emails,
+    geo,
     integrations,
     search,
     tasks,
@@ -38,6 +39,7 @@ api_router.include_router(integrations.router, prefix="/integrations", tags=["In
 api_router.include_router(dashboard.router, prefix="/dashboard", tags=["Dashboard"])
 api_router.include_router(drafts_review.router, prefix="/drafts-review", tags=["Drafts Review"])
 api_router.include_router(admin_api_keys.router, prefix="/admin/api-keys", tags=["Admin — API Keys"])
+api_router.include_router(geo.router, prefix="/geo", tags=["GEO"])
 # AI router : routes absolues (/companies/{id}/next-action, /contacts/{id}/next-action,
 # /deals/{id}/next-action). Pas de prefix ici — chaque route porte son chemin complet.
 api_router.include_router(ai.router, tags=["AI"])

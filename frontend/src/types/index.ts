@@ -434,9 +434,22 @@ export interface SyncResult {
   errors: string[];
 }
 
+export type SyncJobStatus = 'idle' | 'running' | 'completed' | 'failed';
+
 export interface SyncStatus {
   has_synced: boolean;
+  status: SyncJobStatus;
+  started_at: string | null;
+  finished_at: string | null;
+  error: string | null;
   last_result: SyncResult | null;
+}
+
+// Reponse 202 du lancement d'une full sync (tache de fond)
+export interface SyncEnqueued {
+  status: string;
+  job_id: string;
+  started_at: string;
 }
 
 export interface CompanyAuditResponse {
