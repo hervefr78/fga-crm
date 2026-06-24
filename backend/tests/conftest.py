@@ -2,7 +2,13 @@
 # FGA CRM - Conftest (fixtures partagees pour tous les tests)
 # =============================================================================
 
-import asyncio
+import os
+
+# Desactiver AUTH_BYPASS avant tout import app — les tests utilisent des JWT.
+# AUTH_BYPASS=true force le retour du premier admin en base ; s'il n'existe pas
+# (cas des tests unauthenticated), l'app renvoie 500 au lieu de 403.
+os.environ["AUTH_BYPASS"] = "false"
+
 import uuid
 from collections.abc import AsyncGenerator
 
@@ -42,18 +48,6 @@ for table in Base.metadata.tables.values():
     for column in table.columns:
         if isinstance(column.type, JSONB):
             column.type = JSON()
-
-
-# ---------------------------------------------------------------------------
-# Event loop scope
-# ---------------------------------------------------------------------------
-
-@pytest.fixture(scope="session")
-def event_loop():
-    """Creer un event loop unique pour toute la session de test."""
-    loop = asyncio.new_event_loop()
-    yield loop
-    loop.close()
 
 
 # ---------------------------------------------------------------------------

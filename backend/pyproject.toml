@@ -10,7 +10,8 @@ packages = [{include = "app"}]
 python = "^3.12"
 
 # Web Framework
-fastapi = "^0.109.0"
+fastapi = "^0.116.0"
+starlette = ">=0.47.2"
 uvicorn = {extras = ["standard"], version = "^0.27.0"}
 
 # Database
@@ -41,7 +42,7 @@ aiosmtplib = "^3.0.1"
 aioimaplib = "^1.1.0"
 
 # Encryption
-cryptography = "^42.0.2"
+cryptography = "^44.0.1"
 
 # Validation & Config
 pydantic = "^2.5.3"
@@ -55,15 +56,15 @@ minio = "^7.2.3"
 slowapi = "^0.1.9"
 
 # Utilities
-python-multipart = "^0.0.6"
+python-multipart = "^0.0.31"
 python-dotenv = "^1.0.0"
 
 [tool.poetry.group.dev.dependencies]
-pytest = "^7.4.4"
-pytest-asyncio = "^0.23.3"
+pytest = "^9.0.3"
+pytest-asyncio = "^1.0.0"
 pytest-cov = "^4.1.0"
 httpx = "^0.26.0"
-black = "^24.1.0"
+black = "^26.3.1"
 isort = "^5.13.2"
 mypy = "^1.8.0"
 

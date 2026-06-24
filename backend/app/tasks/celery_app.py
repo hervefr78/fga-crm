@@ -5,7 +5,9 @@
 import os
 
 from celery import Celery
-from celery.schedules import crontab  # noqa: F401  — utilise quand beat_schedule sera reactive
+from celery.schedules import (
+    crontab,  # noqa: F401  — utilise quand beat_schedule sera reactive
+)
 
 # Broker et backend via Redis
 REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379/0")

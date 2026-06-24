@@ -305,10 +305,9 @@ async def sync_startups(
                     funding_date_parsed = _parse_iso_date(s.get("funding_date"))
                     if funding_date_parsed and not existing.funding_date:
                         existing.funding_date = funding_date_parsed
-                    if s.get("amount"):
-                        # Conserver le montant le plus eleve (round le plus important)
-                        if not existing.funding_amount or s["amount"] > existing.funding_amount:
-                            existing.funding_amount = s["amount"]
+                    # Conserver le montant le plus eleve (round le plus important)
+                    if s.get("amount") and (not existing.funding_amount or s["amount"] > existing.funding_amount):
+                        existing.funding_amount = s["amount"]
                     if s.get("series") and not existing.funding_series:
                         existing.funding_series = s["series"][:50]
                     if s.get("source_names"):
