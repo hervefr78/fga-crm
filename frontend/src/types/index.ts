@@ -533,3 +533,7 @@ export interface NextActionResponse {
 // Reponse aggregee du dashboard : 1 a 3 suggestions hebdomadaires (DC1 — borne).
 // Le backend renvoie un tableau vide si rien a suggerer (cas non bloquant).
 export type DashboardNextActions = NextActionResponse[];
+
+// ---------- Drafts à valider ----------
+
+export type { DraftReview, DraftStatus, DraftBrand } from './draft';

@@ -79,6 +79,13 @@ class Settings(BaseSettings):
     # Plein Phare Digital Integration (incoming webhook from plein-phare-api)
     plein_phare_api_key: str = ""
 
+    # Compass-Core Integration (outgoing proxy — relecture des drafts)
+    # URL racine du service compass-core (SANS /v1). Vide = proxy desactive (503).
+    compass_api_url: str = ""
+    # Cle service compass-core (Authorization: Bearer ...). Detenue cote serveur
+    # uniquement, jamais exposee au navigateur. Vide = proxy desactive (503).
+    compass_service_api_key: str = ""
+
     # MinIO (S3-compatible)
     minio_endpoint: str = "minio:9000"
     minio_root_user: str = "minioadmin"

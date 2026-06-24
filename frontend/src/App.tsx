@@ -24,6 +24,7 @@ import SettingsPage from './pages/Settings';
 import AdminUsersPage from './pages/AdminUsers';
 import EmailPage from './pages/Email';
 import IntegrationsPage from './pages/Integrations';
+import DraftsPage from './pages/Drafts';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -82,6 +83,7 @@ function AppRoutes() {
         <Route path="/lost" element={<LostPage />} />
         <Route path="/tasks" element={<TasksPage />} />
         <Route path="/activities" element={<ActivitiesPage />} />
+        <Route path="/drafts" element={<DraftsPage />} />
         <Route path="/email" element={<EmailPage />} />
         <Route path="/integrations" element={<IntegrationsPage />} />
         <Route path="/settings" element={<SettingsPage />} />
