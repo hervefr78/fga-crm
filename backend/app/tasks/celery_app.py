@@ -77,4 +77,5 @@ from app.tasks import (  # noqa: E402, F401, I001  — register tasks
     funding_sync,
     geo,
     startup_radar_full_sync,
+    trends,
 )
