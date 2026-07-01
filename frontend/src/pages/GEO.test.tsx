@@ -20,6 +20,9 @@ vi.mock('../api/geo', () => ({
   listGeoPrompts: vi.fn(),
   triggerGeoRun: vi.fn(),
   triggerGeoRemeasure: vi.fn(),
+  createGeoBrand: vi.fn(),
+  createGeoPrompt: vi.fn(),
+  deleteGeoPrompt: vi.fn(),
 }));
 
 // Mock de l'auth : on injecte un user dont on controle le role par test.
@@ -37,7 +40,7 @@ vi.mock('../contexts/useAuth', () => ({
 
 import {
   listGeoBrands, getGeoDashboard, getGeoGaps, getGeoAlerts,
-  getGeoHealth, listGeoPrompts, triggerGeoRemeasure,
+  getGeoHealth, listGeoPrompts, triggerGeoRemeasure, createGeoBrand,
 } from '../api/geo';
 import GEOPage from './GEO';
 
@@ -141,6 +144,30 @@ describe('GEOPage', () => {
     expect(
       await screen.findByText(/Aucune marque configuree/),
     ).toBeInTheDocument();
+  });
+
+  it('permet a un admin d\'ajouter une marque depuis l\'etat vide', async () => {
+    vi.mocked(listGeoBrands).mockResolvedValue([]);
+    vi.mocked(createGeoBrand).mockResolvedValue(brand);
+    renderPage();
+
+    // L'admin voit le bouton d'ajout dans l'etat vide.
+    const addBtn = await screen.findByText('Ajouter une marque');
+    fireEvent.click(addBtn);
+
+    // La modale s'ouvre : on saisit le nom + on cree.
+    const input = await screen.findByPlaceholderText(/Fast Growth Advisor/);
+    fireEvent.change(input, { target: { value: 'Ma Marque' } });
+    fireEvent.click(screen.getByText('Creer'));
+
+    await waitFor(() => {
+      expect(createGeoBrand).toHaveBeenCalledWith({
+        name: 'Ma Marque',
+        slug: 'ma-marque',
+        aliases: [],
+        is_owned: true,
+      });
+    });
   });
 
   it('affiche les gaps et declenche la re-mesure (admin)', async () => {

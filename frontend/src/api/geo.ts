@@ -9,6 +9,7 @@ import api from './http';
 import type {
   GeoBrand, GeoPrompt, GeoDashboard, GeoGap, GeoAlert,
   GeoHealth, GeoRunTriggerResponse, GeoEngine,
+  GeoBrandInput, GeoPromptInput,
 } from '../types/geo';
 
 // --- Brands ---
@@ -19,10 +20,31 @@ export const listGeoBrands = async (isOwned?: boolean): Promise<GeoBrand[]> => {
   return r.data as GeoBrand[];
 };
 
+export const createGeoBrand = async (payload: GeoBrandInput): Promise<GeoBrand> => {
+  const r = await api.post('/geo/brands', payload);
+  return r.data as GeoBrand;
+};
+
+export const deleteGeoBrand = async (brandId: string): Promise<void> => {
+  await api.delete(`/geo/brands/${brandId}`);
+};
+
 // --- Prompts ---
 export const listGeoPrompts = async (brandId: string): Promise<GeoPrompt[]> => {
   const r = await api.get(`/geo/brands/${brandId}/prompts`);
   return r.data as GeoPrompt[];
+};
+
+export const createGeoPrompt = async (
+  brandId: string,
+  payload: GeoPromptInput,
+): Promise<GeoPrompt> => {
+  const r = await api.post(`/geo/brands/${brandId}/prompts`, payload);
+  return r.data as GeoPrompt;
+};
+
+export const deleteGeoPrompt = async (brandId: string, promptId: string): Promise<void> => {
+  await api.delete(`/geo/brands/${brandId}/prompts/${promptId}`);
 };
 
 // --- Dashboard ---

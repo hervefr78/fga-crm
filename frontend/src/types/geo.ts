@@ -37,6 +37,26 @@ export interface GeoPrompt {
   updated_at: string;
 }
 
+// Payloads de creation (alignes sur GeoBrandCreate / GeoPromptCreate backend)
+export interface GeoBrandInput {
+  slug: string;
+  name: string;
+  aliases: string[];
+  is_owned: boolean;
+  active?: boolean;
+}
+
+export interface GeoPromptInput {
+  text: string;
+  intent: GeoIntent;
+  persona?: string | null;
+  country?: string;
+  language?: string;
+  tags?: string[];
+  priority?: boolean;
+  active?: boolean;
+}
+
 // GeoRunResponse — backend expose raw_answer + created_at (cf schemas/geo.py)
 export interface GeoRun {
   id: string;

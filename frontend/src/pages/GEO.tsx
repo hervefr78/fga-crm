@@ -12,7 +12,7 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Activity, TrendingUp, Eye, Star, AlertTriangle, CheckCircle, XCircle,
-  Play, RefreshCw, ShieldAlert,
+  Play, RefreshCw, ShieldAlert, Plus, Trash2, MessageSquarePlus,
 } from 'lucide-react';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
@@ -24,9 +24,26 @@ import { isAdmin, isManagerOrAbove } from '../types';
 import {
   listGeoBrands, getGeoDashboard, getGeoGaps, getGeoAlerts,
   getGeoHealth, listGeoPrompts, triggerGeoRun, triggerGeoRemeasure,
+  createGeoBrand, createGeoPrompt, deleteGeoPrompt,
 } from '../api/geo';
-import type { GeoEngine, GeoGap, GeoMetricsDaily } from '../types/geo';
+import type { GeoEngine, GeoGap, GeoMetricsDaily, GeoIntent } from '../types/geo';
 import { Button, Modal } from '../components/ui';
+
+// slug derive du nom : minuscules, alphanumerique + tirets.
+function slugify(name: string): string {
+  return name
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+const GEO_INTENTS: { value: GeoIntent; label: string }[] = [
+  { value: 'informationnel', label: 'Informationnel' },
+  { value: 'comparatif', label: 'Comparatif' },
+  { value: 'transactionnel', label: 'Transactionnel' },
+];
 
 // -----------------------------------------------------------------------------
 // Constantes
@@ -108,6 +125,14 @@ export default function GEOPage() {
   // Message de succes des mutations Celery (task_id + nb runs planifies)
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  // Gestion marques / prompts (admin)
+  const [brandModalOpen, setBrandModalOpen] = useState(false);
+  const [brandName, setBrandName] = useState('');
+  const [brandAliases, setBrandAliases] = useState('');
+  const [promptsModalOpen, setPromptsModalOpen] = useState(false);
+  const [promptText, setPromptText] = useState('');
+  const [promptIntent, setPromptIntent] = useState<GeoIntent>('informationnel');
 
   const canWrite = isAdmin(user);
   // RBAC : les sales n'ont pas acces. Le flag est evalue APRES tous les hooks
@@ -200,6 +225,177 @@ export default function GEOPage() {
     },
   });
 
+  // ---- Mutations gestion marques / prompts (admin) ----
+  const createBrandMutation = useMutation({
+    mutationFn: () =>
+      createGeoBrand({
+        name: brandName.trim(),
+        slug: slugify(brandName),
+        aliases: brandAliases.split(',').map((a) => a.trim()).filter(Boolean),
+        is_owned: true,
+      }),
+    onSuccess: (brand) => {
+      setBrandModalOpen(false);
+      setBrandName('');
+      setBrandAliases('');
+      setErrorMsg(null);
+      setSuccessMsg(`Marque « ${brand.name} » creee.`);
+      setSelectedBrandId(brand.id);
+      void queryClient.invalidateQueries({ queryKey: ['geo-brands'] });
+    },
+    onError: (err: unknown) => setErrorMsg(extractError(err, 'Echec de la creation de la marque.')),
+  });
+
+  const createPromptMutation = useMutation({
+    mutationFn: () =>
+      createGeoPrompt(activeBrandId!, { text: promptText.trim(), intent: promptIntent }),
+    onSuccess: () => {
+      setPromptText('');
+      setErrorMsg(null);
+      void queryClient.invalidateQueries({ queryKey: ['geo-prompts', activeBrandId] });
+    },
+    onError: (err: unknown) => setErrorMsg(extractError(err, 'Echec de la creation du prompt.')),
+  });
+
+  const deletePromptMutation = useMutation({
+    mutationFn: (promptId: string) => deleteGeoPrompt(activeBrandId!, promptId),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['geo-prompts', activeBrandId] });
+    },
+    onError: (err: unknown) => setErrorMsg(extractError(err, 'Echec de la suppression du prompt.')),
+  });
+
+  // ---- Modales gestion marques / prompts (admin) ----
+  function renderBrandModal() {
+    if (!canWrite) return null;
+    return (
+      <Modal
+        open={brandModalOpen}
+        onClose={() => setBrandModalOpen(false)}
+        title="Ajouter une marque"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setBrandModalOpen(false)}>Annuler</Button>
+            <Button
+              variant="primary"
+              icon={Plus}
+              loading={createBrandMutation.isPending}
+              disabled={!brandName.trim()}
+              onClick={() => createBrandMutation.mutate()}
+            >
+              Creer
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-3">
+          <div>
+            <label className="block text-xs font-medium text-slate-600 mb-1">Nom de la marque</label>
+            <input
+              type="text"
+              value={brandName}
+              onChange={(e) => setBrandName(e.target.value)}
+              placeholder="Ex : Fast Growth Advisor"
+              className="w-full px-3 py-1.5 rounded-lg border border-slate-200 text-sm text-slate-700"
+            />
+            {brandName.trim() && (
+              <p className="text-xs text-slate-400 mt-1">
+                slug : <span className="tabular-nums">{slugify(brandName)}</span>
+              </p>
+            )}
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-slate-600 mb-1">
+              Aliases (variantes, separes par des virgules)
+            </label>
+            <input
+              type="text"
+              value={brandAliases}
+              onChange={(e) => setBrandAliases(e.target.value)}
+              placeholder="FGA, fast-growth"
+              className="w-full px-3 py-1.5 rounded-lg border border-slate-200 text-sm text-slate-700"
+            />
+          </div>
+          <p className="text-xs text-slate-400">
+            Enregistree comme marque « possedee » (suivi de votre visibilite generative).
+          </p>
+        </div>
+      </Modal>
+    );
+  }
+
+  function renderPromptsModal() {
+    if (!canWrite) return null;
+    return (
+      <Modal
+        open={promptsModalOpen}
+        onClose={() => setPromptsModalOpen(false)}
+        title="Prompts de la marque"
+        footer={<Button variant="secondary" onClick={() => setPromptsModalOpen(false)}>Fermer</Button>}
+      >
+        <div className="space-y-4">
+          {prompts.length === 0 ? (
+            <p className="text-sm text-slate-500">
+              Aucun prompt. Ajoutez-en pour lancer des mesures GEO.
+            </p>
+          ) : (
+            <div className="divide-y divide-slate-100 border border-slate-200 rounded-lg">
+              {prompts.map((p) => (
+                <div key={p.id} className="flex items-start gap-3 px-3 py-2">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm text-slate-700">{p.text}</p>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      {p.intent} · {p.country}/{p.language}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => deletePromptMutation.mutate(p.id)}
+                    className="p-1 rounded text-slate-400 hover:bg-red-50 hover:text-red-600 flex-shrink-0"
+                    title="Supprimer"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="border-t border-slate-100 pt-3 space-y-2">
+            <label className="block text-xs font-medium text-slate-600">Nouveau prompt</label>
+            <textarea
+              value={promptText}
+              onChange={(e) => setPromptText(e.target.value)}
+              rows={2}
+              placeholder="Ex : Quels sont les meilleurs cabinets de conseil go-to-market ?"
+              className="w-full px-3 py-1.5 rounded-lg border border-slate-200 text-sm text-slate-700"
+            />
+            <div className="flex items-center gap-2">
+              <select
+                value={promptIntent}
+                onChange={(e) => setPromptIntent(e.target.value as GeoIntent)}
+                className="px-3 py-1.5 rounded-lg border border-slate-200 text-sm text-slate-700"
+              >
+                {GEO_INTENTS.map((i) => (
+                  <option key={i.value} value={i.value}>{i.label}</option>
+                ))}
+              </select>
+              <Button
+                variant="primary"
+                size="sm"
+                icon={Plus}
+                loading={createPromptMutation.isPending}
+                disabled={!promptText.trim()}
+                onClick={() => createPromptMutation.mutate()}
+              >
+                Ajouter
+              </Button>
+            </div>
+          </div>
+        </div>
+      </Modal>
+    );
+  }
+
   // ---- Garde RBAC (apres tous les hooks — rules-of-hooks) ----
   if (!hasAccess) {
     return (
@@ -233,7 +429,13 @@ export default function GEOPage() {
           <p className="text-sm text-slate-500">
             Aucune marque configuree. Ajoutez une marque possedee pour commencer le suivi GEO.
           </p>
+          {canWrite && (
+            <Button variant="primary" size="sm" icon={Plus} onClick={() => setBrandModalOpen(true)}>
+              Ajouter une marque
+            </Button>
+          )}
         </div>
+        {renderBrandModal()}
       </div>
     );
   }
@@ -328,9 +530,20 @@ export default function GEOPage() {
           ))}
         </select>
 
-        {/* Action : lancer un run (admin only) */}
+        {/* Actions (admin only) */}
         {canWrite && (
-          <div className="ml-auto">
+          <div className="ml-auto flex items-center gap-2">
+            <Button
+              variant="secondary"
+              size="sm"
+              icon={MessageSquarePlus}
+              onClick={() => setPromptsModalOpen(true)}
+            >
+              Prompts ({prompts.length})
+            </Button>
+            <Button variant="secondary" size="sm" icon={Plus} onClick={() => setBrandModalOpen(true)}>
+              Marque
+            </Button>
             <Button
               variant="secondary"
               size="sm"
@@ -577,6 +790,9 @@ export default function GEOPage() {
           </p>
         </Modal>
       )}
+
+      {renderBrandModal()}
+      {renderPromptsModal()}
     </div>
   );
 }
