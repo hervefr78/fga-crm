@@ -99,6 +99,8 @@ class Settings(BaseSettings):
     geo_runs_per_prompt: int = 3               # N runs par prompt par defaut
     geo_raw_answer_max_chars: int = 4000       # troncature avant stockage
     geo_extract_input_max_chars: int = 2000    # troncature avant envoi a l'extracteur
+    # Integration SR : plafond journalier de mesures audit-visibilite par cle service
+    geo_audit_daily_quota: int = 100
 
     # Trends — signal de demande de marche.
     # Ordre de selection du provider : DataForSEO > SearchApi > mock.

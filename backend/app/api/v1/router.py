@@ -17,6 +17,7 @@ from app.api.v1 import (
     email_templates,
     emails,
     geo,
+    geo_audit,
     integrations,
     mcp_usage,
     search,
@@ -42,6 +43,7 @@ api_router.include_router(dashboard.router, prefix="/dashboard", tags=["Dashboar
 api_router.include_router(drafts_review.router, prefix="/drafts-review", tags=["Drafts Review"])
 api_router.include_router(admin_api_keys.router, prefix="/admin/api-keys", tags=["Admin — API Keys"])
 api_router.include_router(geo.router, prefix="/geo", tags=["GEO"])
+api_router.include_router(geo_audit.router, prefix="/geo", tags=["GEO Audit (SR)"])
 api_router.include_router(trends.router, prefix="/trends", tags=["Trends"])
 api_router.include_router(mcp_usage.router, prefix="/mcp-usage", tags=["MCP Usage"])
 # AI router : routes absolues (/companies/{id}/next-action, /contacts/{id}/next-action,
