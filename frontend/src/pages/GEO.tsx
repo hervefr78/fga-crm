@@ -620,10 +620,60 @@ export default function GEOPage() {
             <KpiTile label="Sentiment" value={sentimentLabel(kSentiment)} icon={Star} color="text-amber-600" bg="bg-amber-50" />
           </div>
 
+          {/* ===== Gaps a traiter (P4) — juste sous les KPI ===== */}
+          <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+            <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
+              <div className="flex items-center gap-2 text-sm font-semibold text-slate-800">
+                <AlertTriangle className="w-3.5 h-3.5 text-slate-400" />
+                Gaps a traiter
+                <span className="text-xs text-slate-400 tabular-nums font-normal">· {gaps.length}</span>
+              </div>
+              {canWrite && gaps.length > 0 && (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  icon={RefreshCw}
+                  loading={remeasureMutation.isPending}
+                  onClick={() => remeasureMutation.mutate()}
+                >
+                  Declencher re-mesure
+                </Button>
+              )}
+            </div>
+
+            {gapsLoading ? (
+              <div className="py-8 text-center text-sm text-slate-400">Chargement des gaps...</div>
+            ) : gaps.length === 0 ? (
+              <div className="py-8 text-center text-sm text-slate-400">
+                Aucun gap detecte sur la periode — la marque est bien positionnee.
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-left text-xs text-slate-400 border-b border-slate-100">
+                      <th className="px-4 py-2 font-medium">Prompt</th>
+                      <th className="px-4 py-2 font-medium">Intention</th>
+                      <th className="px-4 py-2 font-medium">Priorite</th>
+                      <th className="px-4 py-2 font-medium">Visibilite</th>
+                      <th className="px-4 py-2 font-medium">Suggestion d'action</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {gaps.map((g) => (
+                      <GapRow key={g.prompt_id} gap={g} />
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
           {/* ===== Grid 2/3 main (chart) + 1/3 side (sources/concurrents) ===== */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {/* Main : LineChart SoV / Visibilite */}
-            <div className="lg:col-span-2 bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+            {/* Main : LineChart SoV / Visibilite (self-start : ne s'etire pas
+                a la hauteur de la colonne laterale, evite le grand vide) */}
+            <div className="lg:col-span-2 self-start bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
               <div className="px-4 py-3 border-b border-slate-100 flex items-center gap-2 text-sm font-semibold text-slate-800">
                 <TrendingUp className="w-3.5 h-3.5 text-slate-400" />
                 Evolution SoV / Visibilite
@@ -667,55 +717,6 @@ export default function GEOPage() {
           </div>
         </>
       )}
-
-      {/* ===== Section Gaps a traiter (P4) ===== */}
-      <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
-        <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
-          <div className="flex items-center gap-2 text-sm font-semibold text-slate-800">
-            <AlertTriangle className="w-3.5 h-3.5 text-slate-400" />
-            Gaps a traiter
-            <span className="text-xs text-slate-400 tabular-nums font-normal">· {gaps.length}</span>
-          </div>
-          {canWrite && gaps.length > 0 && (
-            <Button
-              variant="secondary"
-              size="sm"
-              icon={RefreshCw}
-              loading={remeasureMutation.isPending}
-              onClick={() => remeasureMutation.mutate()}
-            >
-              Declencher re-mesure
-            </Button>
-          )}
-        </div>
-
-        {gapsLoading ? (
-          <div className="py-8 text-center text-sm text-slate-400">Chargement des gaps...</div>
-        ) : gaps.length === 0 ? (
-          <div className="py-8 text-center text-sm text-slate-400">
-            Aucun gap detecte sur la periode — la marque est bien positionnee.
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-left text-xs text-slate-400 border-b border-slate-100">
-                  <th className="px-4 py-2 font-medium">Prompt</th>
-                  <th className="px-4 py-2 font-medium">Intention</th>
-                  <th className="px-4 py-2 font-medium">Priorite</th>
-                  <th className="px-4 py-2 font-medium">Visibilite</th>
-                  <th className="px-4 py-2 font-medium">Suggestion d'action</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {gaps.map((g) => (
-                  <GapRow key={g.prompt_id} gap={g} />
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
 
       {/* ===== Health moteurs (admin only) ===== */}
       {isAdmin(user) && health.length > 0 && (
