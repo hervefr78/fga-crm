@@ -17,6 +17,7 @@ from datetime import date
 from uuid import UUID
 
 from app.db.session import task_session_maker
+from app.services.geo.audit import run_audit_job
 from app.services.geo.pipeline import execute_geo_batch
 from app.services.geo.scorer import compute_all_metrics
 from app.tasks.celery_app import app
@@ -113,4 +114,35 @@ def geo_compute_metrics_task(
         return result
     except Exception as exc:
         logger.exception("[GEO task] erreur fatale metrics : %s", exc)
+        raise
+
+
+async def _run_audit(audit_job_id: str) -> dict:
+    """Charge le job d'audit et l'execute (session dediee — NullPool)."""
+    from app.models.geo import GeoAuditJob
+
+    async with task_session_maker() as db:
+        job = await db.get(GeoAuditJob, UUID(audit_job_id))
+        if job is None:
+            logger.warning("[GEO audit task] job %s introuvable", audit_job_id)
+            return {"audit_id": audit_job_id, "status": "not_found"}
+        await run_audit_job(db, job)
+        return {"audit_id": audit_job_id, "status": job.status}
+
+
+@app.task(
+    name="app.tasks.geo.geo_audit_visibility_task",
+    bind=True,
+    max_retries=2,
+    default_retry_delay=60,
+)
+def geo_audit_visibility_task(self, audit_job_id: str) -> dict:
+    """Task Celery — mesure de visibilite GEO a la demande (integration SR)."""
+    logger.info("[GEO audit task] demarre %s", audit_job_id)
+    try:
+        result = asyncio.run(_run_audit(audit_job_id))
+        logger.info("[GEO audit task] termine : %s", result)
+        return result
+    except Exception as exc:
+        logger.exception("[GEO audit task] erreur fatale %s : %s", audit_job_id, exc)
         raise
