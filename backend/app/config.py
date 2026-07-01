@@ -100,10 +100,15 @@ class Settings(BaseSettings):
     geo_raw_answer_max_chars: int = 4000       # troncature avant stockage
     geo_extract_input_max_chars: int = 2000    # troncature avant envoi a l'extracteur
 
-    # Trends — signal de demande de marche (DataForSEO primaire, SerpApi fallback).
-    # Si login+password DataForSEO absents -> provider mock (deployable sans cle).
+    # Trends — signal de demande de marche.
+    # Ordre de selection du provider : DataForSEO > SearchApi > mock.
+    # - DataForSEO (login+password) : provider primaire prevu au plan (non teste live)
+    # - SearchApi.io (searchapi_key) : Google Trends reel, cle validee (searchapi.io,
+    #   NE PAS confondre avec serpapi.com/serpapi_key qui sert au moteur GEO google_aio)
+    # - sinon : provider mock (donnees deterministes, deployable sans cle)
     dataforseo_login: str | None = None
     dataforseo_password: str | None = None
+    searchapi_key: str | None = None
     trends_cache_ttl_quick_seconds: int = 21600     # Quick Pulse : 6h
     trends_cache_ttl_trending_seconds: int = 1800   # Trending now : 30 min
     trends_default_country: str = "FR"

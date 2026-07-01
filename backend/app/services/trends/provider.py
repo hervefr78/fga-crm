@@ -25,6 +25,7 @@ from app.config import settings
 PROVIDER_MOCK = "mock"
 PROVIDER_DATAFORSEO = "dataforseo"
 PROVIDER_SERPAPI = "serpapi"
+PROVIDER_SEARCHAPI = "searchapi"
 
 
 # ---------------------------------------------------------------------------
@@ -168,15 +169,28 @@ def _dataforseo_configured() -> bool:
 
 
 def get_trends_provider() -> TrendsProvider:
-    """Retourne le provider effectif selon la config.
+    """Retourne le provider effectif selon la config (imports tardifs anti-cycle).
 
-    DataForSEO si credentials presents, sinon MockProvider (deployable sans cle).
-    Import tardif pour eviter les cycles d'import.
+    Ordre de priorite : DataForSEO > SerpApi > SearchApi > Mock.
+    - DataForSEO si login+password (provider primaire du plan, non teste live)
+    - sinon SerpApi.com si serpapi_key (Google Trends reel, meme cle que GEO google_aio)
+    - sinon SearchApi.io si searchapi_key (Google Trends reel, alternative)
+    - sinon MockProvider (donnees deterministes, deployable sans cle)
     """
     if _dataforseo_configured():
         from app.services.trends.dataforseo_provider import DataForSEOProvider
 
         return DataForSEOProvider()
+
+    if settings.serpapi_key:
+        from app.services.trends.serpapi_provider import SerpApiProvider
+
+        return SerpApiProvider()
+
+    if settings.searchapi_key:
+        from app.services.trends.searchapi_provider import SearchApiProvider
+
+        return SearchApiProvider()
 
     from app.services.trends.mock_provider import MockProvider
 
