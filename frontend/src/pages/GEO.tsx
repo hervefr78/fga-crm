@@ -12,7 +12,7 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Activity, TrendingUp, Eye, Star, AlertTriangle, CheckCircle, XCircle,
-  Play, RefreshCw, ShieldAlert, Plus, Trash2, MessageSquarePlus,
+  Play, RefreshCw, ShieldAlert, Plus, MessageSquarePlus,
 } from 'lucide-react';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
@@ -29,9 +29,11 @@ import {
 import type { GeoEngine, GeoIntent } from '../types/geo';
 import { Button, Modal } from '../components/ui';
 import { BrandSelector } from '../components/geo/BrandSelector';
+import { BrandModal } from '../components/geo/BrandModal';
+import { PromptsModal } from '../components/geo/PromptsModal';
 import { GapRow, KpiTile, PageHeader, RankList } from '../components/geo/GeoAtoms';
 import {
-  COLOR_SOV, COLOR_VISIBILITY, ENGINES, GEO_INTENTS, PERIODS,
+  COLOR_SOV, COLOR_VISIBILITY, ENGINES, PERIODS,
   avgMetric, extractError, formatRate, sentimentLabel, slugify,
 } from '../components/geo/geoUtils';
 
@@ -200,137 +202,6 @@ export default function GEOPage() {
     onError: (err: unknown) => setErrorMsg(extractError(err, 'Echec de la suppression du prompt.')),
   });
 
-  // ---- Modales gestion marques / prompts (admin) ----
-  function renderBrandModal() {
-    if (!canWrite) return null;
-    return (
-      <Modal
-        open={brandModalOpen}
-        onClose={() => setBrandModalOpen(false)}
-        title="Ajouter une marque"
-        footer={
-          <>
-            <Button variant="secondary" onClick={() => setBrandModalOpen(false)}>Annuler</Button>
-            <Button
-              variant="primary"
-              icon={Plus}
-              loading={createBrandMutation.isPending}
-              disabled={!brandName.trim()}
-              onClick={() => createBrandMutation.mutate()}
-            >
-              Creer
-            </Button>
-          </>
-        }
-      >
-        <div className="space-y-3">
-          <div>
-            <label className="block text-xs font-medium text-slate-600 mb-1">Nom de la marque</label>
-            <input
-              type="text"
-              value={brandName}
-              onChange={(e) => setBrandName(e.target.value)}
-              placeholder="Ex : Fast Growth Advisor"
-              className="w-full px-3 py-1.5 rounded-lg border border-slate-200 text-sm text-slate-700"
-            />
-            {brandName.trim() && (
-              <p className="text-xs text-slate-400 mt-1">
-                slug : <span className="tabular-nums">{slugify(brandName)}</span>
-              </p>
-            )}
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-slate-600 mb-1">
-              Aliases (variantes, separes par des virgules)
-            </label>
-            <input
-              type="text"
-              value={brandAliases}
-              onChange={(e) => setBrandAliases(e.target.value)}
-              placeholder="FGA, fast-growth"
-              className="w-full px-3 py-1.5 rounded-lg border border-slate-200 text-sm text-slate-700"
-            />
-          </div>
-          <p className="text-xs text-slate-400">
-            Enregistree comme marque « possedee » (suivi de votre visibilite generative).
-          </p>
-        </div>
-      </Modal>
-    );
-  }
-
-  function renderPromptsModal() {
-    if (!canWrite) return null;
-    return (
-      <Modal
-        open={promptsModalOpen}
-        onClose={() => setPromptsModalOpen(false)}
-        title="Prompts de la marque"
-        footer={<Button variant="secondary" onClick={() => setPromptsModalOpen(false)}>Fermer</Button>}
-      >
-        <div className="space-y-4">
-          {prompts.length === 0 ? (
-            <p className="text-sm text-slate-500">
-              Aucun prompt. Ajoutez-en pour lancer des mesures GEO.
-            </p>
-          ) : (
-            <div className="divide-y divide-slate-100 border border-slate-200 rounded-lg">
-              {prompts.map((p) => (
-                <div key={p.id} className="flex items-start gap-3 px-3 py-2">
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm text-slate-700">{p.text}</p>
-                    <p className="text-xs text-slate-400 mt-0.5">
-                      {p.intent} · {p.country}/{p.language}
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => deletePromptMutation.mutate(p.id)}
-                    className="p-1 rounded text-slate-400 hover:bg-red-50 hover:text-red-600 flex-shrink-0"
-                    title="Supprimer"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-          <div className="border-t border-slate-100 pt-3 space-y-2">
-            <label className="block text-xs font-medium text-slate-600">Nouveau prompt</label>
-            <textarea
-              value={promptText}
-              onChange={(e) => setPromptText(e.target.value)}
-              rows={2}
-              placeholder="Ex : Quels sont les meilleurs cabinets de conseil go-to-market ?"
-              className="w-full px-3 py-1.5 rounded-lg border border-slate-200 text-sm text-slate-700"
-            />
-            <div className="flex items-center gap-2">
-              <select
-                value={promptIntent}
-                onChange={(e) => setPromptIntent(e.target.value as GeoIntent)}
-                className="px-3 py-1.5 rounded-lg border border-slate-200 text-sm text-slate-700"
-              >
-                {GEO_INTENTS.map((i) => (
-                  <option key={i.value} value={i.value}>{i.label}</option>
-                ))}
-              </select>
-              <Button
-                variant="primary"
-                size="sm"
-                icon={Plus}
-                loading={createPromptMutation.isPending}
-                disabled={!promptText.trim()}
-                onClick={() => createPromptMutation.mutate()}
-              >
-                Ajouter
-              </Button>
-            </div>
-          </div>
-        </div>
-      </Modal>
-    );
-  }
-
   // ---- Garde RBAC (apres tous les hooks — rules-of-hooks) ----
   if (!hasAccess) {
     return (
@@ -370,7 +241,17 @@ export default function GEOPage() {
             </Button>
           )}
         </div>
-        {renderBrandModal()}
+        <BrandModal
+          open={brandModalOpen}
+          onClose={() => setBrandModalOpen(false)}
+          canWrite={canWrite}
+          name={brandName}
+          setName={setBrandName}
+          aliases={brandAliases}
+          setAliases={setBrandAliases}
+          submitting={createBrandMutation.isPending}
+          onSubmit={() => createBrandMutation.mutate()}
+        />
       </div>
     );
   }
@@ -718,8 +599,30 @@ export default function GEOPage() {
         </Modal>
       )}
 
-      {renderBrandModal()}
-      {renderPromptsModal()}
+      <BrandModal
+        open={brandModalOpen}
+        onClose={() => setBrandModalOpen(false)}
+        canWrite={canWrite}
+        name={brandName}
+        setName={setBrandName}
+        aliases={brandAliases}
+        setAliases={setBrandAliases}
+        submitting={createBrandMutation.isPending}
+        onSubmit={() => createBrandMutation.mutate()}
+      />
+      <PromptsModal
+        open={promptsModalOpen}
+        onClose={() => setPromptsModalOpen(false)}
+        canWrite={canWrite}
+        prompts={prompts}
+        text={promptText}
+        setText={setPromptText}
+        intent={promptIntent}
+        setIntent={setPromptIntent}
+        creating={createPromptMutation.isPending}
+        onCreate={() => createPromptMutation.mutate()}
+        onDelete={(id) => deletePromptMutation.mutate(id)}
+      />
     </div>
   );
 }
