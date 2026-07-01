@@ -88,6 +88,22 @@ def _citations_from_urls(urls: list) -> list[dict]:
     return citations
 
 
+def _openai_response_citations(resp) -> list[dict]:
+    """Extraire les URLs citees d'une reponse de l'API Responses (web_search).
+
+    Les citations vivent dans les annotations des blocs de contenu de sortie.
+    Best-effort : structure defensive (None-safe), liste vide si rien.
+    """
+    urls: list[str] = []
+    for item in (getattr(resp, "output", None) or []):
+        for content in (getattr(item, "content", None) or []):
+            for ann in (getattr(content, "annotations", None) or []):
+                url = getattr(ann, "url", None)
+                if isinstance(url, str) and url:
+                    urls.append(url)
+    return _citations_from_urls(urls)
+
+
 async def _retry_async(coro_factory, *, engine: str):
     """Executer coro_factory() avec retry (max 2) et backoff exponentiel.
 
@@ -208,36 +224,44 @@ class OpenAICollector(BaseCollector):
         client = AsyncOpenAI(api_key=self._api_key, timeout=COLLECT_TIMEOUT)
 
         async def _call() -> CollectorResult:
-            # On tente d'abord avec le tool web_search_preview ; si l'API ne le
-            # supporte pas (TypeError/BadRequest), on retombe sur un appel simple.
-            messages = [
-                {"role": "system", "content": SYSTEM_PROMPT_FR},
-                {"role": "user", "content": prompt_text},
-            ]
+            # 1. API Responses + web_search_preview : reponse ANCREE sur le web
+            #    (le tool web_search n'est PAS supporte par chat/completions).
             try:
-                resp = await client.chat.completions.create(
+                resp = await client.responses.create(
                     model=self.MODEL,
                     temperature=OPENAI_TEMPERATURE,
-                    messages=messages,
                     tools=[{"type": "web_search_preview"}],
+                    input=f"{SYSTEM_PROMPT_FR}\n\n{prompt_text}",
                 )
-            except Exception as exc:  # noqa: BLE001 — fallback sans tool
+                return CollectorResult(
+                    raw_answer=resp.output_text or "",
+                    citations=_openai_response_citations(resp),
+                    model_version=getattr(resp, "model", None) or self.MODEL,
+                    engine=self.engine,
+                )
+            except Exception as exc:  # noqa: BLE001 — fallback chat sans web search
                 logger.info(
-                    "[GEO collector:openai] web_search indisponible (%s) — fallback sans tool",
+                    "[GEO collector:openai] Responses/web_search indisponible (%s) "
+                    "— fallback chat sans web",
                     exc,
                 )
-                resp = await client.chat.completions.create(
-                    model=self.MODEL,
-                    temperature=OPENAI_TEMPERATURE,
-                    messages=messages,
-                )
+
+            # 2. Fallback : chat.completions sans web (reponse NON ancree).
+            resp = await client.chat.completions.create(
+                model=self.MODEL,
+                temperature=OPENAI_TEMPERATURE,
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT_FR},
+                    {"role": "user", "content": prompt_text},
+                ],
+            )
             choice = resp.choices[0] if resp.choices else None
             raw_answer = ""
             if choice and choice.message:
                 raw_answer = choice.message.content or ""
             return CollectorResult(
                 raw_answer=raw_answer,
-                citations=[],  # pas de citations natives fiables sans tool structure
+                citations=[],
                 model_version=getattr(resp, "model", None) or self.MODEL,
                 engine=self.engine,
             )
