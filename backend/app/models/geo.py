@@ -184,3 +184,49 @@ class GeoMetricsDaily(Base, UUIDMixin):
 
     def __repr__(self) -> str:
         return f"<GeoMetricsDaily {self.day} {self.engine}>"
+
+
+# Statuts d'un job d'audit de visibilite (state machine — DC5)
+GEO_AUDIT_STATUSES = ["queued", "running", "completed", "failed"]
+
+
+class GeoAuditJob(Base, UUIDMixin, TimestampMixin):
+    """Mesure de visibilite a la demande (integration Startup Radar).
+
+    SR envoie {company_name, domain, aliases, prompts}. Le CRM cree une marque
+    EPHEMERE (is_owned=false -> invisible du dashboard), lance 1 run Perplexity,
+    agrege le resultat. request_hash = dedup (30j). Cf. docs/integrations/.
+    """
+
+    __tablename__ = "geo_audit_jobs"
+
+    organization_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True, index=True
+    )
+    domain: Mapped[str] = mapped_column(Text, nullable=False, index=True)
+    company_name: Mapped[str] = mapped_column(Text, nullable=False)
+    # sha256(domain|engine|prompts tries|country|language) — deduplication
+    request_hash: Mapped[str] = mapped_column(Text, nullable=False, index=True)
+    engine: Mapped[str] = mapped_column(Text, nullable=False, default="perplexity")
+    # queued | running | completed | failed
+    status: Mapped[str] = mapped_column(Text, nullable=False, default="queued")
+    brand_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("geo_brands.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    # prompts + aliases + country + language (entree SR)
+    params_json: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    # resultat agrege (contrat API) — {} tant que non termine
+    result_json: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    __table_args__ = (
+        Index("ix_geo_audit_jobs_hash_status", "request_hash", "status"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<GeoAuditJob {self.domain} {self.status}>"

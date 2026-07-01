@@ -9,7 +9,13 @@ from app.models.company import Company
 from app.models.contact import Contact
 from app.models.deal import Deal
 from app.models.email_template import EmailTemplate
-from app.models.geo import GeoBrand, GeoMetricsDaily, GeoPrompt, GeoRun
+from app.models.geo import (
+    GeoAuditJob,
+    GeoBrand,
+    GeoMetricsDaily,
+    GeoPrompt,
+    GeoRun,
+)
 from app.models.mcp_tool_usage import McpToolUsage
 from app.models.tag import Tag, TagAssignment
 from app.models.task import Task
@@ -43,6 +49,7 @@ __all__ = [
     "GeoPrompt",
     "GeoRun",
     "GeoMetricsDaily",
+    "GeoAuditJob",
     "McpToolUsage",
     "TrendCategory",
     "TrendCategorySeed",
