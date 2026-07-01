@@ -14,7 +14,7 @@ import logging
 
 from sqlalchemy import select
 
-from app.db.session import async_session_maker
+from app.db.session import task_session_maker
 from app.models.user import User
 from app.services.startup_radar_sync import sync_recent_startups
 from app.tasks.celery_app import app
@@ -28,7 +28,7 @@ async def _run_sync(days_back: int) -> dict:
     Cree sa propre DB session (Celery n'a pas d'injection FastAPI).
     Utilise le premier admin actif comme owner des entites creees.
     """
-    async with async_session_maker() as db:
+    async with task_session_maker() as db:
         # Owner = premier admin actif (pattern existant — cf. nomo_new_subscription)
         admin = (await db.execute(
             select(User).where(User.role == "admin", User.is_active.is_(True)).limit(1)

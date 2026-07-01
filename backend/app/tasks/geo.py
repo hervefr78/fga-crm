@@ -16,7 +16,7 @@ import logging
 from datetime import date
 from uuid import UUID
 
-from app.db.session import async_session_maker
+from app.db.session import task_session_maker
 from app.services.geo.pipeline import execute_geo_batch
 from app.services.geo.scorer import compute_all_metrics
 from app.tasks.celery_app import app
@@ -36,7 +36,7 @@ async def _run_batch(
     brand_uuid = UUID(brand_id)
     prompt_uuids = [UUID(p) for p in prompt_ids]
 
-    async with async_session_maker() as db:
+    async with task_session_maker() as db:
         result = await execute_geo_batch(
             db,
             brand_id=brand_uuid,
@@ -88,7 +88,7 @@ def geo_run_batch_task(
 async def _compute_metrics(target_date: str | None) -> dict:
     """Wrapper async pour le calcul des metriques."""
     parsed: date | None = date.fromisoformat(target_date) if target_date else None
-    async with async_session_maker() as db:
+    async with task_session_maker() as db:
         return await compute_all_metrics(db, target_date=parsed)
 
 

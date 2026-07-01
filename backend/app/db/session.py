@@ -7,9 +7,11 @@ from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
     create_async_engine,
 )
+from sqlalchemy.pool import NullPool
 
 from app.config import settings
 
+# Engine principal (FastAPI) : pool persistant, une seule boucle asyncio (uvicorn).
 engine = create_async_engine(
     settings.database_url,
     pool_size=settings.database_pool_size,
@@ -19,6 +21,25 @@ engine = create_async_engine(
 
 async_session_maker = async_sessionmaker(
     engine,
+    class_=AsyncSession,
+    expire_on_commit=False,
+    autocommit=False,
+    autoflush=False,
+)
+
+# Engine dedie aux tasks Celery : NullPool -> AUCUNE connexion reutilisee entre
+# les boucles asyncio. Chaque task fait `asyncio.run(...)` = nouvelle boucle ; une
+# connexion poolee creee dans une boucle precedente, reutilisee dans la suivante,
+# provoque asyncpg "another operation is in progress" / cross-loop. NullPool ouvre
+# et ferme une connexion fraiche a chaque checkout -> pas de fuite entre boucles.
+task_engine = create_async_engine(
+    settings.database_url,
+    poolclass=NullPool,
+    echo=settings.app_debug,
+)
+
+task_session_maker = async_sessionmaker(
+    task_engine,
     class_=AsyncSession,
     expire_on_commit=False,
     autocommit=False,

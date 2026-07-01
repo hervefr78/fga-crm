@@ -24,7 +24,7 @@ from datetime import UTC, datetime
 
 from sqlalchemy import select
 
-from app.db.session import async_session_maker
+from app.db.session import task_session_maker
 from app.models.user import User
 from app.services.startup_radar_sync import full_sync
 from app.services.sync_status import (
@@ -47,7 +47,7 @@ MAX_STORED_ERRORS = 50
 async def _run_full_sync(user_id: str) -> dict:
     """Charge l'owner (celui qui a clique) dans une session dediee puis lance
     la full sync. Retourne le SyncResult serialise en dict."""
-    async with async_session_maker() as db:
+    async with task_session_maker() as db:
         user = (await db.execute(
             select(User).where(User.id == uuid.UUID(user_id)),
         )).scalar_one_or_none()

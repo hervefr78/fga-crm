@@ -14,7 +14,7 @@ import asyncio
 import logging
 from uuid import UUID
 
-from app.db.session import async_session_maker
+from app.db.session import task_session_maker
 from app.services.trends import orchestrator
 from app.tasks.celery_app import app
 
@@ -25,7 +25,7 @@ async def _run(job_id: str) -> dict:
     """Charge le job et l'execute (cree sa propre session — pas d'injection FastAPI)."""
     from app.models.trends import TrendJob
 
-    async with async_session_maker() as db:
+    async with task_session_maker() as db:
         job = await db.get(TrendJob, UUID(job_id))
         if job is None:
             logger.warning("[Trends task] job %s introuvable", job_id)
