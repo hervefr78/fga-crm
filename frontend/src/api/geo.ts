@@ -9,7 +9,7 @@ import api from './http';
 import type {
   GeoBrand, GeoPrompt, GeoDashboard, GeoGap, GeoAlert,
   GeoHealth, GeoRunTriggerResponse, GeoEngine,
-  GeoBrandInput, GeoPromptInput,
+  GeoBrandInput, GeoPromptInput, GeoBrandOverview,
 } from '../types/geo';
 
 // --- Brands ---
@@ -18,6 +18,15 @@ export const listGeoBrands = async (isOwned?: boolean): Promise<GeoBrand[]> => {
   if (isOwned !== undefined) params.is_owned = isOwned;
   const r = await api.get('/geo/brands', { params });
   return r.data as GeoBrand[];
+};
+
+// Marques + visibilite moyenne (selecteur avec mini-score)
+export const getGeoBrandsOverview = async (
+  engine: GeoEngine,
+  days = 30,
+): Promise<GeoBrandOverview[]> => {
+  const r = await api.get('/geo/brands/overview', { params: { engine, days } });
+  return Array.isArray(r.data) ? (r.data as GeoBrandOverview[]) : [];
 };
 
 export const createGeoBrand = async (payload: GeoBrandInput): Promise<GeoBrand> => {

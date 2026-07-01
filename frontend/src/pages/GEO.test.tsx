@@ -13,6 +13,7 @@ import type {
 // Mock du module API : on controle les reponses sans toucher au reseau.
 vi.mock('../api/geo', () => ({
   listGeoBrands: vi.fn(),
+  getGeoBrandsOverview: vi.fn(),
   getGeoDashboard: vi.fn(),
   getGeoGaps: vi.fn(),
   getGeoAlerts: vi.fn(),
@@ -41,6 +42,7 @@ vi.mock('../contexts/useAuth', () => ({
 import {
   listGeoBrands, getGeoDashboard, getGeoGaps, getGeoAlerts,
   getGeoHealth, listGeoPrompts, triggerGeoRemeasure, createGeoBrand,
+  getGeoBrandsOverview,
 } from '../api/geo';
 import GEOPage from './GEO';
 
@@ -116,6 +118,7 @@ describe('GEOPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockUser.current = adminUser;
+    vi.mocked(getGeoBrandsOverview).mockResolvedValue([]);
   });
 
   it('bloque l\'acces pour un sales', async () => {

@@ -27,6 +27,7 @@ from app.models.geo import GeoBrand, GeoMetricsDaily, GeoPrompt, GeoRun
 from app.models.user import User
 from app.schemas.geo import (
     GeoBrandCreate,
+    GeoBrandOverviewResponse,
     GeoBrandResponse,
     GeoBrandUpdate,
     GeoDashboardResponse,
@@ -157,6 +158,50 @@ async def list_brands(
     query = query.order_by(GeoBrand.name).limit(500)
     brands = (await db.execute(query)).scalars().all()
     return [GeoBrandResponse.model_validate(b) for b in brands]
+
+
+@router.get("/brands/overview", response_model=list[GeoBrandOverviewResponse])
+async def brands_overview(
+    engine: GeoEngine = Query(...),
+    days: int = Query(30, ge=1, le=365),
+    db: AsyncSession = Depends(get_db),
+    _user: User = Depends(_require_geo_access),
+) -> list[GeoBrandOverviewResponse]:
+    """Marques possedees + leur visibilite moyenne (moteur/periode) pour le selecteur.
+
+    Une seule requete agregee (pas de N+1) : LEFT JOIN sur la moyenne de
+    visibility_rate par marque sur la fenetre demandee.
+    """
+    cutoff = datetime.now(UTC).date() - timedelta(days=days)
+    vis_subq = (
+        select(
+            GeoMetricsDaily.brand_id.label("brand_id"),
+            func.avg(GeoMetricsDaily.visibility_rate).label("vis"),
+        )
+        .where(
+            GeoMetricsDaily.engine == engine.value,
+            GeoMetricsDaily.day >= cutoff,
+        )
+        .group_by(GeoMetricsDaily.brand_id)
+        .subquery()
+    )
+    query = (
+        select(GeoBrand, vis_subq.c.vis)
+        .outerjoin(vis_subq, vis_subq.c.brand_id == GeoBrand.id)
+        .where(GeoBrand.active.is_(True), GeoBrand.is_owned.is_(True))
+        .order_by(GeoBrand.name)
+        .limit(500)
+    )
+    rows = (await db.execute(query)).all()
+    return [
+        GeoBrandOverviewResponse(
+            id=brand.id,
+            slug=brand.slug,
+            name=brand.name,
+            visibility_rate=(float(vis) if vis is not None else None),
+        )
+        for brand, vis in rows
+    ]
 
 
 @router.post("/brands", response_model=GeoBrandResponse, status_code=201)

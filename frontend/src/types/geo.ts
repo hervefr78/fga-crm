@@ -37,6 +37,14 @@ export interface GeoPrompt {
   updated_at: string;
 }
 
+// GeoBrandOverviewResponse — marque + visibilite moyenne (selecteur avec mini-score)
+export interface GeoBrandOverview {
+  id: string;
+  slug: string;
+  name: string;
+  visibility_rate: number | null;
+}
+
 // Payloads de creation (alignes sur GeoBrandCreate / GeoPromptCreate backend)
 export interface GeoBrandInput {
   slug: string;

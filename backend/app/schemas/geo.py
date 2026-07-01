@@ -80,6 +80,16 @@ class GeoBrandResponse(BaseModel):
     updated_at: datetime
 
 
+class GeoBrandOverviewResponse(BaseModel):
+    """Marque + sa visibilite moyenne (pour le selecteur de marque avec mini-score)."""
+
+    id: UUID
+    slug: str
+    name: str
+    # Visibilite moyenne sur la periode/moteur demandes. None si aucune metrique.
+    visibility_rate: float | None
+
+
 # ---------------------------------------------------------------------------
 # GeoPrompt
 # ---------------------------------------------------------------------------
