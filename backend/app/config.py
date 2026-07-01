@@ -86,6 +86,11 @@ class Settings(BaseSettings):
     # uniquement, jamais exposee au navigateur. Vide = proxy desactive (503).
     compass_service_api_key: str = ""
 
+    # MCP Usage — taux de conversion USD -> EUR pour le calcul du cout API.
+    # Approximatif, a maintenir (cf. SHARED_ERRORS « prix LLM hardcode obsolete »).
+    # Surchargeable via env EUR_USD.
+    eur_usd: float = 0.92
+
     # GEO — Generative Engine Optimization
     perplexity_api_key: str | None = None
     gemini_api_key: str | None = None

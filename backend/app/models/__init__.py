@@ -10,6 +10,7 @@ from app.models.contact import Contact
 from app.models.deal import Deal
 from app.models.email_template import EmailTemplate
 from app.models.geo import GeoBrand, GeoMetricsDaily, GeoPrompt, GeoRun
+from app.models.mcp_tool_usage import McpToolUsage
 from app.models.tag import Tag, TagAssignment
 from app.models.task import Task
 from app.models.user import User
@@ -34,4 +35,5 @@ __all__ = [
     "GeoPrompt",
     "GeoRun",
     "GeoMetricsDaily",
+    "McpToolUsage",
 ]
