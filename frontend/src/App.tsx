@@ -22,6 +22,7 @@ import TasksPage from './pages/Tasks';
 import ActivitiesPage from './pages/Activities';
 import SettingsPage from './pages/Settings';
 import AdminUsersPage from './pages/AdminUsers';
+import McpTokensPage from './pages/McpTokens';
 import EmailPage from './pages/Email';
 import IntegrationsPage from './pages/Integrations';
 import DraftsPage from './pages/Drafts';
@@ -96,6 +97,7 @@ function AppRoutes() {
         <Route path="/integrations" element={<ManagerRoute><IntegrationsPage /></ManagerRoute>} />
         <Route path="/settings" element={<SettingsPage />} />
         <Route path="/admin/users" element={<AdminRoute><AdminUsersPage /></AdminRoute>} />
+        <Route path="/mcp-tokens" element={<AdminRoute><McpTokensPage /></AdminRoute>} />
       </Route>
 
       <Route path="*" element={<Navigate to="/" replace />} />

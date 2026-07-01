@@ -21,6 +21,7 @@ import {
   Shield,
   Award,
   XCircle,
+  Coins,
 } from 'lucide-react';
 import clsx from 'clsx';
 import { useAuth } from '../../contexts/useAuth';
@@ -67,7 +68,12 @@ export default function Layout() {
     ...baseNavigation.slice(9, 10), // 'Email'
     ...integrationsNav,
     ...baseNavigation.slice(10), // 'Paramètres'
-    ...(isAdmin(user) ? [{ name: 'Utilisateurs', href: '/admin/users', icon: Shield }] : []),
+    ...(isAdmin(user)
+      ? [
+          { name: 'Utilisateurs', href: '/admin/users', icon: Shield },
+          { name: 'Conso MCP', href: '/mcp-tokens', icon: Coins },
+        ]
+      : []),
   ];
 
   return (

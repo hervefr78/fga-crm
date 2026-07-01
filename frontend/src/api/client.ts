@@ -288,6 +288,21 @@ export const getCompanyAuditGenerateStatus = async (companyId: string) => {
   return response.data;
 };
 
+// ---------- MCP Usage (conso API par tool) ----------
+export const getMcpUsageSummary = async (dateFrom: string, dateTo: string) => {
+  const response = await api.get('/mcp-usage/summary', {
+    params: { date_from: dateFrom, date_to: dateTo },
+  });
+  return response.data;
+};
+
+export const getMcpUsageByTool = async (tool: string, dateFrom: string, dateTo: string) => {
+  const response = await api.get('/mcp-usage/by-tool', {
+    params: { tool, date_from: dateFrom, date_to: dateTo },
+  });
+  return response.data;
+};
+
 // ---------- Dashboard ----------
 export const getDashboardStats = async () => {
   const response = await api.get('/dashboard/stats');
