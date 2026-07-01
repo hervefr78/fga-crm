@@ -42,14 +42,54 @@ class ExtractionError(Exception):
     """Echec de l'extraction apres epuisement des tentatives."""
 
 
+# Mots-cles de validation non supportes par le mode strict d'OpenAI (structured
+# outputs). Presents dans le schema Pydantic (ge, max_length...) ils provoquent un
+# 400 "Invalid schema". On les retire avant l'envoi.
+_STRICT_UNSUPPORTED_KEYS = frozenset({
+    "minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum",
+    "minLength", "maxLength", "pattern", "format",
+    "minItems", "maxItems", "multipleOf", "default",
+})
+
+
+def _to_openai_strict(node: object) -> object:
+    """Adapter un schema Pydantic aux contraintes du mode strict OpenAI.
+
+    - chaque objet doit porter `additionalProperties: false`
+    - chaque objet doit lister TOUTES ses proprietes dans `required`
+    - retirer les mots-cles de validation non supportes (minimum, maxLength...)
+    Recursif (couvre les $defs, items, anyOf).
+    """
+    if isinstance(node, dict):
+        for key in list(node.keys()):
+            if key in _STRICT_UNSUPPORTED_KEYS:
+                del node[key]
+        if node.get("type") == "object" and "properties" in node:
+            node["additionalProperties"] = False
+            node["required"] = list(node["properties"].keys())
+        for value in node.values():
+            _to_openai_strict(value)
+    elif isinstance(node, list):
+        for item in node:
+            _to_openai_strict(item)
+    return node
+
+
 def _build_response_format() -> dict:
-    """Construire le response_format json_schema strict depuis ExtractionResult."""
+    """Construire le response_format json_schema strict depuis ExtractionResult.
+
+    Le schema Pydantic est post-traite pour respecter le mode strict d'OpenAI
+    (additionalProperties:false + required exhaustif + retrait des contraintes
+    non supportees). Cf. bug 400 "additionalProperties is required to be false".
+    """
+    schema = ExtractionResult.model_json_schema()
+    _to_openai_strict(schema)
     return {
         "type": "json_schema",
         "json_schema": {
             "name": "extraction",
             "strict": True,
-            "schema": ExtractionResult.model_json_schema(),
+            "schema": schema,
         },
     }
 
