@@ -20,6 +20,7 @@ MAX_INGEST_EVENTS = 1000
 # Longueurs alignees sur le modele (String(100)).
 MAX_TOOL_NAME_LEN = 100
 MAX_MODEL_LEN = 100
+MAX_IDEM_KEY_LEN = 64  # le MCP envoie un uuid4().hex (32 chars)
 
 
 # ---------------------------------------------------------------------------
@@ -40,9 +41,16 @@ class McpUsageIngestEvent(BaseModel):
 
 
 class McpUsageIngestRequest(BaseModel):
-    """Batch d'evenements pousse par le MCP."""
+    """Batch d'evenements pousse par le MCP.
+
+    `idempotency_key` (optionnel) : cle stable par batch. Si fournie, l'ingest
+    dedupe (un batch deja ingere est ignore) -> exactly-once malgre le
+    at-least-once du flush MCP (retry apres reponse perdue). Absente -> ancien
+    comportement incremental (retro-compatible).
+    """
 
     events: list[McpUsageIngestEvent] = Field(..., min_length=1, max_length=MAX_INGEST_EVENTS)
+    idempotency_key: str | None = Field(None, max_length=MAX_IDEM_KEY_LEN)
 
 
 class McpUsageIngestResponse(BaseModel):

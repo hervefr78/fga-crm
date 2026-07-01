@@ -21,13 +21,16 @@ est correct pour les deux dialectes. Source d'ingest unique (le MCP, flush
 sequentiel) -> pas de race condition concurrente en pratique (DC17).
 """
 
+import contextlib
 import logging
 from datetime import UTC, date, datetime, timedelta
 
+import redis.asyncio as redis_async
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.core.deps import get_current_admin, require_service_scope
 from app.core.pricing import cost_eur
 from app.db.session import get_db
@@ -49,6 +52,50 @@ router = APIRouter()
 
 # Fenetre max autorisee sur les lectures (DC1 — borne l'input externe).
 MAX_WINDOW_DAYS = 366
+
+
+# ---------------------------------------------------------------------------
+# Idempotence de l'ingest (dedup via Redis)
+# ---------------------------------------------------------------------------
+# Le flush MCP est at-least-once : si l'ingest reussit mais que la reponse se
+# perd (timeout), le MCP retente le MEME batch (meme idempotency_key). On dedupe
+# ici pour ne pas double-compter. Fail-open : Redis indispo -> on ingere sans
+# dedup (degrade vers at-least-once, jamais de perte).
+_IDEM_PREFIX = "mcp_ingest:"
+_IDEM_TTL_SECONDS = 86400  # 24h — largement > la fenetre de retry du MCP
+
+_redis_client: redis_async.Redis | None = None
+
+
+def _get_redis() -> redis_async.Redis:
+    global _redis_client
+    if _redis_client is None:
+        _redis_client = redis_async.from_url(settings.redis_url, decode_responses=True)
+    return _redis_client
+
+
+async def _idem_acquire(key: str) -> bool:
+    """True si le batch est nouveau (a traiter). False si deja ingere (doublon).
+
+    SET NX EX atomique. Fail-open : sur erreur Redis, retourne True (on ingere
+    sans dedup — best-effort).
+    """
+    try:
+        acquired = await _get_redis().set(
+            f"{_IDEM_PREFIX}{key}", "1", nx=True, ex=_IDEM_TTL_SECONDS,
+        )
+        return bool(acquired)
+    except Exception as exc:
+        logger.warning(
+            "[MCP usage] dedup indisponible (%s) — ingest sans dedup", type(exc).__name__
+        )
+        return True
+
+
+async def _idem_release(key: str) -> None:
+    """Libere la cle (ex: echec d'application) pour autoriser un retry. Best-effort."""
+    with contextlib.suppress(Exception):
+        await _get_redis().delete(f"{_IDEM_PREFIX}{key}")
 
 # Colonnes de sommes incrementees a l'upsert.
 _SUM_COLUMNS = (
@@ -167,23 +214,36 @@ async def ingest_usage(
 ) -> McpUsageIngestResponse:
     """Ingerer un batch d'evenements d'usage (pousse par le MCP).
 
-    Chaque evenement est upserte en incrementant les sommes. Idempotent au sens
-    « rejouer une meme fenetre cumule » — c'est le comportement attendu d'un
-    flush periodique cote MCP.
+    Chaque evenement est upserte en incrementant les sommes. Avec une
+    `idempotency_key`, un batch deja ingere est IGNORE (exactly-once malgre le
+    retry at-least-once du MCP). Sans cle -> ancien comportement incremental.
     """
-    for event in payload.events:
-        await _upsert_event(
-            db,
-            day=event.day,
-            tool_name=event.tool_name,
-            model=event.model,
-            calls=event.calls,
-            input_tokens=event.input_tokens,
-            output_tokens=event.output_tokens,
-            cache_read_tokens=event.cache_read_tokens,
-            cache_write_tokens=event.cache_write_tokens,
-        )
-    await db.commit()
+    key = payload.idempotency_key
+    if key and not await _idem_acquire(key):
+        logger.info("[MCP usage] ingest duplique ignore (key=%s)", key)
+        return McpUsageIngestResponse(ingested=0)
+
+    try:
+        for event in payload.events:
+            await _upsert_event(
+                db,
+                day=event.day,
+                tool_name=event.tool_name,
+                model=event.model,
+                calls=event.calls,
+                input_tokens=event.input_tokens,
+                output_tokens=event.output_tokens,
+                cache_read_tokens=event.cache_read_tokens,
+                cache_write_tokens=event.cache_write_tokens,
+            )
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        # L'application a echoue : liberer la cle pour autoriser un retry (pas de
+        # perte silencieuse — la cle ne doit pas "consommer" un batch non applique).
+        if key:
+            await _idem_release(key)
+        raise
 
     logger.info("[MCP usage] ingest : %d evenements", len(payload.events))
     return McpUsageIngestResponse(ingested=len(payload.events))

@@ -29,6 +29,12 @@ CACHE_WRITE_MULTIPLIER = 1.25
 # Tarifs input/output en USD / M tokens, par famille de modele.
 # cache_read et cache_write sont derives de l'input (0.1x / 1.25x).
 # Cle = prefixe de famille (matching par startswith apres normalisation).
+#
+# Verifie le 2026-07-01 (https://platform.claude.com/docs/en/about-claude/pricing) :
+# Haiku 4.5 = 1/5, Sonnet 4.x/5 = 3/15, Opus 4.x = 5/25. Le matching par famille
+# couvre les suffixes de version (claude-opus-4-8, claude-sonnet-5, ...).
+# A RE-VERIFIER a chaque nouvelle famille : une famille au pricing different
+# casserait l'hypothese "un tarif par famille".
 MODEL_RATES_USD_PER_MTOK: dict[str, dict[str, float]] = {
     "claude-haiku": {"input": 1.0, "output": 5.0},
     "claude-sonnet": {"input": 3.0, "output": 15.0},

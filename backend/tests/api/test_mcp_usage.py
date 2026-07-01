@@ -415,3 +415,70 @@ class TestByTool:
         )
         assert resp.status_code == 200
         assert resp.json()["rows"] == []
+
+
+# ---------------------------------------------------------------------------
+# Ingest — idempotence (dedup via cle ; Redis mocke, indispo en test SQLite)
+# ---------------------------------------------------------------------------
+
+_INGEST = "/api/v1/mcp-usage/ingest"
+_SUMMARY = f"/api/v1/mcp-usage/summary?date_from={TODAY}&date_to={TODAY}"
+
+
+class _FakeRedis:
+    """Redis en memoire minimal : SET NX EX + DELETE (pour tester la dedup)."""
+
+    def __init__(self) -> None:
+        self.store: set[str] = set()
+
+    async def set(self, key, _val, nx=False, ex=None):
+        if nx and key in self.store:
+            return None
+        self.store.add(key)
+        return True
+
+    async def delete(self, key):
+        self.store.discard(key)
+        return 1
+
+
+class TestIngestIdempotency:
+    async def test_dedup_same_key_ignored(
+        self, client: AsyncClient, mcp_write_headers: dict, auth_headers: dict, monkeypatch,
+    ):
+        fake = _FakeRedis()  # une seule instance -> etat partage entre les 2 requetes
+        monkeypatch.setattr("app.api.v1.mcp_usage._get_redis", lambda: fake)
+        batch = {"events": [_event(calls=5)], "idempotency_key": "batch-xyz"}
+        r1 = await client.post(_INGEST, json=batch, headers=mcp_write_headers)
+        assert r1.status_code == 200 and r1.json()["ingested"] == 1
+        # meme cle -> ignore (exactly-once)
+        r2 = await client.post(_INGEST, json=batch, headers=mcp_write_headers)
+        assert r2.status_code == 200 and r2.json()["ingested"] == 0
+        # le total ne double pas
+        s = await client.get(_SUMMARY, headers=auth_headers)
+        assert s.json()["total"]["calls"] == 5
+
+    async def test_no_key_still_cumulates(
+        self, client: AsyncClient, mcp_write_headers: dict, auth_headers: dict,
+    ):
+        # Sans idempotency_key : comportement incremental retro-compatible.
+        ev = {"events": [_event(calls=3, tool_name="cumul_tool")]}
+        await client.post(_INGEST, json=ev, headers=mcp_write_headers)
+        await client.post(_INGEST, json=ev, headers=mcp_write_headers)
+        s = await client.get(_SUMMARY, headers=auth_headers)
+        assert s.json()["total"]["calls"] == 6
+
+    async def test_failopen_when_redis_down(
+        self, client: AsyncClient, mcp_write_headers: dict, monkeypatch,
+    ):
+        def boom():
+            raise RuntimeError("redis down")
+
+        monkeypatch.setattr("app.api.v1.mcp_usage._get_redis", boom)
+        # Redis indispo + cle fournie -> on ingere quand meme (fail-open, pas de perte).
+        r = await client.post(
+            _INGEST,
+            json={"events": [_event()], "idempotency_key": "k"},
+            headers=mcp_write_headers,
+        )
+        assert r.status_code == 200 and r.json()["ingested"] == 1
