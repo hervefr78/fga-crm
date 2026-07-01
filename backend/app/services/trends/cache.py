@@ -43,7 +43,13 @@ def compute_request_hash(
     timeframe: str,
     seed_terms: list[str],
 ) -> str:
-    """Empreinte deterministe des parametres d'un rapport (seeds tries -> stable)."""
+    """Empreinte deterministe des parametres d'un rapport.
+
+    L'ordre des seeds est SIGNIFICATIF : le provider les consomme dans l'ordre saisi
+    (mock -> seeds[0] comme terme d'habillage ; DataForSEO -> ordre des keywords).
+    On ne trie donc PAS les seeds dans le hash — sinon deux ordres differents
+    partageraient la meme cle de dedup/cache tout en produisant des rapports differents.
+    """
     canonical = json.dumps(
         {
             "mode": mode,
@@ -51,7 +57,7 @@ def compute_request_hash(
             "country": country,
             "language": language,
             "timeframe": timeframe,
-            "seed_terms": sorted(seed_terms),
+            "seed_terms": seed_terms,
         },
         sort_keys=True,
         separators=(",", ":"),

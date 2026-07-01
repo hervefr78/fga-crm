@@ -116,6 +116,41 @@ async def test_run_job_failure_sets_failed_status(
     assert refreshed.error and "provider down" in refreshed.error
 
 
+async def test_run_job_is_idempotent_on_completed(db_session: AsyncSession):
+    # Un retry (Celery redelivery) sur un job deja complete doit etre un no-op :
+    # ni 2e report (job_id unique -> IntegrityError), ni bascule en failed.
+    job = await _make_job(db_session, seeds=["idem"])
+    await orchestrator.run_job(db_session, job)
+    assert (await db_session.get(TrendJob, job.id)).status == "completed"
+
+    # 2e execution du MEME job (simule le retry).
+    reloaded = await db_session.get(TrendJob, job.id)
+    await orchestrator.run_job(db_session, reloaded)
+
+    refreshed = await db_session.get(TrendJob, job.id)
+    assert refreshed.status == "completed"  # pas de bascule en failed
+    reports = (
+        await db_session.execute(
+            select(func.count()).select_from(TrendReport).where(TrendReport.job_id == job.id)
+        )
+    ).scalar()
+    assert reports == 1  # un seul report, pas de doublon
+
+
+async def test_request_hash_order_sensitive():
+    # L'ordre des seeds est significatif : deux ordres -> deux hash distincts
+    # (sinon dedup/cache incoherents avec le contenu produit).
+    h1 = cache.compute_request_hash(
+        mode="quick", category_id="c", country="FR", language="fr",
+        timeframe="today 12-m", seed_terms=["a", "b"],
+    )
+    h2 = cache.compute_request_hash(
+        mode="quick", category_id="c", country="FR", language="fr",
+        timeframe="today 12-m", seed_terms=["b", "a"],
+    )
+    assert h1 != h2
+
+
 async def test_opportunity_score_bounds():
     # Score borne 0-100 meme avec des signaux extremes.
     signals = {

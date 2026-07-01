@@ -247,6 +247,17 @@ async def run_job(db: AsyncSession, job: TrendJob) -> None:
 
     Ne leve pas : en cas d'echec, le job passe a `failed` avec l'erreur bornee.
     """
+    # Idempotence (DC5) : un job deja termine ne doit PAS etre re-execute. Un retry
+    # Celery (redelivery apres crash worker, max_retries) rappellerait run_job sur un
+    # job "completed" -> 2e insertion dans trend_reports (job_id unique) -> IntegrityError
+    # -> un job REUSSI basculerait a tort en "failed". On skip donc les etats terminaux.
+    if job.status in ("completed", "failed"):
+        logger.info(
+            "[Trends orchestrator] job %s deja en etat terminal (%s), skip (idempotence)",
+            job.id, job.status,
+        )
+        return
+
     params = job.params_json or {}
     job.status = "running"
     job.started_at = _now()
