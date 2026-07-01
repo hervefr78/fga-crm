@@ -130,7 +130,7 @@ def _build_summary(category_label: str, signals: dict, score: float) -> str:
         lines += ["", "## Requetes en hausse"]
         for q in rising[:6]:
             g = f" (+{q['growth']:.0f}%)" if q.get("growth") is not None else ""
-            tag = " 🚀" if q.get("breakout") else ""
+            tag = " [breakout]" if q.get("breakout") else ""
             lines.append(f"- {q['query']}{g}{tag}")
     top = signals["top_queries"]
     if top:

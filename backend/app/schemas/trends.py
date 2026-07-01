@@ -96,9 +96,7 @@ class TrendJobProgress(BaseModel):
 
 
 class TrendJobResponse(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    job_id: UUID = Field(validation_alias="id", serialization_alias="job_id")
+    job_id: UUID
     mode: str
     status: str
     provider_primary: str

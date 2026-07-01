@@ -13,6 +13,7 @@ import {
   Mail,
   FileCheck,
   TrendingUp,
+  BarChart3,
   Link2,
   Settings,
   LogOut,
@@ -56,6 +57,12 @@ export default function Layout() {
     ? [{ name: 'GEO', href: '/geo', icon: TrendingUp }]
     : [];
 
+  // Trends : signal de demande de marche, reserve managers/admins (garde RBAC
+  // dans TrendsPage). Insere juste apres GEO.
+  const trendsNav = isManagerOrAbove(user)
+    ? [{ name: 'Trends', href: '/trends', icon: BarChart3 }]
+    : [];
+
   // Integrations : op couteuse reservee aux managers/admins (cf garde RBAC
   // backend get_current_manager + ManagerRoute frontend). Masque pour les sales.
   const integrationsNav = isManagerOrAbove(user)
@@ -65,6 +72,7 @@ export default function Layout() {
   const navigation = [
     ...baseNavigation.slice(0, 9), // jusqu'a 'Drafts à valider' inclus
     ...geoNav,
+    ...trendsNav,
     ...baseNavigation.slice(9, 10), // 'Email'
     ...integrationsNav,
     ...baseNavigation.slice(10), // 'Paramètres'
