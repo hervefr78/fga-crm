@@ -13,6 +13,14 @@ from app.models.geo import GeoBrand, GeoMetricsDaily, GeoPrompt, GeoRun
 from app.models.mcp_tool_usage import McpToolUsage
 from app.models.tag import Tag, TagAssignment
 from app.models.task import Task
+from app.models.trends import (
+    TrendCategory,
+    TrendCategorySeed,
+    TrendJob,
+    TrendKeyword,
+    TrendReport,
+    TrendSnapshot,
+)
 from app.models.user import User
 from app.models.webauthn_credential import WebAuthnCredential
 
@@ -36,4 +44,10 @@ __all__ = [
     "GeoRun",
     "GeoMetricsDaily",
     "McpToolUsage",
+    "TrendCategory",
+    "TrendCategorySeed",
+    "TrendJob",
+    "TrendSnapshot",
+    "TrendKeyword",
+    "TrendReport",
 ]

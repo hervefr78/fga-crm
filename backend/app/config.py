@@ -100,6 +100,16 @@ class Settings(BaseSettings):
     geo_raw_answer_max_chars: int = 4000       # troncature avant stockage
     geo_extract_input_max_chars: int = 2000    # troncature avant envoi a l'extracteur
 
+    # Trends — signal de demande de marche (DataForSEO primaire, SerpApi fallback).
+    # Si login+password DataForSEO absents -> provider mock (deployable sans cle).
+    dataforseo_login: str | None = None
+    dataforseo_password: str | None = None
+    trends_cache_ttl_quick_seconds: int = 21600     # Quick Pulse : 6h
+    trends_cache_ttl_trending_seconds: int = 1800   # Trending now : 30 min
+    trends_default_country: str = "FR"
+    trends_default_language: str = "fr"
+    trends_max_seed_terms: int = 20                 # garde-fou sous-requetes / job
+
     # MinIO (S3-compatible)
     minio_endpoint: str = "minio:9000"
     minio_root_user: str = "minioadmin"
