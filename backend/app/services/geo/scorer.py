@@ -26,7 +26,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.models.geo import GeoMetricsDaily, GeoRun
+from app.models.geo import GeoBrand, GeoMetricsDaily, GeoRun
 
 logger = logging.getLogger(__name__)
 
@@ -122,10 +122,14 @@ async def compute_daily_metrics(
     # Upsert ON CONFLICT (day, brand_id, engine).
     # pg_insert fonctionne en Postgres ; en SQLite (tests) on retombe sur un
     # SELECT-puis-update/insert manuel (le dialecte ne supporte pas le meme upsert).
+    # La metrique herite de l'org de sa marque (isolation multi-tenant).
+    org_id = await db.scalar(select(GeoBrand.organization_id).where(GeoBrand.id == brand_id))
+
     values = {
         "day": day,
         "brand_id": brand_id,
         "engine": engine,
+        "organization_id": org_id,
         "visibility_rate": visibility_rate,
         "sov": sov,
         "sov_weighted": sov_weighted,
@@ -164,7 +168,7 @@ async def compute_daily_metrics(
         ).scalar_one_or_none()
         if existing is not None:
             for key, val in values.items():
-                if key in ("day", "brand_id", "engine"):
+                if key in ("day", "brand_id", "engine", "organization_id"):
                     continue
                 setattr(existing, key, val)
         else:

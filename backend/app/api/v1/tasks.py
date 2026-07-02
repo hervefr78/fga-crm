@@ -60,11 +60,13 @@ def _parse_uuid(value: str, field_name: str) -> uuid.UUID:
         raise HTTPException(status_code=422, detail=f"{field_name} invalide")
 
 
-# Mapping FK metier → model, pour la garde cross-org (anti cross-org FK).
+# Mapping FK → model, pour la garde cross-org (anti cross-org FK).
+# assigned_to inclus : on ne peut pas assigner une tache a un user d'une autre org.
 _FK_MODELS: dict[str, type] = {
     "contact_id": Contact,
     "company_id": Company,
     "deal_id": Deal,
+    "assigned_to": User,
 }
 
 

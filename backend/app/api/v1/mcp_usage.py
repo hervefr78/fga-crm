@@ -159,7 +159,7 @@ def _resolve_window(date_from: str | None, date_to: str | None) -> tuple[date, d
 
 async def _upsert_event(
     db: AsyncSession,
-    organization_id: uuid.UUID | None,
+    organization_id: uuid.UUID,
     day: date,
     tool_name: str,
     model: str,
@@ -171,12 +171,10 @@ async def _upsert_event(
 ) -> None:
     """UPSERT incremental d'un evenement sur (organization_id, day, tool, model).
 
-    organization_id vient du user service authentifie (isolation multi-tenant).
-    Sur conflit, les sommes sont INCREMENTEES (calls = existing.calls + nouveau,
-    idem tokens).
+    organization_id (NOT NULL) vient du user service authentifie (isolation
+    multi-tenant). Sur conflit, les sommes sont INCREMENTEES.
 
-    SELECT-puis-update/insert (portable PG/SQLite). Le filtre organization_id
-    utilise IS NULL quand None (NULL = NULL est faux en SQL), == sinon.
+    SELECT-puis-update/insert (portable PG/SQLite).
     """
     values = {
         "organization_id": organization_id,
@@ -190,16 +188,11 @@ async def _upsert_event(
         "cache_write_tokens": cache_write_tokens,
     }
 
-    org_predicate = (
-        McpToolUsage.organization_id.is_(None)
-        if organization_id is None
-        else McpToolUsage.organization_id == organization_id
-    )
     existing = (
         await db.execute(
             select(McpToolUsage).where(
                 and_(
-                    org_predicate,
+                    McpToolUsage.organization_id == organization_id,
                     McpToolUsage.day == day,
                     McpToolUsage.tool_name == tool_name,
                     McpToolUsage.model == model,

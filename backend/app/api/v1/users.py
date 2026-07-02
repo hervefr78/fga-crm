@@ -155,13 +155,15 @@ async def update_user_role(
         raise HTTPException(status_code=404, detail="Utilisateur non trouve")
     check_tenant_access(target, admin)  # 404 si user d'une autre org
 
-    # Guard : impossible de retirer le dernier admin (compte borne a l'org)
+    # Guard : impossible de retirer le dernier admin de l'org DE LA CIBLE.
+    # Compte scope explicitement sur target.organization_id (PAS via le filtre de
+    # l'appelant : un super-admin bypasserait et compterait toutes les orgs).
     if target.role == "admin" and data.role != "admin":
-        admin_count_q = apply_tenant_filter(
-            select(User).where(User.role == "admin"), User, admin
-        )
         admin_count = (await db.execute(
-            select(func.count()).select_from(admin_count_q.subquery())
+            select(func.count()).select_from(User).where(
+                User.role == "admin",
+                User.organization_id == target.organization_id,
+            )
         )).scalar() or 0
         if admin_count <= 1:
             raise HTTPException(status_code=400, detail="Impossible de retirer le dernier administrateur")

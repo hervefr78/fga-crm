@@ -34,8 +34,8 @@ def _slugify(name: str) -> str:
 
 class RegisterRequest(BaseModel):
     email: EmailStr
-    password: str
-    full_name: str
+    password: str = Field(..., min_length=8, max_length=255)
+    full_name: str = Field(..., min_length=1, max_length=255)
     # Nom de l'organisation creee a l'inscription (defaut derive du nom complet).
     organization_name: str | None = Field(None, max_length=255)
 

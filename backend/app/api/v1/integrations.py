@@ -749,7 +749,12 @@ async def trigger_company_audit(
     if not company:
         raise HTTPException(status_code=404, detail="Entreprise non trouvee")
 
-    # 3. Verifier startup_radar_id
+    # 3. RBAC AVANT toute validation metier (isolation tenant -> ownership) : ne pas
+    #    divulguer l'etat/existence d'une company cross-org via les 422 metier.
+    check_tenant_access(company, current_user)
+    check_entity_access(company, current_user)
+
+    # 4. Verifier startup_radar_id
     if not company.startup_radar_id:
         raise HTTPException(
             status_code=422,
@@ -760,10 +765,6 @@ async def trigger_company_audit(
             status_code=422,
             detail="Les audits ne sont pas disponibles pour les investisseurs",
         )
-
-    # 4. RBAC (isolation tenant d'abord, puis ownership)
-    check_tenant_access(company, current_user)
-    check_entity_access(company, current_user)
 
     sr_id = company.startup_radar_id
     sr_client = StartupRadarClient()
@@ -922,6 +923,9 @@ async def _resolve_sr_company(db: AsyncSession, company_id: str, user: User) -> 
     ).scalar_one_or_none()
     if not company:
         raise HTTPException(status_code=404, detail="Entreprise non trouvee")
+    # RBAC AVANT validation metier (ne pas divulguer l'etat d'une company cross-org).
+    check_tenant_access(company, user)
+    check_entity_access(company, user)
     if not company.startup_radar_id:
         raise HTTPException(
             status_code=422, detail="Cette entreprise n'a pas de lien Startup Radar",
@@ -931,8 +935,6 @@ async def _resolve_sr_company(db: AsyncSession, company_id: str, user: User) -> 
             status_code=422,
             detail="Les audits ne sont pas disponibles pour les investisseurs",
         )
-    check_tenant_access(company, user)
-    check_entity_access(company, user)
     return company
 
 
