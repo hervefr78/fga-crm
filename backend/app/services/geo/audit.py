@@ -177,15 +177,17 @@ async def run_audit_job(db: AsyncSession, job: GeoAuditJob) -> None:
             aliases=aliases,
             is_owned=False,
             active=True,
+            organization_id=job.organization_id,
         )
         db.add(brand)
         await db.flush()
 
-        # 2. Prompts ephemeres
+        # 2. Prompts ephemeres (heritent de l'org du job/marque)
         prompt_ids: list[uuid.UUID] = []
         for text in prompts_text:
             p = GeoPrompt(brand_id=brand.id, text=text, intent="informationnel",
-                          country=country, language=language)
+                          country=country, language=language,
+                          organization_id=job.organization_id)
             db.add(p)
             await db.flush()
             prompt_ids.append(p.id)

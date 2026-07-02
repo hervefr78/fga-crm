@@ -23,10 +23,9 @@ class McpToolUsage(UUIDMixin, TimestampMixin, Base):
 
     __tablename__ = "mcp_tool_usage"
 
-    # organization_id : isolation multi-tenant future (comme GEO). Nullable jusqu'a
-    # creation de la table organizations. Index pour les futures requetes filtrees.
-    organization_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), nullable=True, index=True
+    # NOT NULL depuis mt_contract_001 (ingest tague l'org du service account).
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), nullable=False, index=True
     )
     day: Mapped[date] = mapped_column(Date, nullable=False)
     # Nom du tool MCP, ex. "unipile_get_messages"

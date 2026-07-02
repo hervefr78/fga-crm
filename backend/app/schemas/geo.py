@@ -49,7 +49,7 @@ class GeoSentiment(StrEnum):
 # ---------------------------------------------------------------------------
 
 class GeoBrandCreate(BaseModel):
-    organization_id: UUID | None = None
+    # organization_id retire (DC18) : l'org vient du user cote serveur, pas du client.
     slug: str = Field(..., min_length=1, max_length=255)
     name: str = Field(..., min_length=1, max_length=255)
     aliases: list[Annotated[str, Field(max_length=255)]] = Field(default_factory=list, max_length=50)
@@ -58,7 +58,7 @@ class GeoBrandCreate(BaseModel):
 
 
 class GeoBrandUpdate(BaseModel):
-    organization_id: UUID | None = None
+    # organization_id NON modifiable par le client (empeche de deplacer la marque cross-org).
     slug: str | None = Field(None, min_length=1, max_length=255)
     name: str | None = Field(None, min_length=1, max_length=255)
     aliases: list[Annotated[str, Field(max_length=255)]] | None = Field(None, max_length=50)
@@ -95,7 +95,7 @@ class GeoBrandOverviewResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 class GeoPromptCreate(BaseModel):
-    organization_id: UUID | None = None
+    # organization_id retire (DC18) : herite du brand/user cote serveur.
     text: str = Field(..., min_length=1, max_length=2000)
     intent: GeoIntent
     persona: str | None = Field(None, max_length=255)

@@ -5,7 +5,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, func
+from sqlalchemy import DateTime, ForeignKey, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -36,4 +36,22 @@ class UUIDMixin:
         UUID(as_uuid=True),
         primary_key=True,
         default=uuid.uuid4,
+    )
+
+
+class OrgScopedMixin:
+    """Isolation multi-tenant : chaque entite metier appartient a une organisation.
+
+    NOT NULL depuis le contract (migration mt_contract_001) : tous les writers
+    taggent organization_id = user.organization_id. Le filtrage par org est
+    centralise dans `core/rbac.py` (apply_tenant_filter).
+    """
+
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        # RESTRICT : pas de suppression physique d'une org qui a des donnees.
+        # La desactivation se fait en soft-delete (Organization.is_active=false).
+        ForeignKey("organizations.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
     )

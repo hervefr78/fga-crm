@@ -10,6 +10,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.geo import GeoAuditJob, GeoBrand, GeoPrompt, GeoRun
+from app.models.organization import Organization
 from app.services.geo import audit as audit_mod
 from app.services.geo.audit import (
     _aggregate,
@@ -18,6 +19,13 @@ from app.services.geo.audit import (
     compute_request_hash,
     run_audit_job,
 )
+
+
+async def _make_org(db: AsyncSession) -> Organization:
+    org = Organization(id=uuid.uuid4(), name="Audit Org", slug=f"audit-{uuid.uuid4().hex[:8]}")
+    db.add(org)
+    await db.flush()
+    return org
 
 
 def _run(pid, mentioned=False, position=None, reco=False, sentiment=None, found=None):
@@ -95,9 +103,10 @@ async def test_run_audit_job_creates_ephemeral_brand_and_completes(
 
     monkeypatch.setattr(audit_mod, "execute_geo_batch", _fake_batch)
 
+    org = await _make_org(db_session)
     job = GeoAuditJob(
         domain="acme.com", company_name="Acme", request_hash="h1", engine="perplexity",
-        status="queued",
+        status="queued", organization_id=org.id,
         params_json={"prompts": ["q1", "q2"], "aliases": ["Acme Corp"], "country": "FR", "language": "fr"},
     )
     db_session.add(job)
@@ -133,8 +142,10 @@ async def test_run_audit_job_idempotent_on_completed(
         return {"total": 0, "success": 0, "failed": 0}
 
     monkeypatch.setattr(audit_mod, "execute_geo_batch", _fake_batch)
+    org = await _make_org(db_session)
     job = GeoAuditJob(domain="x.com", company_name="X", request_hash="h2",
-                      engine="perplexity", status="completed", params_json={})
+                      engine="perplexity", status="completed", params_json={},
+                      organization_id=org.id)
     db_session.add(job)
     await db_session.commit()
     await run_audit_job(db_session, job)  # etat terminal -> no-op

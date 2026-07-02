@@ -12,7 +12,12 @@ from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import get_current_user
-from app.core.rbac import apply_ownership_filter, check_entity_access
+from app.core.rbac import (
+    apply_ownership_filter,
+    apply_tenant_filter,
+    check_entity_access,
+    check_tenant_access,
+)
 from app.db.session import get_db
 from app.models.activity import Activity
 from app.models.company import Company
@@ -145,6 +150,7 @@ async def list_companies(
     user: User = Depends(get_current_user),
 ):
     query = select(Company)
+    query = apply_tenant_filter(query, Company, user)
     query = apply_ownership_filter(query, Company, user)
 
     if search:
@@ -248,7 +254,7 @@ async def create_company(
 ):
     payload = data.model_dump()
     _parse_funding_date(payload)
-    company = Company(**payload, owner_id=user.id)
+    company = Company(**payload, owner_id=user.id, organization_id=user.organization_id)
     db.add(company)
     await db.flush()
     await db.refresh(company)
@@ -266,6 +272,7 @@ async def get_company(
     company = result.scalar_one_or_none()
     if not company:
         raise HTTPException(status_code=404, detail="Entreprise non trouvee")
+    check_tenant_access(company, user)
     check_entity_access(company, user)
 
     # Charger le nom du owner et du dernier modificateur
@@ -302,6 +309,7 @@ async def update_company(
     company = result.scalar_one_or_none()
     if not company:
         raise HTTPException(status_code=404, detail="Entreprise non trouvee")
+    check_tenant_access(company, user)
     check_entity_access(company, user)
 
     update_data = data.model_dump(exclude_unset=True)
@@ -334,6 +342,7 @@ async def delete_company(
     company = result.scalar_one_or_none()
     if not company:
         raise HTTPException(status_code=404, detail="Entreprise non trouvee")
+    check_tenant_access(company, user)
     check_entity_access(company, user)
 
     await db.delete(company)
@@ -352,7 +361,10 @@ async def import_companies(
     for idx, row_data in enumerate(data.rows, start=1):
         try:
             validated = CompanyImportRow(**row_data)
-            company = Company(**validated.model_dump(), owner_id=user.id)
+            company = Company(
+                **validated.model_dump(), owner_id=user.id,
+                organization_id=user.organization_id,
+            )
             db.add(company)
             imported += 1
         except ValidationError as e:

@@ -9,13 +9,13 @@ from sqlalchemy import ForeignKey, String, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.models.base import Base, TimestampMixin, UUIDMixin
+from app.models.base import Base, OrgScopedMixin, TimestampMixin, UUIDMixin
 
 if TYPE_CHECKING:
     from app.models.user import User
 
 
-class EmailTemplate(Base, UUIDMixin, TimestampMixin):
+class EmailTemplate(Base, UUIDMixin, OrgScopedMixin, TimestampMixin):
     __tablename__ = "email_templates"
 
     name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)

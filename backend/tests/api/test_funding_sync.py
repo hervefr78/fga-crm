@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.activity import Activity
 from app.models.company import Company
 from app.models.contact import Contact
+from app.models.organization import Organization
 from app.models.task import Task
 from app.models.user import User
 from app.services.startup_radar_sync import (
@@ -27,7 +28,6 @@ from app.services.startup_radar_sync import (
     sync_contacts,
     sync_startups,
 )
-
 
 # ---------------------------------------------------------------------------
 # Mock SR Client (minimal — fournit get_startups, get_contacts, authenticate)
@@ -56,7 +56,22 @@ class _MockSRClient:
 # ---------------------------------------------------------------------------
 
 
+async def _make_org(db: AsyncSession) -> Organization:
+    org = Organization(
+        id=uuid.uuid4(),
+        name="Sync Org",
+        slug=f"sync-{uuid.uuid4().hex[:8]}",
+        is_active=True,
+    )
+    db.add(org)
+    await db.flush()
+    return org
+
+
 async def _make_admin(db: AsyncSession) -> User:
+    # L'org du user est la source de verite du tenant : toutes les entites creees
+    # par les fonctions de sync sont taggees avec cette org (isolation row-level).
+    org = await _make_org(db)
     user = User(
         id=uuid.uuid4(),
         email=f"admin-{uuid.uuid4().hex[:6]}@fga.fr",
@@ -64,6 +79,7 @@ async def _make_admin(db: AsyncSession) -> User:
         full_name="Admin Sync",
         role="admin",
         is_active=True,
+        organization_id=org.id,
     )
     db.add(user)
     await db.flush()
@@ -76,6 +92,7 @@ async def _make_company(db: AsyncSession, user: User, name: str = "Acme Co") -> 
         name=name,
         lead_source="startup_radar",
         owner_id=user.id,
+        organization_id=user.organization_id,
     )
     db.add(company)
     await db.flush()
@@ -129,7 +146,9 @@ async def test_create_funding_activity_creates_activity(db_session: AsyncSession
         "siren": "123456789",
     }
 
-    created = await create_funding_activity(db_session, company.id, user.id, startup_data)
+    created = await create_funding_activity(
+        db_session, company.id, user.id, startup_data, user.organization_id
+    )
     assert created is True
     await db_session.flush()  # autoflush=False sur la session de test
 
@@ -161,6 +180,7 @@ async def test_create_funding_activity_source_urls_defaults_to_empty(db_session:
     await create_funding_activity(
         db_session, company.id, user.id,
         {"name": "x", "amount": 1_000_000, "series": "Seed"},
+        user.organization_id,
     )
     await db_session.flush()
     activity = (await db_session.execute(
@@ -173,6 +193,7 @@ async def test_create_funding_activity_source_urls_defaults_to_empty(db_session:
     await create_funding_activity(
         db_session, company2.id, user.id,
         {"name": "x", "amount": 2_000_000, "series": "Seed", "source_urls": ["not", "a", "dict"]},
+        user.organization_id,
     )
     await db_session.flush()
     activity2 = (await db_session.execute(
@@ -188,12 +209,12 @@ async def test_create_funding_activity_no_amount_skipped(db_session: AsyncSessio
     company = await _make_company(db_session, user)
 
     created = await create_funding_activity(
-        db_session, company.id, user.id, {"name": "x", "amount": 0},
+        db_session, company.id, user.id, {"name": "x", "amount": 0}, user.organization_id,
     )
     assert created is False
 
     created = await create_funding_activity(
-        db_session, company.id, user.id, {"name": "x"},  # pas de cle amount
+        db_session, company.id, user.id, {"name": "x"}, user.organization_id,  # pas de cle amount
     )
     assert created is False
 
@@ -205,9 +226,13 @@ async def test_create_funding_activity_idempotent_same_round(db_session: AsyncSe
     company = await _make_company(db_session, user)
 
     data = {"name": "x", "amount": 2_000_000, "series": "Seed"}
-    assert await create_funding_activity(db_session, company.id, user.id, data) is True
+    assert await create_funding_activity(
+        db_session, company.id, user.id, data, user.organization_id
+    ) is True
     # Deuxieme appel : skip car meme subject
-    assert await create_funding_activity(db_session, company.id, user.id, data) is False
+    assert await create_funding_activity(
+        db_session, company.id, user.id, data, user.organization_id
+    ) is False
 
     # Verifier qu'on a bien une seule activity
     stmt = select(Activity).where(
@@ -227,10 +252,12 @@ async def test_create_funding_activity_distinct_rounds(db_session: AsyncSession)
     assert await create_funding_activity(
         db_session, company.id, user.id,
         {"name": "x", "amount": 1_000_000, "series": "Seed"},
+        user.organization_id,
     ) is True
     assert await create_funding_activity(
         db_session, company.id, user.id,
         {"name": "x", "amount": 5_000_000, "series": "Serie A"},
+        user.organization_id,
     ) is True
 
     stmt = select(Activity).where(
@@ -254,6 +281,7 @@ async def test_create_qualification_task_creates_task(db_session: AsyncSession):
     created = await create_qualification_task(
         db_session, company.id, user.id,
         {"name": "Test SAS", "amount": 5_000_000, "series": "Serie A"},
+        user.organization_id,
     )
     assert created is True
 
@@ -276,9 +304,13 @@ async def test_create_qualification_task_idempotent_open_task(db_session: AsyncS
     company = await _make_company(db_session, user)
 
     data = {"name": "x", "amount": 2_000_000, "series": "Seed"}
-    assert await create_qualification_task(db_session, company.id, user.id, data) is True
+    assert await create_qualification_task(
+        db_session, company.id, user.id, data, user.organization_id
+    ) is True
     # Meme contexte : ne pas creer une 2e task
-    assert await create_qualification_task(db_session, company.id, user.id, data) is False
+    assert await create_qualification_task(
+        db_session, company.id, user.id, data, user.organization_id
+    ) is False
 
     stmt = select(Task).where(
         Task.company_id == company.id,
@@ -295,7 +327,9 @@ async def test_create_qualification_task_recreates_after_completion(db_session: 
     company = await _make_company(db_session, user)
 
     data = {"name": "x", "amount": 2_000_000, "series": "Seed"}
-    assert await create_qualification_task(db_session, company.id, user.id, data) is True
+    assert await create_qualification_task(
+        db_session, company.id, user.id, data, user.organization_id
+    ) is True
 
     # Marquer la premiere task comme completee
     stmt = select(Task).where(Task.company_id == company.id, Task.type == "qualification")
@@ -305,7 +339,9 @@ async def test_create_qualification_task_recreates_after_completion(db_session: 
 
     # Maintenant on peut creer une nouvelle (nouveau round 6 mois plus tard)
     data2 = {"name": "x", "amount": 10_000_000, "series": "Serie A"}
-    assert await create_qualification_task(db_session, company.id, user.id, data2) is True
+    assert await create_qualification_task(
+        db_session, company.id, user.id, data2, user.organization_id
+    ) is True
 
     stmt_all = select(Task).where(
         Task.company_id == company.id, Task.type == "qualification",
@@ -319,7 +355,7 @@ async def test_create_qualification_task_no_amount_skipped(db_session: AsyncSess
     user = await _make_admin(db_session)
     company = await _make_company(db_session, user)
     assert await create_qualification_task(
-        db_session, company.id, user.id, {"name": "x", "amount": 0},
+        db_session, company.id, user.id, {"name": "x", "amount": 0}, user.organization_id,
     ) is False
 
 
@@ -345,7 +381,7 @@ async def test_sync_startups_maps_new_funding_fields_on_insert(db_session: Async
         "investors": ["Big VC"],
     }])
 
-    result, sr_to_crm = await sync_startups(db_session, mock_client, user)  # type: ignore[arg-type]
+    result, sr_to_crm = await sync_startups(db_session, mock_client, user, user.organization_id)  # type: ignore[arg-type]
 
     assert result.companies_created == 1
     assert result.funding_activities_created == 1
@@ -376,7 +412,7 @@ async def test_sync_startups_merges_funding_sources_on_update(db_session: AsyncS
         "series": "Seed",
         "source_names": ["lespepitestech"],
     }])
-    await sync_startups(db_session, mock_client, user)  # type: ignore[arg-type]
+    await sync_startups(db_session, mock_client, user, user.organization_id)  # type: ignore[arg-type]
 
     # 2eme sync : nouvelle source ajoutee
     mock_client2 = _MockSRClient(startups=[{
@@ -386,7 +422,7 @@ async def test_sync_startups_merges_funding_sources_on_update(db_session: AsyncS
         "series": "Seed",
         "source_names": ["maddyness"],  # nouvelle source
     }])
-    await sync_startups(db_session, mock_client2, user)  # type: ignore[arg-type]
+    await sync_startups(db_session, mock_client2, user, user.organization_id)  # type: ignore[arg-type]
 
     company = (await db_session.execute(
         select(Company).where(Company.startup_radar_id == "sr-merge-1")
@@ -402,13 +438,13 @@ async def test_sync_startups_keeps_highest_amount_on_update(db_session: AsyncSes
     mock_client = _MockSRClient(startups=[{
         "id": "sr-amount-1", "name": "AmountCo", "amount": 2_000_000, "series": "Seed",
     }])
-    await sync_startups(db_session, mock_client, user)  # type: ignore[arg-type]
+    await sync_startups(db_session, mock_client, user, user.organization_id)  # type: ignore[arg-type]
 
     # Nouveau round, montant plus eleve
     mock_client2 = _MockSRClient(startups=[{
         "id": "sr-amount-1", "name": "AmountCo", "amount": 10_000_000, "series": "Serie A",
     }])
-    await sync_startups(db_session, mock_client2, user)  # type: ignore[arg-type]
+    await sync_startups(db_session, mock_client2, user, user.organization_id)  # type: ignore[arg-type]
 
     company = (await db_session.execute(
         select(Company).where(Company.startup_radar_id == "sr-amount-1")
@@ -419,7 +455,7 @@ async def test_sync_startups_keeps_highest_amount_on_update(db_session: AsyncSes
     mock_client3 = _MockSRClient(startups=[{
         "id": "sr-amount-1", "name": "AmountCo", "amount": 500_000, "series": "Pre-seed",
     }])
-    await sync_startups(db_session, mock_client3, user)  # type: ignore[arg-type]
+    await sync_startups(db_session, mock_client3, user, user.organization_id)  # type: ignore[arg-type]
 
     company2 = (await db_session.execute(
         select(Company).where(Company.startup_radar_id == "sr-amount-1")
@@ -439,6 +475,7 @@ async def test_sync_startups_dedupe_by_siren_when_company_exists(db_session: Asy
         siren="111222333",
         lead_source=None,  # pas encore SR
         owner_id=user.id,
+        organization_id=user.organization_id,
     )
     db_session.add(manual_company)
     await db_session.flush()
@@ -451,7 +488,7 @@ async def test_sync_startups_dedupe_by_siren_when_company_exists(db_session: Asy
         "series": "Seed",
     }])
 
-    result, sr_to_crm = await sync_startups(db_session, mock_client, user)  # type: ignore[arg-type]
+    result, sr_to_crm = await sync_startups(db_session, mock_client, user, user.organization_id)  # type: ignore[arg-type]
     # Pas de nouvelle company (update de la manuelle)
     assert result.companies_created == 0
     assert result.companies_updated == 1
@@ -477,6 +514,7 @@ async def test_sync_startups_dedupe_priority_radar_id_over_siren(db_session: Asy
         startup_radar_id="sr-priority",
         lead_source="startup_radar",
         owner_id=user.id,
+        organization_id=user.organization_id,
     )
     db_session.add(company_a)
     # 2eme company avec le meme SIREN que le SR data, mais sans startup_radar_id
@@ -486,6 +524,7 @@ async def test_sync_startups_dedupe_priority_radar_id_over_siren(db_session: Asy
         siren="999888777",
         lead_source=None,
         owner_id=user.id,
+        organization_id=user.organization_id,
     )
     db_session.add(company_b)
     await db_session.flush()
@@ -500,7 +539,7 @@ async def test_sync_startups_dedupe_priority_radar_id_over_siren(db_session: Asy
         "series": "Serie A",
     }])
 
-    await sync_startups(db_session, mock_client, user)  # type: ignore[arg-type]
+    await sync_startups(db_session, mock_client, user, user.organization_id)  # type: ignore[arg-type]
 
     refreshed_a = (await db_session.execute(
         select(Company).where(Company.id == company_a.id)
@@ -528,7 +567,7 @@ async def test_sync_startups_invalid_funding_date_tolerated(db_session: AsyncSes
         "funding_date": "invalid-date-string",
     }])
 
-    result, _ = await sync_startups(db_session, mock_client, user)  # type: ignore[arg-type]
+    result, _ = await sync_startups(db_session, mock_client, user, user.organization_id)  # type: ignore[arg-type]
     assert result.companies_created == 1
     assert result.errors == []  # pas d'erreur fatale
 
@@ -566,7 +605,7 @@ async def test_sync_contacts_maps_enrichment_fields(db_session: AsyncSession):
         "linkedin_url_status": "candidate",
     }])
 
-    result = await sync_contacts(db_session, mock_client, user, sr_to_crm)  # type: ignore[arg-type]
+    result = await sync_contacts(db_session, mock_client, user, sr_to_crm, user.organization_id)  # type: ignore[arg-type]
     assert result.contacts_created == 1
 
     contact = (await db_session.execute(
@@ -593,7 +632,7 @@ async def test_sync_contacts_email_pattern_preserved_on_update(db_session: Async
         "startup_id": "sr-startup-2",
         "email_pattern_used": "first.last",
     }])
-    await sync_contacts(db_session, mock_client, user, sr_to_crm)  # type: ignore[arg-type]
+    await sync_contacts(db_session, mock_client, user, sr_to_crm, user.organization_id)  # type: ignore[arg-type]
 
     # 2eme sync : pattern different → pas ecrase
     mock_client2 = _MockSRClient(contacts=[{
@@ -603,7 +642,7 @@ async def test_sync_contacts_email_pattern_preserved_on_update(db_session: Async
         "startup_id": "sr-startup-2",
         "email_pattern_used": "flast",
     }])
-    await sync_contacts(db_session, mock_client2, user, sr_to_crm)  # type: ignore[arg-type]
+    await sync_contacts(db_session, mock_client2, user, sr_to_crm, user.organization_id)  # type: ignore[arg-type]
 
     contact = (await db_session.execute(
         select(Contact).where(Contact.startup_radar_id == "sr-contact-2")
@@ -625,7 +664,7 @@ async def test_sync_contacts_linkedin_status_overwritable(db_session: AsyncSessi
         "startup_id": "sr-startup-3",
         "linkedin_url_status": "candidate",
     }])
-    await sync_contacts(db_session, mock_client, user, sr_to_crm)  # type: ignore[arg-type]
+    await sync_contacts(db_session, mock_client, user, sr_to_crm, user.organization_id)  # type: ignore[arg-type]
 
     mock_client2 = _MockSRClient(contacts=[{
         "id": "sr-contact-3",
@@ -634,7 +673,7 @@ async def test_sync_contacts_linkedin_status_overwritable(db_session: AsyncSessi
         "startup_id": "sr-startup-3",
         "linkedin_url_status": "verified",
     }])
-    await sync_contacts(db_session, mock_client2, user, sr_to_crm)  # type: ignore[arg-type]
+    await sync_contacts(db_session, mock_client2, user, sr_to_crm, user.organization_id)  # type: ignore[arg-type]
 
     contact = (await db_session.execute(
         select(Contact).where(Contact.startup_radar_id == "sr-contact-3")

@@ -15,7 +15,7 @@ from sqlalchemy import String, cast, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import get_current_user
-from app.core.rbac import check_entity_access
+from app.core.rbac import check_entity_access, check_tenant_access
 from app.db.session import get_db
 from app.models.activity import Activity
 from app.models.company import Company
@@ -44,6 +44,7 @@ async def _get_company_or_404(
     company = result.scalar_one_or_none()
     if not company:
         raise HTTPException(status_code=404, detail="Entreprise non trouvee")
+    check_tenant_access(company, user)  # isolation multi-tenant AVANT ownership
     check_entity_access(company, user)
     return company
 
@@ -55,6 +56,7 @@ async def _get_contact_or_404(
     contact = result.scalar_one_or_none()
     if not contact:
         raise HTTPException(status_code=404, detail="Contact non trouve")
+    check_tenant_access(contact, user)  # isolation multi-tenant AVANT ownership
     check_entity_access(contact, user)
     return contact
 
@@ -66,6 +68,7 @@ async def _get_deal_or_404(
     deal = result.scalar_one_or_none()
     if not deal:
         raise HTTPException(status_code=404, detail="Deal non trouve")
+    check_tenant_access(deal, user)  # isolation multi-tenant AVANT ownership
     check_entity_access(deal, user)
     return deal
 

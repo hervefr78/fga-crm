@@ -11,8 +11,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.deps import get_current_user
-from app.core.rbac import apply_ownership_filter, check_entity_access
+from app.core.rbac import (
+    apply_ownership_filter,
+    apply_tenant_filter,
+    check_entity_access,
+    check_tenant_access,
+)
 from app.db.session import get_db
+from app.models.company import Company
+from app.models.contact import Contact
 from app.models.deal import (
     DEAL_CATEGORIES,
     PERIOD_TO_MONTHS,
@@ -93,6 +100,22 @@ def _parse_iso_date(value: str, field_name: str) -> date:
         return date.fromisoformat(value)
     except ValueError:
         raise HTTPException(status_code=422, detail=f"{field_name} doit etre une date ISO YYYY-MM-DD")
+
+
+async def _assert_company_in_org(db: AsyncSession, company_id: uuid.UUID, user: User) -> None:
+    """Refuser un company_id qui n'appartient pas a l'org du user (anti cross-org FK)."""
+    company = await db.get(Company, company_id)
+    if company is None:
+        raise HTTPException(status_code=422, detail="company_id inconnu")
+    check_tenant_access(company, user)
+
+
+async def _assert_contact_in_org(db: AsyncSession, contact_id: uuid.UUID, user: User) -> None:
+    """Refuser un contact_id qui n'appartient pas a l'org du user (anti cross-org FK)."""
+    contact = await db.get(Contact, contact_id)
+    if contact is None:
+        raise HTTPException(status_code=422, detail="contact_id inconnu")
+    check_tenant_access(contact, user)
 
 
 def _apply_deal_filters(
@@ -187,6 +210,7 @@ async def list_deals(
 ):
     # selectinload owner/company pour exposer owner_name/company_name sans N+1 (DC6)
     query = select(Deal).options(*DEAL_RESPONSE_LOADERS)
+    query = apply_tenant_filter(query, Deal, user)
     query = apply_ownership_filter(query, Deal, user)
     query = _apply_deal_filters(
         query,
@@ -240,6 +264,7 @@ async def get_deals_stats(
     """
     # Select minimal — DC6 : pas de relations, pas de blobs
     query = select(Deal.pricing_type, Deal.amount, Deal.recurring_amount)
+    query = apply_tenant_filter(query, Deal, user)
     query = apply_ownership_filter(query, Deal, user)
     query = _apply_deal_filters(
         query,
@@ -299,11 +324,17 @@ async def create_deal(
         if deal_data.get(key):
             deal_data[key] = _parse_uuid(deal_data[key], key)
 
+    # Garde cross-org sur les FK tenant (anti cross-org FK)
+    if deal_data.get("company_id"):
+        await _assert_company_in_org(db, deal_data["company_id"], user)
+    if deal_data.get("contact_id"):
+        await _assert_contact_in_org(db, deal_data["contact_id"], user)
+
     # Convertir expected_close_date string → date
     if deal_data.get("expected_close_date"):
         deal_data["expected_close_date"] = date.fromisoformat(deal_data["expected_close_date"])
 
-    deal = Deal(**deal_data, owner_id=user.id)
+    deal = Deal(**deal_data, owner_id=user.id, organization_id=user.organization_id)
 
     # Auto-set actual_close_date si creation directe en won/lost (cas rare mais possible)
     if deal.stage in CLOSED_STAGES and deal.actual_close_date is None:
@@ -333,6 +364,7 @@ async def get_deal(
     deal = result.scalar_one_or_none()
     if not deal:
         raise HTTPException(status_code=404, detail="Deal non trouve")
+    check_tenant_access(deal, user)
     check_entity_access(deal, user)
 
     return _deal_to_response(deal)
@@ -352,6 +384,7 @@ async def update_deal(
     deal = result.scalar_one_or_none()
     if not deal:
         raise HTTPException(status_code=404, detail="Deal non trouve")
+    check_tenant_access(deal, user)
     check_entity_access(deal, user)
 
     update_data = data.model_dump(exclude_unset=True)
@@ -360,6 +393,12 @@ async def update_deal(
     for key in ("company_id", "contact_id"):
         if key in update_data and update_data[key]:
             update_data[key] = _parse_uuid(update_data[key], key)
+
+    # Garde cross-org sur les FK tenant modifiees (anti cross-org FK)
+    if update_data.get("company_id"):
+        await _assert_company_in_org(db, update_data["company_id"], user)
+    if update_data.get("contact_id"):
+        await _assert_contact_in_org(db, update_data["contact_id"], user)
 
     # Convertir expected_close_date string → date
     if update_data.get("expected_close_date"):
@@ -412,6 +451,7 @@ async def update_deal_stage(
     deal = result.scalar_one_or_none()
     if not deal:
         raise HTTPException(status_code=404, detail="Deal non trouve")
+    check_tenant_access(deal, user)
     check_entity_access(deal, user)
 
     previous_stage = deal.stage
@@ -438,6 +478,7 @@ async def delete_deal(
     deal = result.scalar_one_or_none()
     if not deal:
         raise HTTPException(status_code=404, detail="Deal non trouve")
+    check_tenant_access(deal, user)
     check_entity_access(deal, user)
 
     await db.delete(deal)

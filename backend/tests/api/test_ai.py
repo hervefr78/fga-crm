@@ -133,7 +133,7 @@ async def test_contact_next_action_default_followup(
 
 @pytest.mark.asyncio
 async def test_contact_next_action_stale(
-    client: AsyncClient, auth_headers: dict, db_session
+    client: AsyncClient, auth_headers: dict, db_session, test_org
 ):
     """Contact avec last_contacted_at > 30 jours => suggestion 'relancer'."""
     from app.models.contact import Contact
@@ -145,6 +145,7 @@ async def test_contact_next_action_stale(
         email="stale@test.fr",
         status="contacted",
         last_contacted_at=datetime.now(UTC) - timedelta(days=45),
+        organization_id=test_org.id,
     )
     db_session.add(contact_obj)
     await db_session.commit()

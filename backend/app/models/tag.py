@@ -8,10 +8,10 @@ from sqlalchemy import ForeignKey, String
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.models.base import Base, TimestampMixin, UUIDMixin
+from app.models.base import Base, OrgScopedMixin, TimestampMixin, UUIDMixin
 
 
-class Tag(Base, UUIDMixin, TimestampMixin):
+class Tag(Base, UUIDMixin, OrgScopedMixin, TimestampMixin):
     __tablename__ = "tags"
 
     name: Mapped[str] = mapped_column(String(100), nullable=False, index=True)

@@ -200,8 +200,9 @@ class GeoAuditJob(Base, UUIDMixin, TimestampMixin):
 
     __tablename__ = "geo_audit_jobs"
 
-    organization_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), nullable=True, index=True
+    # NOT NULL depuis mt_contract_001 (job cree par la route, toujours tague org).
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), nullable=False, index=True
     )
     domain: Mapped[str] = mapped_column(Text, nullable=False, index=True)
     company_name: Mapped[str] = mapped_column(Text, nullable=False)

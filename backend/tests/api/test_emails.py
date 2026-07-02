@@ -72,6 +72,7 @@ async def test_send_email_with_contact(
         last_name="Curie",
         email="marie@science.fr",
         owner_id=test_user.id,
+        organization_id=test_user.organization_id,
     )
     db_session.add(contact)
     await db_session.commit()
@@ -240,6 +241,7 @@ async def test_list_emails_filter_contact(
         last_name="Durand",
         email="pierre@test.com",
         owner_id=test_user.id,
+        organization_id=test_user.organization_id,
     )
     db_session.add(contact)
     await db_session.commit()
@@ -287,6 +289,7 @@ async def test_send_email_rbac_contact_access(
         last_name="De B",
         email="contact-b@test.com",
         owner_id=sales_user_b.id,
+        organization_id=sales_user_b.organization_id,
     )
     db_session.add(contact)
     await db_session.commit()

@@ -20,8 +20,8 @@ from app.services.api_keys import KEY_PREFIX, _hash_key, create_api_key
 
 
 @pytest_asyncio.fixture
-async def service_user(db_session: AsyncSession) -> User:
-    """Crée un service account de test."""
+async def service_user(db_session: AsyncSession, test_org) -> User:
+    """Crée un service account de test (meme org que les users de test)."""
     user = User(
         id=uuid.uuid4(),
         email="mcp@crm.internal",
@@ -30,6 +30,7 @@ async def service_user(db_session: AsyncSession) -> User:
         role="service",
         is_active=True,
         is_service=True,
+        organization_id=test_org.id,
     )
     db_session.add(user)
     await db_session.commit()
@@ -46,6 +47,8 @@ async def valid_api_key(db_session: AsyncSession, service_user: User) -> tuple[A
         name="test-key",
         scopes=["read:*", "write:contacts"],
     )
+    # Le service create_api_key ne pose pas l'org (fait par la route) -> on la fixe ici.
+    api_key.organization_id = service_user.organization_id
     await db_session.commit()
     return api_key, raw_key
 

@@ -16,6 +16,7 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
+from app.models.organization import Organization
 from app.models.user import User
 from app.services.api_keys import create_api_key
 
@@ -28,7 +29,10 @@ TODAY = date(2026, 6, 30).isoformat()
 # ---------------------------------------------------------------------------
 
 @pytest_asyncio.fixture
-async def mcp_service_user(db_session: AsyncSession) -> User:
+async def mcp_service_user(db_session: AsyncSession, test_org: Organization) -> User:
+    # Meme org que test_user (auth_headers admin) : l'ingest tague les lignes avec
+    # l'org du service_user et les lectures summary/by-tool filtrent par l'org de
+    # l'admin — les deux doivent partager test_org pour que les donnees soient vues.
     user = User(
         id=uuid.uuid4(),
         email="mcp-usage@crm.internal",
@@ -37,6 +41,7 @@ async def mcp_service_user(db_session: AsyncSession) -> User:
         role="service",
         is_active=True,
         is_service=True,
+        organization_id=test_org.id,
     )
     db_session.add(user)
     await db_session.commit()
@@ -226,7 +231,7 @@ class TestSummary:
         # Endpoint JWT : HTTPBearer(auto_error=True) leve 403 sans header
         # (comportement cohérent avec tout le projet, cf. GEO /brands).
         resp = await client.get("/api/v1/mcp-usage/summary")
-        assert resp.status_code == 403
+        assert resp.status_code == 401
 
     async def test_summary_empty_ok(self, client: AsyncClient, auth_headers: dict):
         """Aucune donnee -> total a zero, by_tool vide."""

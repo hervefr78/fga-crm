@@ -10,7 +10,7 @@ from sqlalchemy import Boolean, DateTime, ForeignKey, String, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.models.base import Base, TimestampMixin, UUIDMixin
+from app.models.base import Base, OrgScopedMixin, TimestampMixin, UUIDMixin
 
 if TYPE_CHECKING:
     from app.models.company import Company
@@ -19,7 +19,7 @@ if TYPE_CHECKING:
     from app.models.user import User
 
 
-class Task(Base, UUIDMixin, TimestampMixin):
+class Task(Base, UUIDMixin, OrgScopedMixin, TimestampMixin):
     __tablename__ = "tasks"
 
     title: Mapped[str] = mapped_column(String(500), nullable=False)

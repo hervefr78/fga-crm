@@ -23,6 +23,7 @@ from app.core.security import create_access_token, hash_password
 from app.db.session import get_db
 from app.main import app
 from app.models import Base
+from app.models.organization import Organization
 from app.models.user import User
 
 # ---------------------------------------------------------------------------
@@ -106,7 +107,22 @@ async def client() -> AsyncGenerator[AsyncClient, None]:
 # ---------------------------------------------------------------------------
 
 @pytest_asyncio.fixture
-async def test_user(db_session: AsyncSession) -> User:
+async def test_org(db_session: AsyncSession) -> Organization:
+    """Organisation de test partagee par tous les users (isolation intra-org)."""
+    org = Organization(
+        id=uuid.uuid4(),
+        name="Test Org",
+        slug=f"test-{uuid.uuid4().hex[:8]}",
+        is_active=True,
+    )
+    db_session.add(org)
+    await db_session.commit()
+    await db_session.refresh(org)
+    return org
+
+
+@pytest_asyncio.fixture
+async def test_user(db_session: AsyncSession, test_org: Organization) -> User:
     """Creer un utilisateur de test en BDD."""
     user = User(
         id=uuid.uuid4(),
@@ -115,6 +131,7 @@ async def test_user(db_session: AsyncSession) -> User:
         full_name="Test User",
         role="admin",
         is_active=True,
+        organization_id=test_org.id,
     )
     db_session.add(user)
     await db_session.commit()
@@ -134,7 +151,7 @@ def auth_headers(test_user: User) -> dict[str, str]:
 # ---------------------------------------------------------------------------
 
 @pytest_asyncio.fixture
-async def sales_user(db_session: AsyncSession) -> User:
+async def sales_user(db_session: AsyncSession, test_org: Organization) -> User:
     """Creer un utilisateur sales en BDD."""
     user = User(
         id=uuid.uuid4(),
@@ -143,6 +160,7 @@ async def sales_user(db_session: AsyncSession) -> User:
         full_name="Sales User",
         role="sales",
         is_active=True,
+        organization_id=test_org.id,
     )
     db_session.add(user)
     await db_session.commit()
@@ -158,7 +176,7 @@ def sales_headers(sales_user: User) -> dict[str, str]:
 
 
 @pytest_asyncio.fixture
-async def manager_user(db_session: AsyncSession) -> User:
+async def manager_user(db_session: AsyncSession, test_org: Organization) -> User:
     """Creer un utilisateur manager en BDD."""
     user = User(
         id=uuid.uuid4(),
@@ -167,6 +185,7 @@ async def manager_user(db_session: AsyncSession) -> User:
         full_name="Manager User",
         role="manager",
         is_active=True,
+        organization_id=test_org.id,
     )
     db_session.add(user)
     await db_session.commit()
@@ -182,8 +201,8 @@ def manager_headers(manager_user: User) -> dict[str, str]:
 
 
 @pytest_asyncio.fixture
-async def sales_user_b(db_session: AsyncSession) -> User:
-    """Creer un deuxieme utilisateur sales (pour tests isolation)."""
+async def sales_user_b(db_session: AsyncSession, test_org: Organization) -> User:
+    """Creer un deuxieme utilisateur sales (meme org, pour tests ownership)."""
     user = User(
         id=uuid.uuid4(),
         email="sales-b@fga.fr",
@@ -191,6 +210,7 @@ async def sales_user_b(db_session: AsyncSession) -> User:
         full_name="Sales User B",
         role="sales",
         is_active=True,
+        organization_id=test_org.id,
     )
     db_session.add(user)
     await db_session.commit()

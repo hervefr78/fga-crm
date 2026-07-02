@@ -113,4 +113,4 @@ async def test_activity_user_id_auto_set(client: AsyncClient, auth_headers: dict
 async def test_activities_unauthenticated(client: AsyncClient):
     """Acces sans token = 403."""
     response = await client.get("/api/v1/activities/")
-    assert response.status_code == 403
+    assert response.status_code == 401

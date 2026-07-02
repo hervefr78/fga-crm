@@ -57,7 +57,9 @@ async def _run_full_sync(user_id: str) -> dict:
             logger.error("[FullSync] Owner invalide/inactif: %s", user_id)
             raise ValueError("Utilisateur introuvable ou inactif")
 
-        result = await full_sync(db, user)
+        # Isolation multi-tenant : les entites creees sont rattachees a l'org du
+        # user declencheur (organization_id NOT NULL depuis le contract).
+        result = await full_sync(db, user, user.organization_id)
         return dataclasses.asdict(result)
 
 

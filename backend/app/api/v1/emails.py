@@ -12,7 +12,12 @@ from sqlalchemy.orm import selectinload
 
 from app.config import settings
 from app.core.deps import get_current_user
-from app.core.rbac import apply_ownership_filter, check_entity_access
+from app.core.rbac import (
+    apply_ownership_filter,
+    apply_tenant_filter,
+    check_entity_access,
+    check_tenant_access,
+)
 from app.db.session import get_db
 from app.models.activity import Activity
 from app.models.company import Company
@@ -62,6 +67,7 @@ async def send_email_endpoint(
         contact = result.scalar_one_or_none()
         if not contact:
             raise HTTPException(status_code=404, detail="Contact non trouve")
+        check_tenant_access(contact, user)
         check_entity_access(contact, user)
 
         if contact.company:
@@ -74,6 +80,7 @@ async def send_email_endpoint(
         company = result.scalar_one_or_none()
         if not company:
             raise HTTPException(status_code=404, detail="Entreprise non trouvee")
+        check_tenant_access(company, user)
         check_entity_access(company, user)
 
     # Construire les variables de substitution
@@ -89,6 +96,7 @@ async def send_email_endpoint(
         result = await db.execute(select(EmailTemplate).where(EmailTemplate.id == template_uuid))
         template = result.scalar_one_or_none()
         if template:
+            check_tenant_access(template, user)
             template_name = template.name
 
     # Substituer les variables dans subject et body
@@ -130,6 +138,7 @@ async def send_email_endpoint(
         company_id=_parse_uuid(data.company_id, "company_id") if data.company_id else None,
         deal_id=_parse_uuid(data.deal_id, "deal_id") if data.deal_id else None,
         user_id=user.id,
+        organization_id=user.organization_id,
     )
     db.add(activity)
     await db.flush()
@@ -157,6 +166,7 @@ async def list_sent_emails(
 ):
     """Lister les emails envoyes (Activity type='email')."""
     query = select(Activity).where(Activity.type == "email")
+    query = apply_tenant_filter(query, Activity, user)
     query = apply_ownership_filter(query, Activity, user, owner_field="user_id")
 
     if search:
