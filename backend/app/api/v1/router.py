@@ -21,6 +21,7 @@ from app.api.v1 import (
     geo_audit,
     integrations,
     mcp_usage,
+    organizations,
     search,
     tasks,
     trends,
@@ -37,6 +38,7 @@ api_router.include_router(tasks.router, prefix="/tasks", tags=["Tasks"])
 api_router.include_router(activities.router, prefix="/activities", tags=["Activities"])
 api_router.include_router(search.router, prefix="/search", tags=["Search"])
 api_router.include_router(users.router, prefix="/users", tags=["Users"])
+api_router.include_router(organizations.router, prefix="/organizations", tags=["Organizations"])
 api_router.include_router(emails.router, prefix="/emails", tags=["Emails"])
 api_router.include_router(email_templates.router, prefix="/email-templates", tags=["Email Templates"])
 api_router.include_router(integrations.router, prefix="/integrations", tags=["Integrations"])
