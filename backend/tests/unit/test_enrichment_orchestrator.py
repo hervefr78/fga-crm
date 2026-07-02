@@ -20,7 +20,12 @@ from app.services.enrichment.orchestrator import run_enrichment_job
 def _no_redis(monkeypatch: pytest.MonkeyPatch):
     async def _noop(*a, **k):
         return None
+
+    async def _never_fresh(*a, **k):
+        return False
+
     monkeypatch.setattr(freshness, "touch", _noop)
+    monkeypatch.setattr(freshness, "is_fresh", _never_fresh)
 
 
 async def test_run_enrichment_job_company_mode(db_session: AsyncSession):
@@ -103,3 +108,68 @@ async def test_rgpd_rejects_non_pro_emails(db_session: AsyncSession, monkeypatch
     assert refreshed.stats_json["valid"] == 0
     contacts = (await db_session.execute(select(func.count()).select_from(Contact))).scalar()
     assert contacts == 0
+
+
+async def test_freshness_skips_recently_enriched(db_session: AsyncSession, monkeypatch):
+    # is_fresh -> True : la personne a ete enrichie recemment -> skip, aucune depense.
+    async def _always_fresh(*a, **k):
+        return True
+
+    monkeypatch.setattr(freshness, "is_fresh", _always_fresh)
+
+    job = EnrichmentJob(
+        mode="company", status="queued",
+        target_json={"kind": "company", "siren": "123456789"},
+    )
+    db_session.add(job)
+    await db_session.commit()
+    await run_enrichment_job(db_session, job)
+
+    refreshed = await db_session.get(EnrichmentJob, job.id)
+    assert refreshed.status == "done"
+    stats = refreshed.stats_json
+    assert stats["people_found"] > 0
+    assert stats["skipped_fresh"] == stats["people_found"]  # tous skippes
+    assert stats["emails_found"] == 0                       # aucun email cherche
+    assert stats["valid"] == 0
+    contacts = (await db_session.execute(select(func.count()).select_from(Contact))).scalar()
+    assert contacts == 0
+
+
+async def test_resolve_companies_dedup_sirens(db_session: AsyncSession):
+    # Doublons de sirens (erreur CSV) -> une seule societe par siren (pas de double-paiement).
+    from app.services.enrichment.adapters.mock import MockCompanySource
+    from app.services.enrichment.ports import TargetSpec
+
+    target = TargetSpec(kind="batch", sirens=["111111111", "111111111", "222222222"])
+    companies = await orchestrator._resolve_companies(MockCompanySource(), target)
+    assert len(companies) == 2
+    assert {c.siren for c in companies} == {"111111111", "222222222"}
+
+
+async def test_company_failure_is_isolated(db_session: AsyncSession, monkeypatch):
+    # Un provider qui plante sur UNE societe ne fait pas perdre le travail des autres.
+    from app.services.enrichment.adapters.mock import MockPeopleSource
+
+    class _FlakyPeople(MockPeopleSource):
+        async def find_people(self, company, roles):
+            if company.siren == "222222222":
+                raise RuntimeError("provider KO")
+            return await super().find_people(company, roles)
+
+    monkeypatch.setattr(orchestrator, "get_people_sources", lambda: [_FlakyPeople()])
+
+    job = EnrichmentJob(
+        mode="batch", status="queued",
+        target_json={"kind": "batch", "sirens": ["111111111", "222222222", "333333333"]},
+    )
+    db_session.add(job)
+    await db_session.commit()
+    await run_enrichment_job(db_session, job)
+
+    refreshed = await db_session.get(EnrichmentJob, job.id)
+    assert refreshed.status == "done"          # job global OK malgre l'echec isole
+    assert refreshed.stats_json["errors"] == 1  # seule 222222222 a echoue
+    # Le travail des societes saines est bien persiste (checkpoint par societe).
+    contacts = (await db_session.execute(select(func.count()).select_from(Contact))).scalar()
+    assert contacts >= 1

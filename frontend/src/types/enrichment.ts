@@ -11,6 +11,8 @@ export interface EnrichmentJobStats {
   emails_found?: number;
   valid?: number;
   suppressed?: number;
+  skipped_fresh?: number;
+  errors?: number;
   credits_spent?: number;
 }
 
