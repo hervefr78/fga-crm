@@ -141,10 +141,16 @@ async def _source_people(
         if not ledger.can_spend(src.cost_per_result):
             break
         found = await src.find_people(company, _TARGET_ROLES)
-        for _ in found:
+        # #6 : ne debiter/garder que ce qui tient dans le budget du run. Un provider
+        # peut renvoyer jusqu'a N leads alors que can_spend n'en couvrait qu'un.
+        budget_exhausted = False
+        for lead in found:
+            if not ledger.can_spend(src.cost_per_result):
+                budget_exhausted = True
+                break
             ledger.record(src.name, src.cost_per_result)
-        people.extend(found)
-        if _covers_targets(people):
+            people.append(lead)
+        if budget_exhausted or _covers_targets(people):
             break
     people = _normalize_and_dedup(people)
     stats["people_found"] += len(people)
