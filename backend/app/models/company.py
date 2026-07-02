@@ -6,7 +6,7 @@ import uuid
 from datetime import date
 from typing import TYPE_CHECKING, Optional
 
-from sqlalchemy import BigInteger, Date, ForeignKey, String, Text
+from sqlalchemy import BigInteger, Date, ForeignKey, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -24,7 +24,8 @@ class Company(Base, UUIDMixin, OrgScopedMixin, TimestampMixin):
 
     # Core info
     name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
-    domain: Mapped[str | None] = mapped_column(String(255), nullable=True, unique=True, index=True)
+    # Unicite du domaine SCOPEE par organisation (multi-tenant) : voir __table_args__.
+    domain: Mapped[str | None] = mapped_column(String(255), nullable=True)
     website: Mapped[str | None] = mapped_column(String(500), nullable=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
 
@@ -58,8 +59,8 @@ class Company(Base, UUIDMixin, OrgScopedMixin, TimestampMixin):
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
 
-    # Startup Radar link
-    startup_radar_id: Mapped[str | None] = mapped_column(String(255), nullable=True, unique=True)
+    # Startup Radar link — unicite SCOPEE par organisation (voir __table_args__).
+    startup_radar_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     # Provenance du lead (plein-phare, manual, import, linkedin, etc.)
     lead_source: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
@@ -79,6 +80,15 @@ class Company(Base, UUIDMixin, OrgScopedMixin, TimestampMixin):
     contacts: Mapped[list["Contact"]] = relationship(back_populates="company", cascade="all, delete-orphan", lazy="selectin")
     deals: Mapped[list["Deal"]] = relationship(back_populates="company", lazy="selectin")
     activities: Mapped[list["Activity"]] = relationship(back_populates="company", lazy="selectin")
+
+    # Isolation multi-tenant : unicite domaine/startup_radar_id SCOPEE par org
+    # (jamais globale — sinon deux organisations ne peuvent pas avoir le meme
+    # domaine/SR-id, collision cross-org). domain/startup_radar_id nullables ->
+    # les NULL restent distincts (plusieurs societes sans domaine par org).
+    __table_args__ = (
+        UniqueConstraint("organization_id", "domain", name="uq_companies_org_domain"),
+        UniqueConstraint("organization_id", "startup_radar_id", name="uq_companies_org_startup_radar_id"),
+    )
 
     def __repr__(self) -> str:
         return f"<Company {self.name}>"

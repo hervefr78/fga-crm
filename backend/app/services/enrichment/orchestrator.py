@@ -111,9 +111,8 @@ def _covers_targets(people: list[PersonCandidate]) -> bool:
 
 
 def _freshness_key(org_id, siren: str | None, person: PersonCandidate) -> str:
-    """Clef de fraicheur scopee par org (multi-tenant-ready) + siren + nom."""
-    org = org_id or "default"
-    return f"person:{org}:{siren}:{person.first_name}.{person.last_name}".lower()
+    """Clef de fraicheur (delegue a freshness.person_key : format partage inline & bulk)."""
+    return freshness.person_key(org_id, siren, person.first_name, person.last_name)
 
 
 async def _source_people(
@@ -142,10 +141,16 @@ async def _source_people(
         if not ledger.can_spend(src.cost_per_result):
             break
         found = await src.find_people(company, _TARGET_ROLES)
-        for _ in found:
+        # #6 : ne debiter/garder que ce qui tient dans le budget du run. Un provider
+        # peut renvoyer jusqu'a N leads alors que can_spend n'en couvrait qu'un.
+        budget_exhausted = False
+        for lead in found:
+            if not ledger.can_spend(src.cost_per_result):
+                budget_exhausted = True
+                break
             ledger.record(src.name, src.cost_per_result)
-        people.extend(found)
-        if _covers_targets(people):
+            people.append(lead)
+        if budget_exhausted or _covers_targets(people):
             break
     people = _normalize_and_dedup(people)
     stats["people_found"] += len(people)
@@ -163,11 +168,13 @@ async def _process_company(
     ledger: CreditLedger,
     org_id,
     stats: dict,
+    fresh_client=None,
 ) -> None:
     """Traite UNE societe : sourcing -> email -> verif -> RGPD -> contact CRM.
 
     Modifie `stats` en place. Ne commit PAS : l'appelant gere le checkpoint par
-    societe (resilience) et la transaction.
+    societe (resilience) et la transaction. `fresh_client` : client Redis reutilise
+    sur la boucle chaude (fix #13, evite le churn de connexions).
     """
     domain, people = await _source_people(
         db, company=company, company_src=company_src, people_srcs=people_srcs,
@@ -178,7 +185,7 @@ async def _process_company(
     for person in people:
         # Fraicheur (spec §13) : skip si deja enrichie recemment -> pas de re-depense.
         fresh_key = _freshness_key(org_id, company.siren, person)
-        if await freshness.is_fresh(fresh_key):
+        if await freshness.is_fresh(fresh_key, client=fresh_client):
             stats["skipped_fresh"] += 1
             continue
 
@@ -240,7 +247,7 @@ async def _process_company(
         if deliverable:
             stats["valid"] += 1
         # Fraicheur : marque la personne enrichie pour eviter la re-depense avant TTL
-        await freshness.touch(fresh_key, settings.enrichment_refresh_days)
+        await freshness.touch(fresh_key, settings.enrichment_refresh_days, client=fresh_client)
 
 
 def _should_use_bulk(target: TargetSpec) -> bool:
@@ -265,6 +272,7 @@ async def _submit_bulk_job(
     ledger: CreditLedger,
     org_id,
     stats: dict,
+    fresh_client=None,
 ) -> None:
     """Mode bulk : source les personnes (inline) puis soumet UN bulk email-search
     a Icypeas avec callback webhook. Les contacts sont crees au callback (W2), pas ici.
@@ -287,7 +295,7 @@ async def _submit_bulk_job(
                 stats["skipped_no_domain"] += 1
                 continue
             fresh_key = _freshness_key(org_id, company.siren, person)
-            if await freshness.is_fresh(fresh_key):
+            if await freshness.is_fresh(fresh_key, client=fresh_client):
                 stats["skipped_fresh"] += 1
                 continue
             if person.email:
@@ -367,32 +375,35 @@ async def run_enrichment_job(db: AsyncSession, job: EnrichmentJob) -> None:
         target = _parse_target(job.target_json or {})
         companies = await _resolve_companies(company_src, target)
 
-        # Mode bulk (W3) : batch/icp avec Icypeas reel -> soumission async + webhook.
-        # Les contacts sont crees au callback (W2). Le pipeline inline est saute.
-        if _should_use_bulk(target):
-            await _submit_bulk_job(
-                db, job, companies, company_src=company_src, people_srcs=people_srcs,
-                ledger=ledger, org_id=org_id, stats=stats,
-            )
-            return
+        # Client Redis reutilise sur toute la phase (fix #13 : un seul connect/close
+        # par job au lieu d'un par personne). Ouvert dans CETTE event loop.
+        async with freshness.client_scope() as fresh_client:
+            # Mode bulk (W3) : batch/icp avec Icypeas reel -> soumission async + webhook.
+            # Les contacts sont crees au callback (W2). Le pipeline inline est saute.
+            if _should_use_bulk(target):
+                await _submit_bulk_job(
+                    db, job, companies, company_src=company_src, people_srcs=people_srcs,
+                    ledger=ledger, org_id=org_id, stats=stats, fresh_client=fresh_client,
+                )
+                return
 
-        for company in companies:
-            # Resilience par societe : une erreur (provider reel KO, etc.) isole la
-            # societe et preserve le travail deja committe des precedentes (checkpoint).
-            try:
-                await _process_company(
-                    db, company=company, company_src=company_src,
-                    people_srcs=people_srcs, finders=finders, verifiers=verifiers,
-                    ledger=ledger, org_id=org_id, stats=stats,
-                )
-                await db.commit()
-            except Exception:  # noqa: BLE001 — echec isole a la societe, on continue
-                logger.exception(
-                    "[Enrichment] job %s : societe %s echouee, skip",
-                    job.id, getattr(company, "siren", "?"),
-                )
-                await db.rollback()
-                stats["errors"] += 1
+            for company in companies:
+                # Resilience par societe : une erreur (provider reel KO, etc.) isole la
+                # societe et preserve le travail deja committe des precedentes (checkpoint).
+                try:
+                    await _process_company(
+                        db, company=company, company_src=company_src,
+                        people_srcs=people_srcs, finders=finders, verifiers=verifiers,
+                        ledger=ledger, org_id=org_id, stats=stats, fresh_client=fresh_client,
+                    )
+                    await db.commit()
+                except Exception:  # noqa: BLE001 — echec isole a la societe, on continue
+                    logger.exception(
+                        "[Enrichment] job %s : societe %s echouee, skip",
+                        job.id, getattr(company, "siren", "?"),
+                    )
+                    await db.rollback()
+                    stats["errors"] += 1
 
         stats["credits_spent"] = ledger.spent_this_run()
         job.stats_json = stats

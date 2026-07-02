@@ -185,9 +185,12 @@ async def update_user_role(
     # Compte scope explicitement sur target.organization_id (PAS via le filtre de
     # l'appelant : un super-admin bypasserait et compterait toutes les orgs).
     if target.role == "admin" and data.role != "admin":
+        # Compte les admins ACTIFS uniquement (#7) : un admin desactive ne doit pas
+        # masquer le fait que la cible est le seul admin operationnel de l'org.
         admin_count = (await db.execute(
             select(func.count()).select_from(User).where(
                 User.role == "admin",
+                User.is_active.is_(True),
                 User.organization_id == target.organization_id,
             )
         )).scalar() or 0
@@ -222,6 +225,21 @@ async def toggle_user_active(
     if not target:
         raise HTTPException(status_code=404, detail="Utilisateur non trouve")
     check_tenant_access(target, admin)  # 404 si user d'une autre org
+
+    # Guard (#7) : ne pas desactiver le dernier admin ACTIF de l'org (sinon plus
+    # aucun admin operationnel -> gestion des users verrouillee).
+    if target.role == "admin" and not data.is_active:
+        active_admins = (await db.execute(
+            select(func.count()).select_from(User).where(
+                User.role == "admin",
+                User.is_active.is_(True),
+                User.organization_id == target.organization_id,
+            )
+        )).scalar() or 0
+        if active_admins <= 1:
+            raise HTTPException(
+                status_code=400, detail="Impossible de desactiver le dernier administrateur actif"
+            )
 
     target.is_active = data.is_active
     await db.flush()

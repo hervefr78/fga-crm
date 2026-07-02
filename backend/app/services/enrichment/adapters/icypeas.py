@@ -54,6 +54,11 @@ def _map_certainty(certainty: str | None) -> tuple[str, float]:
     return _CERTAINTY_MAP.get(certainty or "", ("risky", 0.5))
 
 
+# Plafond de lignes traitees par callback (DC1) = max d'un bulk Icypeas. Borne
+# l'iteration meme sur signature valide (evite un cliff de perf / abus).
+_MAX_BULK_RESULTS = 5000
+
+
 class IcypeasClient:
     """Client bas niveau : soumission + polling du resultat. Fail-safe (None sur erreur)."""
 
@@ -231,7 +236,9 @@ def parse_bulk_callback(data: dict) -> list[dict]:
     Retourne une liste de {external_id, status, email, certainty, firstname, lastname}.
     """
     out: list[dict] = []
-    for item in (data.get("results") or []):
+    for item in (data.get("results") or [])[:_MAX_BULK_RESULTS]:
+        if not isinstance(item, dict):
+            continue  # element malforme (#11) -> ignore au lieu de crasher en 500
         entry = _first_email(item)
         results = item.get("results") or {}
         out.append({

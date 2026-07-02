@@ -21,6 +21,23 @@ logger = logging.getLogger(__name__)
 
 _QUOTA_TTL = 86400  # 24h
 
+# Reservation atomique du quota journalier (DC4 : check-then-incr en une operation).
+# N'incremente QUE si la reservation tient sous le quota -> pas d'inflation du
+# compteur sur refus (fix #4 : evite le lockout de l'org pour la journee).
+# Retourne 1 (accorde) ou 0 (refuse).
+_RESERVE_LUA = """
+local current = tonumber(redis.call('GET', KEYS[1]) or '0')
+local credits = tonumber(ARGV[1])
+if current + credits > tonumber(ARGV[2]) then
+  return 0
+end
+local total = redis.call('INCRBY', KEYS[1], credits)
+if total == credits then
+  redis.call('EXPIRE', KEYS[1], tonumber(ARGV[3]))
+end
+return 1
+"""
+
 
 class CreditLedger:
     """Suivi du budget d'un run. can_spend() = garde-fou avant chaque depense."""
@@ -55,12 +72,16 @@ async def reserve_daily_credits(organization_id: str | None, credits: int) -> bo
     key = f"enrichment:credits:{org}:{day}"
     client = redis_async.from_url(_redis_url(), decode_responses=True)
     try:
-        total = await client.incrby(key, credits)
-        if total == credits:  # premiere reservation du jour -> pose le TTL
-            await client.expire(key, _QUOTA_TTL)
-        return total <= settings.enrichment_daily_quota
-    except Exception as exc:  # noqa: BLE001 — fail-open sur panne Redis
-        logger.warning("[Enrichment] quota Redis indisponible : %s", exc)
-        return True
+        # Atomique (#4) : n'incremente que si la reservation tient -> pas de lockout.
+        granted = await client.eval(
+            _RESERVE_LUA, 1, key, credits, settings.enrichment_daily_quota, _QUOTA_TTL
+        )
+        return bool(granted)
+    except Exception as exc:  # noqa: BLE001
+        # #12 : le quota est la SEULE barriere de cout avant le debit Icypeas reel.
+        # En prod -> fail-CLOSED (refuse) plutot que risquer un cout non borne.
+        # En dev -> fail-open (ne bloque pas le local). ERROR = observabilite.
+        logger.error("[Enrichment] quota Redis indisponible : %s", exc)
+        return not settings.is_production
     finally:
         await client.aclose()

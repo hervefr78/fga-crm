@@ -13,12 +13,14 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.models.enrichment import (
     EnrichmentBulk,
     EnrichmentBulkItem,
     EnrichmentEmailVerification,
     EnrichmentJob,
 )
+from app.services.enrichment import freshness
 from app.services.enrichment.adapters.icypeas import _map_certainty, parse_bulk_callback
 from app.services.enrichment.crm_writer import upsert_contact
 from app.services.enrichment.ports import Company, PersonCandidate
@@ -86,6 +88,12 @@ async def _resolve_item(
     item.email = email
     item.certainty = res.get("certainty")
     item.contact_id = contact_id
+    # Fraicheur (#5) : marque la personne enrichie (meme clef que le pipeline inline)
+    # -> un re-run du meme batch ne re-soumet/re-facture pas cette personne.
+    await freshness.touch(
+        freshness.person_key(org_id, comp.get("siren"), person.first_name, person.last_name),
+        settings.enrichment_refresh_days,
+    )
 
 
 async def process_bulk_callback(db: AsyncSession, data: dict) -> dict:
@@ -94,8 +102,13 @@ async def process_bulk_callback(db: AsyncSession, data: dict) -> dict:
     if not file_id:
         return {"matched": False}
 
+    # Verrou de ligne (#3) : serialise les livraisons concurrentes/dupliquees du
+    # meme callback (endpoint public, Icypeas peut re-livrer). Le 2e appel attend le
+    # commit du 1er puis voit status='done' -> no-op. Ignore par SQLite (no-op tests).
     bulk = (
-        await db.execute(select(EnrichmentBulk).where(EnrichmentBulk.file == file_id))
+        await db.execute(
+            select(EnrichmentBulk).where(EnrichmentBulk.file == file_id).with_for_update()
+        )
     ).scalars().first()
     if bulk is None:
         logger.warning("[Icypeas webhook] bulk inconnu file=%s", file_id)
@@ -112,7 +125,16 @@ async def process_bulk_callback(db: AsyncSession, data: dict) -> dict:
         item = by_ext.get(res.get("external_id"))
         if item is None or item.status != "pending":
             continue  # inconnu ou deja resolu (idempotence)
-        await _resolve_item(db, bulk, item, res)
+        try:
+            # Savepoint par item (#1/DC4) : une erreur (collision, ecriture) sur une
+            # ligne n'annule pas tout le bulk (sinon perte des contacts Icypeas payes).
+            async with db.begin_nested():
+                await _resolve_item(db, bulk, item, res)
+        except Exception:  # noqa: BLE001 — echec isole a l'item, on continue
+            logger.exception(
+                "[Icypeas webhook] item %s echoue, marque error", res.get("external_id")
+            )
+            item.status = "error"
 
     bulk.done = sum(1 for i in items if i.status != "pending")
     bulk.found = sum(1 for i in items if i.status == "found")
