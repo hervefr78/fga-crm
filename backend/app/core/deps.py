@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.core.security import decode_token
 from app.db.session import get_db
+from app.models.organization import Organization
 from app.models.user import User
 
 # Bearer pour les utilisateurs humains (JWT)
@@ -61,6 +62,13 @@ async def get_current_user(
 
     if user is None or not user.is_active:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found or inactive")
+
+    # Soft-delete tenant : org desactivee (is_active=false) -> acces bloque.
+    org_active = await db.scalar(
+        select(Organization.is_active).where(Organization.id == user.organization_id)
+    )
+    if org_active is False:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Organisation desactivee")
 
     return user
 

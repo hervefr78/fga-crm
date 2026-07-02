@@ -211,3 +211,15 @@ async def test_geo_brand_isolated_cross_org(
     assert resp.status_code == 200, resp.text
     ids = [b["id"] for b in resp.json()]
     assert str(brand.id) not in ids
+
+
+@pytest.mark.asyncio
+async def test_deactivated_org_blocks_access(
+    client: AsyncClient, db_session: AsyncSession, org_b, admin_b: User
+):
+    """Soft-delete : une org desactivee (is_active=false) bloque l'acces de ses users."""
+    org_b.is_active = False
+    await db_session.commit()
+
+    resp = await client.get("/api/v1/companies", headers=_headers(admin_b))
+    assert resp.status_code == 403, resp.text

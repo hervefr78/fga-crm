@@ -80,7 +80,13 @@ def upgrade() -> None:
             id=_DEFAULT_ORG_ID
         )
     )
-    op.execute(sa.text("UPDATE users SET is_superadmin = true WHERE role = 'admin'"))
+    # UN seul super-admin par org (l'admin le plus ancien), pas tous les admins.
+    op.execute(sa.text(
+        "UPDATE users SET is_superadmin = true WHERE id IN ("
+        "  SELECT DISTINCT ON (organization_id) id FROM users "
+        "  WHERE role = 'admin' ORDER BY organization_id, created_at ASC"
+        ")"
+    ))
 
 
 def downgrade() -> None:

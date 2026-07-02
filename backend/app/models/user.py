@@ -30,9 +30,10 @@ class User(Base, UUIDMixin, TimestampMixin):
     # Service accounts (mcp@crm.internal, nomo-ia@crm.internal) — ne peuvent pas se connecter via UI
     is_service: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
     # Multi-tenant : org d'appartenance (NOT NULL depuis le contract mt_contract_001).
+    # RESTRICT : soft-delete des orgs (Organization.is_active=false), pas de wipe physique.
     organization_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("organizations.id", ondelete="CASCADE"),
+        ForeignKey("organizations.id", ondelete="RESTRICT"),
         nullable=False,
         index=True,
     )

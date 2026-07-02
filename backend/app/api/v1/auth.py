@@ -90,7 +90,16 @@ async def register(data: RegisterRequest, db: AsyncSession = Depends(get_db)):
     # Multi-tenant : chaque inscription cree une NOUVELLE organisation dont le
     # user devient admin. L'ajout d'autres users se fait via un admin dans l'org.
     org_name = (data.organization_name or "").strip() or f"{data.full_name.strip()} — Organisation"
-    org = Organization(name=org_name, slug=_slugify(org_name))
+    # Slug unique : regenere en cas de collision (suffixe hex aleatoire).
+    slug = _slugify(org_name)
+    for _ in range(5):
+        if not await db.scalar(select(Organization.id).where(Organization.slug == slug)):
+            break
+        slug = _slugify(org_name)
+    else:
+        raise HTTPException(status_code=500, detail="Impossible de generer un identifiant d'organisation")
+
+    org = Organization(name=org_name, slug=slug)
     db.add(org)
     await db.flush()  # obtenir org.id avant de creer le user
 

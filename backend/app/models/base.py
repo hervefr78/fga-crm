@@ -49,7 +49,9 @@ class OrgScopedMixin:
 
     organization_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("organizations.id", ondelete="CASCADE"),
+        # RESTRICT : pas de suppression physique d'une org qui a des donnees.
+        # La desactivation se fait en soft-delete (Organization.is_active=false).
+        ForeignKey("organizations.id", ondelete="RESTRICT"),
         nullable=False,
         index=True,
     )
