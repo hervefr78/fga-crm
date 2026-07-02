@@ -14,6 +14,7 @@ import {
   FileCheck,
   TrendingUp,
   BarChart3,
+  UserPlus,
   Link2,
   Settings,
   LogOut,
@@ -63,6 +64,11 @@ export default function Layout() {
     ? [{ name: 'Trends', href: '/trends', icon: BarChart3 }]
     : [];
 
+  // Enrichissement (Compass) : reserve managers/admins (garde RBAC dans la page).
+  const enrichmentNav = isManagerOrAbove(user)
+    ? [{ name: 'Enrichissement', href: '/enrichment', icon: UserPlus }]
+    : [];
+
   // Integrations : op couteuse reservee aux managers/admins (cf garde RBAC
   // backend get_current_manager + ManagerRoute frontend). Masque pour les sales.
   const integrationsNav = isManagerOrAbove(user)
@@ -73,6 +79,7 @@ export default function Layout() {
     ...baseNavigation.slice(0, 9), // jusqu'a 'Drafts à valider' inclus
     ...geoNav,
     ...trendsNav,
+    ...enrichmentNav,
     ...baseNavigation.slice(9, 10), // 'Email'
     ...integrationsNav,
     ...baseNavigation.slice(10), // 'Paramètres'

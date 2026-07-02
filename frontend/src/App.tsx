@@ -28,6 +28,7 @@ import IntegrationsPage from './pages/Integrations';
 import DraftsPage from './pages/Drafts';
 import GEOPage from './pages/GEO';
 import TrendsPage from './pages/Trends';
+import EnrichmentPage from './pages/Enrichment';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -95,6 +96,7 @@ function AppRoutes() {
         <Route path="/drafts" element={<DraftsPage />} />
         <Route path="/geo" element={<GEOPage />} />
         <Route path="/trends" element={<TrendsPage />} />
+        <Route path="/enrichment" element={<EnrichmentPage />} />
         <Route path="/email" element={<EmailPage />} />
         <Route path="/integrations" element={<ManagerRoute><IntegrationsPage /></ManagerRoute>} />
         <Route path="/settings" element={<SettingsPage />} />
