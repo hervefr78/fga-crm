@@ -19,6 +19,7 @@ from app.models.activity import Activity
 from app.models.company import Company
 from app.models.contact import Contact
 from app.models.deal import Deal
+from app.models.geo import GeoBrand
 from app.models.organization import Organization
 from app.models.task import Task
 from app.models.user import User
@@ -151,3 +152,62 @@ async def test_superadmin_sees_other_org(
     resp = await client.get(f"/api/v1/companies/{seed_b['company'].id}", headers=_headers(su))
     assert resp.status_code == 200, resp.text
     assert resp.json()["id"] == str(seed_b["company"].id)
+
+
+@pytest.mark.asyncio
+async def test_cannot_assign_task_to_other_org_user(
+    client: AsyncClient, auth_headers: dict, admin_b: User
+):
+    """Impossible d'assigner une task a un user d'une autre org (garde assigned_to)."""
+    resp = await client.post(
+        "/api/v1/tasks",
+        headers=auth_headers,
+        json={"title": "Task intrus", "assigned_to": str(admin_b.id)},
+    )
+    assert resp.status_code in (404, 422), resp.text
+
+
+@pytest.mark.asyncio
+async def test_superadmin_cannot_remove_last_admin_of_other_org(
+    client: AsyncClient, db_session: AsyncSession, test_org, org_b, admin_b: User
+):
+    """Un super-admin ne peut pas retirer le dernier admin d'une AUTRE org.
+
+    Verrouille le fix : le guard compte les admins de l'org de la CIBLE, pas via
+    le filtre de l'appelant (qu'un super-admin bypasserait).
+    """
+    su = User(
+        id=uuid.uuid4(), email="super2@fga.fr", hashed_password="x",
+        full_name="Super", role="admin", is_active=True,
+        organization_id=test_org.id, is_superadmin=True,
+    )
+    db_session.add(su)
+    await db_session.commit()
+
+    # admin_b est le SEUL admin de org_b -> le retirer doit etre refuse (400).
+    resp = await client.patch(
+        f"/api/v1/users/{admin_b.id}/role", headers=_headers(su), json={"role": "sales"},
+    )
+    assert resp.status_code == 400, resp.text
+
+
+@pytest.mark.asyncio
+async def test_geo_brand_isolated_cross_org(
+    client: AsyncClient, auth_headers: dict, db_session: AsyncSession, org_b, admin_b: User
+):
+    """Une marque GEO de l'org B est invisible/inaccessible depuis l'org A."""
+    brand = GeoBrand(
+        id=uuid.uuid4(), slug=f"brand-b-{uuid.uuid4().hex[:6]}", name="Brand B",
+        is_owned=True, active=True, organization_id=org_b.id,
+    )
+    db_session.add(brand)
+    await db_session.commit()
+
+    # Detail cross-org -> 404
+    resp = await client.get(f"/api/v1/geo/brands/{brand.id}", headers=auth_headers)
+    assert resp.status_code == 404, resp.text
+    # Liste de l'org A -> n'inclut pas la marque de l'org B
+    resp = await client.get("/api/v1/geo/brands", headers=auth_headers)
+    assert resp.status_code == 200, resp.text
+    ids = [b["id"] for b in resp.json()]
+    assert str(brand.id) not in ids

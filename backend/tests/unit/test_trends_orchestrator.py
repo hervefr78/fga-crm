@@ -31,6 +31,12 @@ def _no_redis(monkeypatch: pytest.MonkeyPatch):
 
 
 async def _make_job(db: AsyncSession, *, mode: str = "quick", seeds=None) -> TrendJob:
+    import uuid as _uuid
+
+    from app.models.organization import Organization
+
+    org = Organization(id=_uuid.uuid4(), name="Trends Org", slug=f"trends-{_uuid.uuid4().hex[:8]}")
+    db.add(org)
     cat = TrendCategory(provider="mock", slug="marketing-digital", label="Marketing Digital")
     db.add(cat)
     await db.flush()
@@ -40,6 +46,7 @@ async def _make_job(db: AsyncSession, *, mode: str = "quick", seeds=None) -> Tre
     )
     job = TrendJob(
         mode=mode, provider_primary="mock", status="queued", request_hash=request_hash,
+        organization_id=org.id,
         params_json={
             "request_hash": request_hash, "category_id": str(cat.id),
             "category_slug": cat.slug, "category_label": cat.label,
