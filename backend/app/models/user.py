@@ -2,9 +2,11 @@
 # FGA CRM - User Model
 # =============================================================================
 
+import uuid
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, String
+from sqlalchemy import Boolean, ForeignKey, String
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin, UUIDMixin
@@ -27,6 +29,17 @@ class User(Base, UUIDMixin, TimestampMixin):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     # Service accounts (mcp@crm.internal, nomo-ia@crm.internal) — ne peuvent pas se connecter via UI
     is_service: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
+    # Multi-tenant : org d'appartenance (nullable pendant expand, NOT NULL au contract).
+    organization_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("organizations.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
+    # Super-admin cross-org (staff FGA/Compass) : bypass le filtre tenant.
+    is_superadmin: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false", nullable=False
+    )
     avatar_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
     # Relationships

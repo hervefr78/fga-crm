@@ -17,6 +17,7 @@ from app.models.geo import (
     GeoRun,
 )
 from app.models.mcp_tool_usage import McpToolUsage
+from app.models.organization import Organization
 from app.models.tag import Tag, TagAssignment
 from app.models.task import Task
 from app.models.trends import (
@@ -34,6 +35,7 @@ __all__ = [
     "Base",
     "TimestampMixin",
     "UUIDMixin",
+    "Organization",
     "User",
     "WebAuthnCredential",
     "Company",
