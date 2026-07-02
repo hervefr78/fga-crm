@@ -4,7 +4,7 @@
 
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Shield, UserCheck, UserX, Users } from 'lucide-react';
+import { Shield, UserCheck, UserX, Users, Plus } from 'lucide-react';
 import {
   Badge,
   SearchInput,
@@ -12,9 +12,12 @@ import {
   LoadingSpinner,
   EmptyState,
   ConfirmDialog,
+  Modal,
+  Button,
+  Input,
 } from '../components/ui';
 import FilterBar, { type FilterDef } from '../components/ui/FilterBar';
-import { getUsers, updateUserRole, toggleUserActive } from '../api/client';
+import { getUsers, updateUserRole, toggleUserActive, createUser } from '../api/client';
 import { USER_ROLES, type User, type PaginatedResponse } from '../types';
 import { useAuth } from '../contexts/useAuth';
 
@@ -66,6 +69,11 @@ export default function AdminUsersPage() {
     value: string | boolean;
   } | null>(null);
 
+  // Ajout d'un membre (dans l'org courante)
+  const [showAdd, setShowAdd] = useState(false);
+  const [addForm, setAddForm] = useState({ email: '', full_name: '', password: '', role: 'sales' });
+  const [addError, setAddError] = useState<string | null>(null);
+
   // ---------- Query ----------
 
   const { data, isLoading } = useQuery<PaginatedResponse<User>>({
@@ -98,6 +106,20 @@ export default function AdminUsersPage() {
     },
   });
 
+  const createMutation = useMutation({
+    mutationFn: () => createUser(addForm),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin-users'] });
+      setShowAdd(false);
+      setAddForm({ email: '', full_name: '', password: '', role: 'sales' });
+      setAddError(null);
+    },
+    onError: (err: unknown) => {
+      const detail = (err as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail;
+      setAddError(typeof detail === 'string' ? detail : 'Echec de la creation du membre.');
+    },
+  });
+
   // ---------- Handlers ----------
 
   const handleRoleChange = (userId: string, userName: string, newRole: string) => {
@@ -122,14 +144,19 @@ export default function AdminUsersPage() {
   return (
     <div className="p-8">
       {/* En-tete */}
-      <div className="flex items-center gap-3 mb-6">
-        <div className="w-10 h-10 bg-primary-50 rounded-lg flex items-center justify-center">
-          <Shield className="w-5 h-5 text-primary-600" />
+      <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 bg-primary-50 rounded-lg flex items-center justify-center">
+            <Shield className="w-5 h-5 text-primary-600" />
+          </div>
+          <div>
+            <h1 className="text-2xl font-bold text-slate-800">Utilisateurs</h1>
+            <p className="text-sm text-slate-400">Gestion des comptes et des rôles</p>
+          </div>
         </div>
-        <div>
-          <h1 className="text-2xl font-bold text-slate-800">Utilisateurs</h1>
-          <p className="text-sm text-slate-400">Gestion des comptes et des rôles</p>
-        </div>
+        <Button variant="primary" size="sm" icon={Plus} onClick={() => setShowAdd(true)}>
+          Ajouter un membre
+        </Button>
       </div>
 
       {/* Recherche + Filtres */}
@@ -280,6 +307,60 @@ export default function AdminUsersPage() {
           )}
         </>
       )}
+
+      {/* Modale : ajouter un membre */}
+      <Modal open={showAdd} onClose={() => setShowAdd(false)} title="Ajouter un membre">
+        <div className="space-y-4">
+          {addError && (
+            <div className="bg-red-50 border border-red-200 text-red-600 text-sm rounded-lg px-4 py-2.5">
+              {addError}
+            </div>
+          )}
+          <Input
+            label="Nom complet"
+            value={addForm.full_name}
+            onChange={(e) => setAddForm((f) => ({ ...f, full_name: e.target.value }))}
+            placeholder="Jean Dupont"
+          />
+          <Input
+            label="Email"
+            type="email"
+            value={addForm.email}
+            onChange={(e) => setAddForm((f) => ({ ...f, email: e.target.value }))}
+            placeholder="jean@entreprise.com"
+          />
+          <Input
+            label="Mot de passe temporaire"
+            type="password"
+            value={addForm.password}
+            onChange={(e) => setAddForm((f) => ({ ...f, password: e.target.value }))}
+            helperText="8 caractères minimum. Le membre pourra le changer dans ses paramètres."
+          />
+          <div>
+            <label className="block text-sm font-medium text-slate-600 mb-1.5">Rôle</label>
+            <select
+              value={addForm.role}
+              onChange={(e) => setAddForm((f) => ({ ...f, role: e.target.value }))}
+              className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+            >
+              {USER_ROLES.map((r) => (
+                <option key={r.value} value={r.value}>{r.label}</option>
+              ))}
+            </select>
+          </div>
+          <div className="flex justify-end gap-2 pt-2">
+            <Button variant="secondary" onClick={() => setShowAdd(false)}>Annuler</Button>
+            <Button
+              variant="primary"
+              loading={createMutation.isPending}
+              disabled={!addForm.email || !addForm.full_name || addForm.password.length < 8}
+              onClick={() => createMutation.mutate()}
+            >
+              Créer le membre
+            </Button>
+          </div>
+        </div>
+      </Modal>
 
       {/* Dialogue de confirmation */}
       <ConfirmDialog
