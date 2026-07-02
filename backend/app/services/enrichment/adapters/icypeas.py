@@ -11,6 +11,8 @@ Auth : header `Authorization: <cle>` (brute, pas de Bearer). Base app.icypeas.co
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import hmac
 import logging
 
 import httpx
@@ -131,6 +133,40 @@ class IcypeasClient:
         sid = await self._submit("email-verification", {"email": email})
         return await self._await_result(sid) if sid else None
 
+    async def submit_bulk(
+        self,
+        task: str,
+        rows: list[list[str]],
+        external_ids: list[str],
+        webhook_url: str,
+    ) -> str | None:
+        """Soumet un bulk (max 5000 items) avec callback final incluant les resultats.
+
+        task = 'email-search' | 'email-verification'. Retourne l'id bulk (`file`).
+        """
+        payload = {
+            "name": f"fga-{task}",
+            "task": task,
+            "data": rows,
+            "custom": {
+                "externalIds": external_ids,
+                "webhookUrlBulkDone": webhook_url,
+                "includeResultsInWebhook": True,
+            },
+        }
+        try:
+            async with self._client() as client:
+                resp = await client.post(f"{self._base}/bulk-search", headers=self._headers(), json=payload)
+                resp.raise_for_status()
+                data = resp.json()
+        except (httpx.HTTPError, ValueError) as exc:
+            logger.warning("[Icypeas] bulk-search KO : %s", exc)
+            return None
+        if not data.get("success"):
+            logger.warning("[Icypeas] bulk-search refuse : %s", data.get("validationErrors"))
+            return None
+        return data.get("file")
+
     async def find_people(
         self,
         *,
@@ -173,6 +209,40 @@ def _first_email(item: dict | None) -> dict | None:
         return None
     emails = ((item.get("results") or {}).get("emails")) or []
     return emails[0] if emails else None
+
+
+def verify_webhook_signature(secret: str, path: str, timestamp: str, signature: str) -> bool:
+    """Verifie la signature HMAC-SHA1 d'un webhook Icypeas.
+
+    Formule (confirmee en live) : HMAC-SHA1_hex(secret, lowercase(path + timestamp)).
+    `path` = le path de NOTRE URL webhook (celle qu'Icypeas appelle). Comparaison
+    a temps constant.
+    """
+    if not secret or not signature or not timestamp:
+        return False
+    to_sign = f"{path}{timestamp}".lower()
+    expected = hmac.new(secret.encode(), to_sign.encode(), hashlib.sha1).hexdigest()
+    return hmac.compare_digest(expected, signature)
+
+
+def parse_bulk_callback(data: dict) -> list[dict]:
+    """Extrait les resultats par item du payload webhook bulkDone.
+
+    Retourne une liste de {external_id, status, email, certainty, firstname, lastname}.
+    """
+    out: list[dict] = []
+    for item in (data.get("results") or []):
+        entry = _first_email(item)
+        results = item.get("results") or {}
+        out.append({
+            "external_id": (item.get("userData") or {}).get("externalId"),
+            "status": item.get("status"),
+            "email": entry.get("email") if entry else None,
+            "certainty": entry.get("certainty") if entry else None,
+            "firstname": results.get("firstname"),
+            "lastname": results.get("lastname"),
+        })
+    return out
 
 
 class IcypeasPeopleSource(PeopleSource):

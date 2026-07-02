@@ -19,6 +19,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Index,
+    Integer,
     Numeric,
     Text,
     func,
@@ -38,8 +39,11 @@ ENRICHMENT_SOURCES = [
 ]
 SUPPRESSION_REASONS = ["opt_out", "bounce", "manual", "bloctel"]
 ENRICHMENT_MODES = ["company", "batch", "icp"]
-ENRICHMENT_JOB_STATUSES = ["queued", "running", "done", "failed"]
+ENRICHMENT_JOB_STATUSES = ["queued", "running", "done", "failed", "awaiting_results"]
 LEGAL_BASIS_LEGITIMATE_INTEREST = "legitimate_interest"
+# Bulk Icypeas (webhook/async) : soumis -> en attente des callbacks -> termine.
+ENRICHMENT_BULK_STATUSES = ["submitted", "awaiting_results", "done", "failed"]
+ENRICHMENT_BULK_ITEM_STATUSES = ["pending", "found", "not_found", "error"]
 
 
 class EnrichmentJob(Base, UUIDMixin, TimestampMixin):
@@ -149,3 +153,57 @@ class EnrichmentEmailVerification(Base, UUIDMixin, TimestampMixin):
 
     def __repr__(self) -> str:
         return f"<EnrichmentEmailVerification {self.email} {self.status}>"
+
+
+class EnrichmentBulk(Base, UUIDMixin, TimestampMixin):
+    """Un bulk Icypeas (async webhook) rattache a un job. `file` = id bulk Icypeas."""
+
+    __tablename__ = "enrichment_bulks"
+
+    organization_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True, index=True
+    )
+    job_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("enrichment_jobs.id", ondelete="SET NULL"), nullable=True
+    )
+    file: Mapped[str] = mapped_column(Text, nullable=False, index=True)  # id bulk Icypeas
+    task: Mapped[str] = mapped_column(Text, nullable=False)  # email-search | email-verification
+    status: Mapped[str] = mapped_column(Text, nullable=False, default="submitted")
+    total: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    done: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    found: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    def __repr__(self) -> str:
+        return f"<EnrichmentBulk {self.file} {self.status} {self.done}/{self.total}>"
+
+
+class EnrichmentBulkItem(Base, UUIDMixin, TimestampMixin):
+    """Ligne d'un bulk : contexte (societe+personne) stocke a la soumission, resolu
+    au callback (externalId -> cette ligne). Permet de creer le contact CRM."""
+
+    __tablename__ = "enrichment_bulk_items"
+
+    organization_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True, index=True
+    )
+    bulk_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("enrichment_bulks.id", ondelete="CASCADE"), nullable=False
+    )
+    external_id: Mapped[str] = mapped_column(Text, nullable=False, index=True)
+    # Contexte serialise : {"company": {...}, "person": {...}} pour upsert_contact au callback.
+    context_json: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    status: Mapped[str] = mapped_column(Text, nullable=False, default="pending")
+    email: Mapped[str | None] = mapped_column(Text, nullable=True)
+    certainty: Mapped[str | None] = mapped_column(Text, nullable=True)
+    contact_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("contacts.id", ondelete="SET NULL"), nullable=True
+    )
+
+    __table_args__ = (
+        Index("ix_enrichment_bulk_items_bulk_ext", "bulk_id", "external_id"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<EnrichmentBulkItem {self.external_id} {self.status}>"

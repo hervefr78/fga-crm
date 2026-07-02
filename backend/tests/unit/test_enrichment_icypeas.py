@@ -7,6 +7,10 @@ soumission -> {success, item:{_id, status}} ; read -> {items:[{results:{emails:[
 
 from __future__ import annotations
 
+import hashlib
+import hmac
+import json
+
 import httpx
 
 from app.services.enrichment.adapters.icypeas import (
@@ -15,6 +19,8 @@ from app.services.enrichment.adapters.icypeas import (
     IcypeasEmailVerifier,
     IcypeasPeopleSource,
     _map_certainty,
+    parse_bulk_callback,
+    verify_webhook_signature,
 )
 from app.services.enrichment.ports import Company, PersonCandidate
 
@@ -194,3 +200,73 @@ async def test_people_source_error_returns_empty():
         return httpx.Response(500, json={})
 
     assert await IcypeasPeopleSource(_client(handler)).find_people(_COMPANY, ["CTO"]) == []
+
+
+# ---------------------------------------------------------------------------
+# Bulk + webhook (async)
+# ---------------------------------------------------------------------------
+
+async def test_submit_bulk_returns_file_id_and_payload():
+    captured = {}
+
+    def handler(request):
+        captured["path"] = request.url.path
+        captured["body"] = json.loads(request.content)
+        return _resp({"success": True, "status": "in_progress", "file": "BULK123"})
+
+    fid = await _client(handler).submit_bulk(
+        "email-search", [["A", "B", "x.fr"]], ["e1"], "https://crm.example/cb",
+    )
+    assert fid == "BULK123"
+    assert captured["path"].endswith("/bulk-search")
+    body = captured["body"]
+    assert body["task"] == "email-search"
+    assert body["data"] == [["A", "B", "x.fr"]]
+    assert body["custom"]["externalIds"] == ["e1"]
+    assert body["custom"]["webhookUrlBulkDone"] == "https://crm.example/cb"
+    assert body["custom"]["includeResultsInWebhook"] is True
+
+
+def test_verify_webhook_signature():
+    secret = "s3cr3t"
+    path = "/api/v1/integrations/icypeas/webhook"
+    ts = "2026-07-02T13:57:19.134Z"
+    sig = hmac.new(secret.encode(), f"{path}{ts}".lower().encode(), hashlib.sha1).hexdigest()
+    assert verify_webhook_signature(secret, path, ts, sig) is True
+    assert verify_webhook_signature(secret, path, ts, "deadbeef") is False  # mauvaise sig
+    assert verify_webhook_signature("", path, ts, sig) is False            # pas de secret
+    assert verify_webhook_signature(secret, path, ts, "") is False         # pas de sig
+
+
+# Payload webhook REEL capture (2 items, bulkDone + includeResults).
+_REAL_CALLBACK_DATA = {
+    "file": "1VUeI58BY3xwrP2mg7qU", "total": 2, "type": "email-search", "done": 2, "found": 2,
+    "results": [
+        {"results": {"firstname": "Herve", "lastname": "Dhelin",
+                     "emails": [{"email": "herve@fast-growth.fr", "certainty": "ultra_sure"}]},
+         "status": "DEBITED", "userData": {"externalId": "ext-1"}},
+        {"results": {"firstname": "Michel", "lastname": "Test",
+                     "emails": [{"email": "michel@fast-growth.fr", "certainty": "ultra_sure"}]},
+         "status": "DEBITED", "userData": {"externalId": "ext-2"}},
+    ],
+}
+
+
+def test_parse_bulk_callback_real_payload():
+    items = parse_bulk_callback(_REAL_CALLBACK_DATA)
+    assert len(items) == 2
+    assert items[0]["external_id"] == "ext-1"
+    assert items[0]["email"] == "herve@fast-growth.fr"
+    assert items[0]["certainty"] == "ultra_sure"
+    assert items[0]["status"] == "DEBITED"
+    assert items[0]["firstname"] == "Herve"
+    assert items[1]["external_id"] == "ext-2"
+
+
+def test_parse_bulk_callback_not_found_item():
+    data = {"results": [{"results": {"firstname": "X", "lastname": "Y", "emails": []},
+                         "status": "NOT_FOUND", "userData": {"externalId": "e9"}}]}
+    items = parse_bulk_callback(data)
+    assert items[0]["external_id"] == "e9"
+    assert items[0]["email"] is None
+    assert items[0]["status"] == "NOT_FOUND"

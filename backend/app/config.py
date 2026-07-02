@@ -120,6 +120,8 @@ class Settings(BaseSettings):
     # Enrichissement emails B2B (feature Compass). Icypeas = moteur principal ;
     # si cle absente -> provider mock (deployable/testable sans cle).
     icypeas_api_key: str | None = None
+    icypeas_api_secret: str | None = None           # secret HMAC pour verifier les webhooks
+    icypeas_webhook_verify: bool = True             # verifier la signature des callbacks
     enrichment_daily_quota: int = 5000              # credits/jour par organisation
     enrichment_max_credits_per_run: int = 5000      # plafond par job
     enrichment_refresh_days: int = 60               # TTL fraicheur personne
