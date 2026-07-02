@@ -28,10 +28,11 @@ def _no_redis(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(freshness, "is_fresh", _never_fresh)
 
 
-async def test_run_enrichment_job_company_mode(db_session: AsyncSession):
+async def test_run_enrichment_job_company_mode(db_session: AsyncSession, test_org):
     job = EnrichmentJob(
         mode="company", status="queued",
         target_json={"kind": "company", "siren": "123456789"},
+        organization_id=test_org.id,
     )
     db_session.add(job)
     await db_session.commit()
@@ -81,7 +82,7 @@ async def test_run_enrichment_job_idempotent(db_session: AsyncSession, monkeypat
     assert called["n"] == 0
 
 
-async def test_rgpd_rejects_non_pro_emails(db_session: AsyncSession, monkeypatch):
+async def test_rgpd_rejects_non_pro_emails(db_session: AsyncSession, monkeypatch, test_org):
     # Force le finder a renvoyer un email perso -> doit etre rejete (aucun contact).
     from app.services.enrichment import factory
     from app.services.enrichment.ports import EmailCandidate
@@ -97,7 +98,7 @@ async def test_rgpd_rejects_non_pro_emails(db_session: AsyncSession, monkeypatch
     # re-importer la ref dans l'orchestrateur (il appelle get_email_finders au runtime)
     monkeypatch.setattr(orchestrator, "get_email_finders", lambda: [_PersoFinder()])
 
-    job = EnrichmentJob(mode="company", status="queued", target_json={"kind": "company", "siren": "999"})
+    job = EnrichmentJob(mode="company", status="queued", target_json={"kind": "company", "siren": "999"}, organization_id=test_org.id)
     db_session.add(job)
     await db_session.commit()
     await run_enrichment_job(db_session, job)
@@ -110,7 +111,7 @@ async def test_rgpd_rejects_non_pro_emails(db_session: AsyncSession, monkeypatch
     assert contacts == 0
 
 
-async def test_freshness_skips_recently_enriched(db_session: AsyncSession, monkeypatch):
+async def test_freshness_skips_recently_enriched(db_session: AsyncSession, monkeypatch, test_org):
     # is_fresh -> True : la personne a ete enrichie recemment -> skip, aucune depense.
     async def _always_fresh(*a, **k):
         return True
@@ -120,6 +121,7 @@ async def test_freshness_skips_recently_enriched(db_session: AsyncSession, monke
     job = EnrichmentJob(
         mode="company", status="queued",
         target_json={"kind": "company", "siren": "123456789"},
+        organization_id=test_org.id,
     )
     db_session.add(job)
     await db_session.commit()
@@ -147,7 +149,7 @@ async def test_resolve_companies_dedup_sirens(db_session: AsyncSession):
     assert {c.siren for c in companies} == {"111111111", "222222222"}
 
 
-async def test_company_failure_is_isolated(db_session: AsyncSession, monkeypatch):
+async def test_company_failure_is_isolated(db_session: AsyncSession, monkeypatch, test_org):
     # Un provider qui plante sur UNE societe ne fait pas perdre le travail des autres.
     from app.services.enrichment.adapters.mock import MockPeopleSource
 
@@ -162,6 +164,7 @@ async def test_company_failure_is_isolated(db_session: AsyncSession, monkeypatch
     job = EnrichmentJob(
         mode="batch", status="queued",
         target_json={"kind": "batch", "sirens": ["111111111", "222222222", "333333333"]},
+        organization_id=test_org.id,
     )
     db_session.add(job)
     await db_session.commit()

@@ -123,7 +123,7 @@ async def _process_company(
     societe (resilience) et la transaction.
     """
     domain = company.domain or await company_src.resolve_domain(company)
-    if domain and await is_suppressed(db, domain=domain):
+    if domain and await is_suppressed(db, organization_id=org_id, domain=domain):
         stats["suppressed"] += 1
         return
     stats["companies"] += 1
@@ -166,7 +166,7 @@ async def _process_company(
 
         # Filtres RGPD bloquants (pro nominatif uniquement)
         domain_type = classify_email(email)
-        if domain_type != "pro" or await is_suppressed(db, email=email):
+        if domain_type != "pro" or await is_suppressed(db, organization_id=org_id, email=email):
             continue
 
         # Verification
@@ -188,6 +188,7 @@ async def _process_company(
         # Persistance : contact CRM + verif + provenance
         contact_id = await upsert_contact(
             db, company=company, person=person, email=email, email_status=status,
+            organization_id=org_id,
         )
         db.add(EnrichmentEmailVerification(
             organization_id=org_id, contact_id=contact_id,

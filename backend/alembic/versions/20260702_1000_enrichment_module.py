@@ -1,7 +1,7 @@
 """enrichment_module
 
 Revision ID: enrichment_001
-Revises: geo_audit_001
+Revises: mt_softdelete_001
 Create Date: 2026-07-02 10:00:00.000000
 
 Feature d'enrichissement d'emails B2B (brique Compass). Tables d'ETAT
@@ -16,7 +16,7 @@ from alembic import op  # noqa: I001
 
 # revision identifiers
 revision = "enrichment_001"
-down_revision = "geo_audit_001"
+down_revision = "mt_softdelete_001"
 branch_labels = None
 depends_on = None
 

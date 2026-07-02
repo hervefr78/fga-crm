@@ -35,6 +35,30 @@ async def test_list_ok_for_manager(client: AsyncClient, manager_headers: dict):
     assert r.json()["total"] == 0
 
 
+async def test_jobs_isolated_cross_org(client: AsyncClient, auth_headers: dict, db_session):
+    """Un user de l'org A ne voit ni ne lit les jobs d'enrichissement d'une autre org."""
+    import uuid
+
+    from app.models.enrichment import EnrichmentJob
+    from app.models.organization import Organization
+
+    org_b = Organization(id=uuid.uuid4(), name="Org B", slug=f"ob-{uuid.uuid4().hex[:8]}")
+    db_session.add(org_b)
+    await db_session.flush()
+    job_b = EnrichmentJob(
+        mode="company", status="done", target_json={}, organization_id=org_b.id,
+    )
+    db_session.add(job_b)
+    await db_session.commit()
+
+    r = await client.get("/api/v1/enrichment/jobs", headers=auth_headers)
+    assert r.status_code == 200
+    assert str(job_b.id) not in [j["id"] for j in r.json()["items"]]
+
+    r = await client.get(f"/api/v1/enrichment/jobs/{job_b.id}", headers=auth_headers)
+    assert r.status_code == 404
+
+
 # --- Validation ---
 
 async def test_company_without_siren_422(client: AsyncClient, auth_headers: dict):

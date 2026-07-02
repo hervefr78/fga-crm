@@ -18,19 +18,30 @@ from app.services.enrichment.ports import Company, PersonCandidate
 _DECISION_ROLES = frozenset({"CTO", "CPO", "CMO", "FOUNDER"})
 
 
-async def _find_or_create_company(db: AsyncSession, company: Company) -> CrmCompany:
-    """Retrouve la societe par siren puis domaine, sinon la cree."""
+async def _find_or_create_company(
+    db: AsyncSession, company: Company, organization_id: uuid.UUID
+) -> CrmCompany:
+    """Retrouve la societe par siren puis domaine (DANS l'org), sinon la cree."""
     found: CrmCompany | None = None
     if company.siren:
         found = (
-            await db.execute(select(CrmCompany).where(CrmCompany.siren == company.siren))
+            await db.execute(select(CrmCompany).where(
+                CrmCompany.siren == company.siren,
+                CrmCompany.organization_id == organization_id,
+            ))
         ).scalars().first()
     if found is None and company.domain:
         found = (
-            await db.execute(select(CrmCompany).where(CrmCompany.domain == company.domain))
+            await db.execute(select(CrmCompany).where(
+                CrmCompany.domain == company.domain,
+                CrmCompany.organization_id == organization_id,
+            ))
         ).scalars().first()
     if found is None:
-        found = CrmCompany(name=company.name, siren=company.siren, domain=company.domain)
+        found = CrmCompany(
+            name=company.name, siren=company.siren, domain=company.domain,
+            organization_id=organization_id,
+        )
         db.add(found)
         await db.flush()
     return found
@@ -43,17 +54,24 @@ async def upsert_contact(
     person: PersonCandidate,
     email: str,
     email_status: str,
+    organization_id: uuid.UUID,
 ) -> uuid.UUID:
-    """Cree/maj la societe + le contact (dedup par email). Retourne contact_id."""
-    crm_company = await _find_or_create_company(db, company)
+    """Cree/maj la societe + le contact (dedup par email DANS l'org). Retourne contact_id."""
+    crm_company = await _find_or_create_company(db, company, organization_id)
 
     contact: Contact | None = None
     if email:
         contact = (
-            await db.execute(select(Contact).where(Contact.email == email))
+            await db.execute(select(Contact).where(
+                Contact.email == email,
+                Contact.organization_id == organization_id,
+            ))
         ).scalars().first()
     if contact is None:
-        contact = Contact(first_name=person.first_name, last_name=person.last_name)
+        contact = Contact(
+            first_name=person.first_name, last_name=person.last_name,
+            organization_id=organization_id,
+        )
         db.add(contact)
 
     contact.first_name = person.first_name

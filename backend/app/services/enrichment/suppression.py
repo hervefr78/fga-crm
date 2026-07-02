@@ -15,11 +15,15 @@ from app.models.enrichment import EnrichmentSuppression
 async def is_suppressed(
     db: AsyncSession,
     *,
+    organization_id,
     email: str | None = None,
     domain: str | None = None,
     linkedin_url: str | None = None,
 ) -> bool:
-    """True si l'un des identifiants figure dans la liste d'exclusion."""
+    """True si l'un des identifiants figure dans la liste d'exclusion DE L'ORG.
+
+    Scope par org : l'opt-out/bounce d'une organisation ne contamine pas une autre.
+    """
     conds = []
     if email:
         conds.append(EnrichmentSuppression.email == email.strip().lower())
@@ -30,7 +34,12 @@ async def is_suppressed(
     if not conds:
         return False
     row = (
-        await db.execute(select(EnrichmentSuppression.id).where(or_(*conds)).limit(1))
+        await db.execute(
+            select(EnrichmentSuppression.id).where(
+                EnrichmentSuppression.organization_id == organization_id,
+                or_(*conds),
+            ).limit(1)
+        )
     ).first()
     return row is not None
 

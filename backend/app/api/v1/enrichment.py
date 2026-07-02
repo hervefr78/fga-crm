@@ -12,6 +12,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import get_current_user
+from app.core.rbac import apply_tenant_filter, check_tenant_access
 from app.db.session import get_db
 from app.models.enrichment import EnrichmentJob
 from app.models.user import User
@@ -67,7 +68,7 @@ def _estimate_credits(payload: EnrichmentJobCreateRequest) -> int:
 async def _create_and_enqueue(
     db: AsyncSession, user: User, payload: EnrichmentJobCreateRequest
 ) -> EnrichmentJob:
-    org_id = getattr(user, "organization_id", None)
+    org_id = user.organization_id  # source de verite serveur (DC18)
     if not await reserve_daily_credits(str(org_id) if org_id else None, _estimate_credits(payload)):
         raise HTTPException(
             status_code=429, detail="Quota journalier d'enrichissement depasse",
@@ -105,13 +106,13 @@ async def list_jobs(
     page: int = Query(1, ge=1),
     size: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
-    _user: User = Depends(_require_enrichment_access),
+    user: User = Depends(_require_enrichment_access),
 ) -> EnrichmentJobListResponse:
-    total = (await db.execute(select(func.count()).select_from(EnrichmentJob))).scalar() or 0
+    base = apply_tenant_filter(select(EnrichmentJob), EnrichmentJob, user)
+    total = (await db.execute(select(func.count()).select_from(base.subquery()))).scalar() or 0
     rows = (
         await db.execute(
-            select(EnrichmentJob)
-            .order_by(EnrichmentJob.created_at.desc())
+            base.order_by(EnrichmentJob.created_at.desc())
             .offset((page - 1) * size)
             .limit(size)
         )
@@ -126,11 +127,12 @@ async def list_jobs(
 async def get_job(
     job_id: str,
     db: AsyncSession = Depends(get_db),
-    _user: User = Depends(_require_enrichment_access),
+    user: User = Depends(_require_enrichment_access),
 ) -> EnrichmentJobResponse:
     job = await db.get(EnrichmentJob, _parse_uuid(job_id))
     if job is None:
         raise HTTPException(status_code=404, detail="Job introuvable")
+    check_tenant_access(job, user)
     return EnrichmentJobResponse.model_validate(job)
 
 
