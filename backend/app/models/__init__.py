@@ -9,6 +9,14 @@ from app.models.company import Company
 from app.models.contact import Contact
 from app.models.deal import Deal
 from app.models.email_template import EmailTemplate
+from app.models.enrichment import (
+    EnrichmentBulk,
+    EnrichmentBulkItem,
+    EnrichmentEmailVerification,
+    EnrichmentJob,
+    EnrichmentProvenance,
+    EnrichmentSuppression,
+)
 from app.models.geo import (
     GeoAuditJob,
     GeoBrand,
@@ -42,6 +50,12 @@ __all__ = [
     "Contact",
     "Deal",
     "EmailTemplate",
+    "EnrichmentJob",
+    "EnrichmentProvenance",
+    "EnrichmentSuppression",
+    "EnrichmentEmailVerification",
+    "EnrichmentBulk",
+    "EnrichmentBulkItem",
     "Activity",
     "Task",
     "Tag",

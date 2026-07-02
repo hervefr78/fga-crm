@@ -10,11 +10,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import get_current_admin, get_current_user
 from app.core.rbac import apply_tenant_filter, check_tenant_access
+from app.core.security import hash_password
 from app.db.session import get_db
 from app.models.user import User
 from app.schemas.user import (
     VALID_ROLES,
     UserActiveToggle,
+    UserCreate,
     UserLookupResponse,
     UserRoleUpdate,
 )
@@ -22,8 +24,32 @@ from app.schemas.user import (
 router = APIRouter()
 
 
-# Reutiliser le UserResponse de auth.py (DC8)
-from app.api.v1.auth import UserResponse  # noqa: E402
+# Reutiliser le UserResponse + helper de auth.py (DC8)
+from app.api.v1.auth import UserResponse, _user_response  # noqa: E402
+
+
+@router.post("", response_model=UserResponse, status_code=201)
+async def create_user(
+    data: UserCreate,
+    db: AsyncSession = Depends(get_db),
+    admin: User = Depends(get_current_admin),
+):
+    """Cree un membre DANS l'org de l'admin (l'org vient du serveur, DC18)."""
+    exists = await db.scalar(select(User.id).where(User.email == data.email))
+    if exists:
+        raise HTTPException(status_code=400, detail="Email deja utilise")
+
+    user = User(
+        email=data.email,
+        full_name=data.full_name,
+        hashed_password=hash_password(data.password),
+        role=data.role,
+        organization_id=admin.organization_id,
+    )
+    db.add(user)
+    await db.flush()
+    await db.refresh(user)
+    return _user_response(user)
 
 
 class UserListResponse(UserResponse):

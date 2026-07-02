@@ -23,10 +23,25 @@ export const login = async (email: string, password: string) => {
   return response.data;
 };
 
-export const register = async (email: string, password: string, full_name: string) => {
-  const response = await api.post('/auth/register', { email, password, full_name });
+export const register = async (
+  email: string, password: string, full_name: string, organization_name?: string,
+) => {
+  const response = await api.post('/auth/register', {
+    email, password, full_name, organization_name,
+  });
   return response.data;
 };
+
+// ---------- Organisation (multi-tenant) ----------
+export const getMyOrganization = async () => (await api.get('/organizations/me')).data;
+
+export const renameOrganization = async (name: string) =>
+  (await api.patch('/organizations/me', { name })).data;
+
+// ---------- Users (admin) ----------
+export const createUser = async (data: {
+  email: string; full_name: string; password: string; role: string;
+}) => (await api.post('/users', data)).data;
 
 export const getMe = async () => {
   const response = await api.get('/auth/me');

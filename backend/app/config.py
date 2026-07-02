@@ -117,6 +117,21 @@ class Settings(BaseSettings):
     trends_default_language: str = "fr"
     trends_max_seed_terms: int = 20                 # garde-fou sous-requetes / job
 
+    # Enrichissement emails B2B (feature Compass). Icypeas = moteur principal ;
+    # si cle absente -> provider mock (deployable/testable sans cle).
+    icypeas_api_key: str | None = None
+    icypeas_api_secret: str | None = None           # secret HMAC pour verifier les webhooks
+    icypeas_webhook_verify: bool = True             # verifier la signature des callbacks
+    icypeas_webhook_url: str | None = None          # URL publique du callback (prod)
+    enrichment_bulk_timeout_hours: int = 24         # bulk sans callback -> reconcilie failed
+    enrichment_daily_quota: int = 5000              # credits/jour par organisation
+    enrichment_max_credits_per_run: int = 5000      # plafond par job
+    enrichment_refresh_days: int = 60               # TTL fraicheur personne
+    enrichment_people_refresh_days: int = 90        # TTL fraicheur sourcing societe
+    enrichment_retention_days: int = 1095           # RGPD : retention 3 ans
+    enrichment_second_pass_verify: float = 0.85     # seuil 2e passe (catch_all/risky)
+    enrichment_catchall_accept: float = 0.90        # seuil acceptation catch_all
+
     # MinIO (S3-compatible)
     minio_endpoint: str = "minio:9000"
     minio_root_user: str = "minioadmin"

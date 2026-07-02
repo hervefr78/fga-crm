@@ -16,10 +16,13 @@ from app.api.v1 import (
     drafts_review,
     email_templates,
     emails,
+    enrichment,
+    enrichment_webhook,
     geo,
     geo_audit,
     integrations,
     mcp_usage,
+    organizations,
     search,
     tasks,
     trends,
@@ -36,6 +39,7 @@ api_router.include_router(tasks.router, prefix="/tasks", tags=["Tasks"])
 api_router.include_router(activities.router, prefix="/activities", tags=["Activities"])
 api_router.include_router(search.router, prefix="/search", tags=["Search"])
 api_router.include_router(users.router, prefix="/users", tags=["Users"])
+api_router.include_router(organizations.router, prefix="/organizations", tags=["Organizations"])
 api_router.include_router(emails.router, prefix="/emails", tags=["Emails"])
 api_router.include_router(email_templates.router, prefix="/email-templates", tags=["Email Templates"])
 api_router.include_router(integrations.router, prefix="/integrations", tags=["Integrations"])
@@ -45,6 +49,8 @@ api_router.include_router(admin_api_keys.router, prefix="/admin/api-keys", tags=
 api_router.include_router(geo.router, prefix="/geo", tags=["GEO"])
 api_router.include_router(geo_audit.router, prefix="/geo", tags=["GEO Audit (SR)"])
 api_router.include_router(trends.router, prefix="/trends", tags=["Trends"])
+api_router.include_router(enrichment.router, prefix="/enrichment", tags=["Enrichment (Compass)"])
+api_router.include_router(enrichment_webhook.router, prefix="/integrations/icypeas", tags=["Enrichment Webhook"])
 api_router.include_router(mcp_usage.router, prefix="/mcp-usage", tags=["MCP Usage"])
 # AI router : routes absolues (/companies/{id}/next-action, /contacts/{id}/next-action,
 # /deals/{id}/next-action). Pas de prefix ici — chaque route porte son chemin complet.

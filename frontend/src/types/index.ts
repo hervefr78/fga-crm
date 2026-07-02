@@ -10,8 +10,17 @@ export interface User {
   full_name: string;
   role: string;
   is_active: boolean;
+  organization_id?: string | null;
+  is_superadmin?: boolean;
   avatar_url: string | null;
   created_at?: string;
+}
+
+export interface Organization {
+  id: string;
+  name: string;
+  slug: string;
+  is_active: boolean;
 }
 
 // Reponse minimale du endpoint GET /users/lookup (id + full_name uniquement).
