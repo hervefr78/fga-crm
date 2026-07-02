@@ -10,12 +10,12 @@ from httpx import AsyncClient
 
 @pytest.mark.asyncio
 async def test_contact_response_includes_company_name(
-    client: AsyncClient, auth_headers: dict, db_session
+    client: AsyncClient, auth_headers: dict, db_session, test_org
 ):
     """list/get contact expose company_name si rattache a une Company (DC6 selectinload)."""
     from app.models.company import Company
 
-    company = Company(id=uuid.uuid4(), name="Acme Corp")
+    company = Company(id=uuid.uuid4(), name="Acme Corp", organization_id=test_org.id)
     db_session.add(company)
     await db_session.commit()
 
@@ -66,13 +66,13 @@ async def test_contact_without_company_returns_null_company_name(
 
 @pytest.mark.asyncio
 async def test_update_contact_changes_company_name(
-    client: AsyncClient, auth_headers: dict, db_session
+    client: AsyncClient, auth_headers: dict, db_session, test_org
 ):
     """PUT company_id => company_name reflete la nouvelle company (re-fetch DC6)."""
     from app.models.company import Company
 
-    c1 = Company(id=uuid.uuid4(), name="Old Co")
-    c2 = Company(id=uuid.uuid4(), name="New Co")
+    c1 = Company(id=uuid.uuid4(), name="Old Co", organization_id=test_org.id)
+    c2 = Company(id=uuid.uuid4(), name="New Co", organization_id=test_org.id)
     db_session.add_all([c1, c2])
     await db_session.commit()
 

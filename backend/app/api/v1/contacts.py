@@ -12,8 +12,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.deps import get_current_user
-from app.core.rbac import apply_ownership_filter, check_entity_access
+from app.core.rbac import (
+    apply_ownership_filter,
+    apply_tenant_filter,
+    check_entity_access,
+    check_tenant_access,
+)
 from app.db.session import get_db
+from app.models.company import Company
 from app.models.contact import Contact
 from app.models.user import User
 from app.schemas.contact import (
@@ -43,6 +49,14 @@ def _parse_date(value: str, field_name: str) -> datetime:
         return datetime.fromisoformat(value)
     except ValueError:
         raise HTTPException(status_code=422, detail=f"{field_name} : format de date invalide (ISO 8601 attendu)")
+
+
+async def _assert_company_in_org(db: AsyncSession, company_id: uuid.UUID, user: User) -> None:
+    """Refuser un company_id qui n'appartient pas a l'org du user (anti cross-org FK)."""
+    company = await db.get(Company, company_id)
+    if company is None:
+        raise HTTPException(status_code=422, detail="company_id inconnu")
+    check_tenant_access(company, user)
 
 
 def _contact_to_response(
@@ -104,6 +118,7 @@ async def list_contacts(
 ):
     # selectinload(Contact.company) pour exposer company_name sans N+1 (DC6)
     query = select(Contact).options(*CONTACT_RESPONSE_LOADERS)
+    query = apply_tenant_filter(query, Contact, user)
     query = apply_ownership_filter(query, Contact, user)
 
     if search:
@@ -169,8 +184,9 @@ async def create_contact(
             contact_data["company_id"] = uuid.UUID(contact_data["company_id"])
         except ValueError:
             raise HTTPException(status_code=422, detail="company_id invalide")
+        await _assert_company_in_org(db, contact_data["company_id"], user)
 
-    contact = Contact(**contact_data, owner_id=user.id)
+    contact = Contact(**contact_data, owner_id=user.id, organization_id=user.organization_id)
     db.add(contact)
     await db.flush()
 
@@ -196,6 +212,7 @@ async def get_contact(
     contact = result.scalar_one_or_none()
     if not contact:
         raise HTTPException(status_code=404, detail="Contact non trouve")
+    check_tenant_access(contact, user)
     check_entity_access(contact, user)
 
     # Charger le nom du owner et du dernier modificateur
@@ -226,6 +243,7 @@ async def update_contact(
     contact = result.scalar_one_or_none()
     if not contact:
         raise HTTPException(status_code=404, detail="Contact non trouve")
+    check_tenant_access(contact, user)
     check_entity_access(contact, user)
 
     update_data = data.model_dump(exclude_unset=True)
@@ -236,6 +254,7 @@ async def update_contact(
             update_data["company_id"] = uuid.UUID(update_data["company_id"])
         except ValueError:
             raise HTTPException(status_code=422, detail="company_id invalide")
+        await _assert_company_in_org(db, update_data["company_id"], user)
 
     for field, value in update_data.items():
         setattr(contact, field, value)
@@ -268,6 +287,7 @@ async def delete_contact(
     contact = result.scalar_one_or_none()
     if not contact:
         raise HTTPException(status_code=404, detail="Contact non trouve")
+    check_tenant_access(contact, user)
     check_entity_access(contact, user)
 
     await db.delete(contact)
@@ -289,7 +309,7 @@ async def import_contacts(
             contact_dict = validated.model_dump()
 
             # Pas de company_id dans l'import (simplification)
-            contact = Contact(**contact_dict, owner_id=user.id)
+            contact = Contact(**contact_dict, owner_id=user.id, organization_id=user.organization_id)
             db.add(contact)
             imported += 1
         except ValidationError as e:
