@@ -14,10 +14,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.core.security import decode_token
 from app.db.session import get_db
+from app.models.organization import Organization
 from app.models.user import User
 
 # Bearer pour les utilisateurs humains (JWT)
-security = HTTPBearer(auto_error=not settings.auth_bypass)
+# auto_error=False : on gere l'absence de credentials nous-memes (401 explicite dans
+# get_current_user), sinon HTTPBearer renvoie un 403 au lieu d'un 401 sur header manquant.
+security = HTTPBearer(auto_error=False)
 
 # Bearer optionnel — utilisé pour la validation de clés API service
 security_optional = HTTPBearer(auto_error=False)
@@ -61,6 +64,13 @@ async def get_current_user(
 
     if user is None or not user.is_active:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found or inactive")
+
+    # Soft-delete tenant : org desactivee (is_active=false) -> acces bloque.
+    org_active = await db.scalar(
+        select(Organization.is_active).where(Organization.id == user.organization_id)
+    )
+    if org_active is False:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Organisation desactivee")
 
     return user
 
@@ -112,6 +122,14 @@ async def get_service_user(
         )
 
     api_key, user = result
+
+    # Soft-delete tenant : cle d'un service account dont l'org est desactivee -> 403.
+    org_active = await db.scalar(
+        select(Organization.is_active).where(Organization.id == user.organization_id)
+    )
+    if org_active is False:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Organisation desactivee")
+
     # Stocker les scopes pour require_service_scope
     request.state.api_key_scopes = list(api_key.scopes or [])
     request.state.api_key_name = api_key.name

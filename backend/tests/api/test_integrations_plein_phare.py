@@ -40,7 +40,7 @@ def unset_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest_asyncio.fixture
-async def admin_user(db_session: AsyncSession) -> User:
+async def admin_user(db_session: AsyncSession, test_org) -> User:
     """Cree un utilisateur admin actif (requis comme owner par l'endpoint)."""
     from app.core.security import hash_password
 
@@ -51,6 +51,7 @@ async def admin_user(db_session: AsyncSession) -> User:
         full_name="Admin PP",
         role="admin",
         is_active=True,
+        organization_id=test_org.id,
     )
     db_session.add(user)
     await db_session.commit()
@@ -254,6 +255,7 @@ async def test_existing_company_reused_by_domain(
         domain="acme.fr",
         lead_source="manual",
         owner_id=admin_user.id,
+        organization_id=admin_user.organization_id,
     )
     db_session.add(existing)
     await db_session.commit()
@@ -291,6 +293,7 @@ async def test_existing_contact_reused_by_email(
         name="Bar SA",
         domain="bar.fr",
         owner_id=admin_user.id,
+        organization_id=admin_user.organization_id,
     )
     db_session.add(company)
     await db_session.flush()
@@ -302,6 +305,7 @@ async def test_existing_contact_reused_by_email(
         email="foo@bar.fr",
         company_id=company.id,
         owner_id=admin_user.id,
+        organization_id=admin_user.organization_id,
     )
     db_session.add(existing_contact)
     await db_session.commit()

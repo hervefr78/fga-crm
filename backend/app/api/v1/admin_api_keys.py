@@ -15,15 +15,17 @@ from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, EmailStr, Field
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import get_current_admin
+from app.core.rbac import apply_tenant_filter, check_tenant_access
 from app.db.session import get_db
+from app.models.api_key import ApiKey
 from app.models.user import User
 from app.services.api_keys import (
     create_api_key,
     get_or_create_service_account,
-    list_api_keys,
     revoke_api_key,
 )
 
@@ -83,9 +85,17 @@ class ServiceAccountOut(BaseModel):
 async def create_key(
     body: CreateApiKeyRequest,
     db: AsyncSession = Depends(get_db),
-    _admin: User = Depends(get_current_admin),
+    admin: User = Depends(get_current_admin),
 ) -> CreateApiKeyResponse:
     """Crée une API key pour un service account. La clé brute est retournée UNE SEULE FOIS."""
+    # Le service account cible doit appartenir a l'org de l'admin (anti cross-org).
+    sa_result = await db.execute(select(User).where(User.id == body.user_id))
+    service_account = sa_result.scalar_one_or_none()
+    if not service_account:
+        raise HTTPException(status_code=404, detail="Service account introuvable")
+    check_tenant_access(service_account, admin)
+
+    # create_api_key derive l'org depuis le user proprietaire (DC18) -> pas de tag ici.
     api_key, raw_key = await create_api_key(
         db=db,
         user_id=body.user_id,
@@ -100,10 +110,15 @@ async def create_key(
 @router.get("", response_model=list[ApiKeyOut])
 async def list_keys(
     db: AsyncSession = Depends(get_db),
-    _admin: User = Depends(get_current_admin),
+    admin: User = Depends(get_current_admin),
 ) -> list[ApiKeyOut]:
-    """Liste toutes les API keys (actives et révoquées)."""
-    keys = await list_api_keys(db)
+    """Liste les API keys de l'org de l'admin (actives et révoquées, bypass super-admin)."""
+    # NB : le service list_api_keys(db) ne filtre pas par org — on requete ici
+    # directement avec apply_tenant_filter pour garantir l'isolation (DC18).
+    keys_q = apply_tenant_filter(
+        select(ApiKey).order_by(ApiKey.created_at.desc()), ApiKey, admin
+    )
+    keys = list((await db.execute(keys_q)).scalars().all())
     return [
         ApiKeyOut(
             id=k.id,
@@ -124,9 +139,16 @@ async def list_keys(
 async def revoke_key(
     key_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _admin: User = Depends(get_current_admin),
+    admin: User = Depends(get_current_admin),
 ) -> None:
     """Révoque une API key (soft-delete : is_active=False + revoked_at)."""
+    # Verifier l'appartenance a l'org AVANT de reveler l'existence de la cle (DC18).
+    key_result = await db.execute(select(ApiKey).where(ApiKey.id == key_id))
+    api_key = key_result.scalar_one_or_none()
+    if not api_key:
+        raise HTTPException(status_code=404, detail="Clé API introuvable ou déjà révoquée")
+    check_tenant_access(api_key, admin)  # 404 si cle d'une autre org
+
     found = await revoke_api_key(db, key_id)
     if not found:
         raise HTTPException(status_code=404, detail="Clé API introuvable ou déjà révoquée")
@@ -141,14 +163,19 @@ async def revoke_key(
 async def create_service_account(
     body: CreateServiceAccountRequest,
     db: AsyncSession = Depends(get_db),
-    _admin: User = Depends(get_current_admin),
+    admin: User = Depends(get_current_admin),
 ) -> ServiceAccountOut:
     """Crée (ou retourne) un service account.
 
     Les service accounts ont is_service=True et ne peuvent pas se connecter via l'UI.
     Associer ensuite une API key via POST /admin/api-keys.
     """
-    user = await get_or_create_service_account(db, body.email, body.full_name)
+    # Nouveau compte -> cree dans l'org de l'admin (DC18). Compte existant dans une
+    # autre org -> refuse (check_tenant_access, anti-collision cross-org).
+    user = await get_or_create_service_account(
+        db, body.email, body.full_name, admin.organization_id
+    )
+    check_tenant_access(user, admin)
     await db.commit()
     return ServiceAccountOut(
         id=user.id,

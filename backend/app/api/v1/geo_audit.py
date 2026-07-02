@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.core.deps import require_service_scope
+from app.core.rbac import apply_tenant_filter, check_tenant_access
 from app.db.session import get_db
 from app.models.geo import GeoAuditJob
 from app.models.user import User
@@ -73,7 +74,7 @@ async def create_audit_visibility(
     payload: AuditVisibilityRequest,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    _user: User = Depends(require_service_scope("geo:audit")),
+    user: User = Depends(require_service_scope("geo:audit")),
 ) -> AuditVisibilityCreateResponse:
     prompts = payload.clean_prompts()
     if not prompts:
@@ -87,18 +88,19 @@ async def create_audit_visibility(
     # 1. Dedup (30j) : une mesure recente identique -> cache_hit, pas de re-facturation.
     if not payload.refresh:
         cutoff = datetime.now(UTC) - timedelta(days=_DEDUP_DAYS)
-        recent = (
-            await db.execute(
-                select(GeoAuditJob)
-                .where(
-                    GeoAuditJob.request_hash == request_hash,
-                    GeoAuditJob.status == "completed",
-                    GeoAuditJob.finished_at >= cutoff,
-                )
-                .order_by(GeoAuditJob.finished_at.desc())
-                .limit(1)
+        dedup_query = (
+            select(GeoAuditJob)
+            .where(
+                GeoAuditJob.request_hash == request_hash,
+                GeoAuditJob.status == "completed",
+                GeoAuditJob.finished_at >= cutoff,
             )
-        ).scalar_one_or_none()
+            .order_by(GeoAuditJob.finished_at.desc())
+            .limit(1)
+        )
+        # Isolation multi-tenant : ne deduper que sur les jobs de l'org du user
+        dedup_query = apply_tenant_filter(dedup_query, GeoAuditJob, user)
+        recent = (await db.execute(dedup_query)).scalar_one_or_none()
         if recent is not None:
             return AuditVisibilityCreateResponse(
                 audit_id=recent.id, status="completed", cache_hit=True
@@ -115,6 +117,8 @@ async def create_audit_visibility(
 
     # 3. Creation du job + enqueue
     job = GeoAuditJob(
+        # Isolation multi-tenant : org resolue cote serveur via la cle service (DC18)
+        organization_id=user.organization_id,
         domain=payload.domain,
         company_name=payload.company_name,
         request_hash=request_hash,
@@ -141,11 +145,13 @@ async def create_audit_visibility(
 async def get_audit_visibility(
     audit_id: str,
     db: AsyncSession = Depends(get_db),
-    _user: User = Depends(require_service_scope("geo:audit")),
+    user: User = Depends(require_service_scope("geo:audit")),
 ) -> AuditVisibilityStatusResponse:
     job = await db.get(GeoAuditJob, _parse_uuid(audit_id))
     if job is None:
         raise HTTPException(status_code=404, detail="audit_id introuvable")
+    # Isolation multi-tenant : 404 si le job appartient a une autre org (bypass super-admin)
+    check_tenant_access(job, user)
 
     result = None
     if job.status == "completed" and job.result_json:

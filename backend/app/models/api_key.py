@@ -14,13 +14,13 @@ from sqlalchemy import Boolean, ForeignKey, String
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.models.base import Base, TimestampMixin, UUIDMixin
+from app.models.base import Base, OrgScopedMixin, TimestampMixin, UUIDMixin
 
 if TYPE_CHECKING:
     from app.models.user import User
 
 
-class ApiKey(UUIDMixin, TimestampMixin, Base):
+class ApiKey(UUIDMixin, OrgScopedMixin, TimestampMixin, Base):
     """Clé API pour accès service-to-service."""
 
     __tablename__ = "api_keys"

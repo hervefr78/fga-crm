@@ -146,4 +146,4 @@ async def test_task_not_found(client: AsyncClient, auth_headers: dict):
 async def test_tasks_unauthenticated(client: AsyncClient):
     """Acces sans token = 403."""
     response = await client.get("/api/v1/tasks/")
-    assert response.status_code == 403
+    assert response.status_code == 401

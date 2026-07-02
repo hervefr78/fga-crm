@@ -15,6 +15,7 @@ import logging
 from sqlalchemy import select
 
 from app.db.session import task_session_maker
+from app.models.organization import DEFAULT_ORG_ID
 from app.models.user import User
 from app.services.startup_radar_sync import sync_recent_startups
 from app.tasks.celery_app import app
@@ -26,15 +27,23 @@ async def _run_sync(days_back: int) -> dict:
     """Wrapper async appele par la task Celery (sync) via asyncio.run.
 
     Cree sa propre DB session (Celery n'a pas d'injection FastAPI).
-    Utilise le premier admin actif comme owner des entites creees.
+
+    Startup Radar est une source FGA-partagee (credentials uniques) : la sync
+    cron alimente DETERMINISTIQUEMENT l'org FGA par defaut. Owner = un admin actif
+    de cette org (et non "le premier admin trouve", qui serait arbitraire en
+    multi-tenant). Une sync SR par-org pour d'autres clients necessiterait des
+    credentials SR par tenant — hors scope actuel.
     """
     async with task_session_maker() as db:
-        # Owner = premier admin actif (pattern existant — cf. nomo_new_subscription)
         admin = (await db.execute(
-            select(User).where(User.role == "admin", User.is_active.is_(True)).limit(1)
+            select(User).where(
+                User.role == "admin",
+                User.is_active.is_(True),
+                User.organization_id == DEFAULT_ORG_ID,
+            ).limit(1)
         )).scalar_one_or_none()
         if admin is None:
-            logger.error("[FundingSync cron] Pas d'admin actif — sync annulee")
+            logger.error("[FundingSync cron] Pas d'admin actif dans l'org FGA — sync annulee")
             return {"status": "error", "reason": "no_admin"}
 
         result = await sync_recent_startups(db, admin, days_back=days_back)

@@ -9,7 +9,12 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import get_current_user
-from app.core.rbac import apply_ownership_filter, check_entity_access
+from app.core.rbac import (
+    apply_ownership_filter,
+    apply_tenant_filter,
+    check_entity_access,
+    check_tenant_access,
+)
 from app.db.session import get_db
 from app.models.email_template import EmailTemplate
 from app.models.user import User
@@ -47,6 +52,7 @@ async def list_email_templates(
 ):
     """Lister les templates email (pagine, searchable)."""
     query = select(EmailTemplate)
+    query = apply_tenant_filter(query, EmailTemplate, user)
     query = apply_ownership_filter(query, EmailTemplate, user)
 
     if search:
@@ -85,6 +91,7 @@ async def create_email_template(
         body=data.body,
         variables=variables,
         owner_id=user.id,
+        organization_id=user.organization_id,
     )
     db.add(template)
     await db.flush()
@@ -104,6 +111,7 @@ async def get_email_template(
     template = result.scalar_one_or_none()
     if not template:
         raise HTTPException(status_code=404, detail="Template non trouve")
+    check_tenant_access(template, user)
     check_entity_access(template, user)
 
     return _template_to_response(template)
@@ -121,6 +129,7 @@ async def update_email_template(
     template = result.scalar_one_or_none()
     if not template:
         raise HTTPException(status_code=404, detail="Template non trouve")
+    check_tenant_access(template, user)
     check_entity_access(template, user)
 
     update_data = data.model_dump(exclude_unset=True)
@@ -148,6 +157,7 @@ async def delete_email_template(
     template = result.scalar_one_or_none()
     if not template:
         raise HTTPException(status_code=404, detail="Template non trouve")
+    check_tenant_access(template, user)
     check_entity_access(template, user)
 
     await db.delete(template)

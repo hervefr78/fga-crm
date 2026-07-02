@@ -360,7 +360,7 @@ def _parse_csv(text: str) -> tuple[list[str], list[dict[str, str]]]:
     return header, data
 
 
-async def _seed_two_contacts(db_session):
+async def _seed_two_contacts(db_session, org_id):
     """Seed 2 contacts : un AVEC linkedin_url + company, un SANS linkedin_url.
 
     Retourne (id_with_url, id_without_url) en str (UUID).
@@ -368,7 +368,7 @@ async def _seed_two_contacts(db_session):
     from app.models.company import Company
     from app.models.contact import Contact
 
-    company = Company(id=uuid.uuid4(), name="Acme Corp")
+    company = Company(id=uuid.uuid4(), name="Acme Corp", organization_id=org_id)
     db_session.add(company)
 
     c_with = Contact(
@@ -377,12 +377,14 @@ async def _seed_two_contacts(db_session):
         last_name="Martin",
         linkedin_url="https://linkedin.com/in/alice-martin",
         company_id=company.id,
+        organization_id=org_id,
     )
     c_without = Contact(
         id=uuid.uuid4(),
         first_name="Bob",
         last_name="Durand",
         linkedin_url=None,
+        organization_id=org_id,
     )
     db_session.add(c_with)
     db_session.add(c_without)
@@ -404,12 +406,13 @@ async def test_export_pivots_and_skips_missing_url(
     auth_headers: dict,
     fake_compass: FakeCompassClient,
     db_session,
+    test_org,
 ):
     """CSV : header + 1 ligne (lead avec url+invitation), pivot invit/dm/relance.
 
     Le lead sans linkedin_url est skippe ; X-Skipped-Count le reflete.
     """
-    id_with, id_without = await _seed_two_contacts(db_session)
+    id_with, id_without = await _seed_two_contacts(db_session, test_org.id)
 
     # Lead AVEC url : 3 drafts (invitation + dm + relance) partageant le lead_id.
     # Lead SANS url : 1 invitation (sera skippe car contact sans linkedin_url).

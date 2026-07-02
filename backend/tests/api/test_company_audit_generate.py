@@ -59,6 +59,7 @@ async def _make_company(db: AsyncSession, owner: User, sr_id: str | None) -> Com
         lead_source="startup_radar",
         owner_id=owner.id,
         startup_radar_id=sr_id,
+        organization_id=owner.organization_id,
     )
     db.add(company)
     await db.commit()

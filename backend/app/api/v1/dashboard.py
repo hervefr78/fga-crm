@@ -9,7 +9,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import get_current_user
-from app.core.rbac import apply_ownership_filter
+from app.core.rbac import apply_ownership_filter, apply_tenant_filter
 from app.db.session import get_db
 from app.models.activity import Activity
 from app.models.company import Company
@@ -37,59 +37,66 @@ async def get_dashboard_stats(
     month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
 
     # --- Contacts ---
-    contacts_q = apply_ownership_filter(
+    contacts_q = apply_tenant_filter(
         select(func.count(Contact.id)), Contact, current_user
     )
+    contacts_q = apply_ownership_filter(contacts_q, Contact, current_user)
     contacts_total = (await db.execute(contacts_q)).scalar() or 0
 
-    contacts_month_q = apply_ownership_filter(
+    contacts_month_q = apply_tenant_filter(
         select(func.count(Contact.id)).where(Contact.created_at >= month_start),
         Contact, current_user,
     )
+    contacts_month_q = apply_ownership_filter(contacts_month_q, Contact, current_user)
     contacts_this_month = (await db.execute(contacts_month_q)).scalar() or 0
 
     # --- Companies ---
-    companies_q = apply_ownership_filter(
+    companies_q = apply_tenant_filter(
         select(func.count(Company.id)), Company, current_user
     )
+    companies_q = apply_ownership_filter(companies_q, Company, current_user)
     companies_total = (await db.execute(companies_q)).scalar() or 0
 
     # --- Deals : total ---
-    deals_q = apply_ownership_filter(
+    deals_q = apply_tenant_filter(
         select(func.count(Deal.id)), Deal, current_user
     )
+    deals_q = apply_ownership_filter(deals_q, Deal, current_user)
     deals_total = (await db.execute(deals_q)).scalar() or 0
 
     # --- Deals : pipeline amount (hors won/lost) ---
-    pipeline_q = apply_ownership_filter(
+    pipeline_q = apply_tenant_filter(
         select(func.coalesce(func.sum(Deal.amount), 0.0)).where(
             Deal.stage.in_(PIPELINE_STAGES)
         ),
         Deal, current_user,
     )
+    pipeline_q = apply_ownership_filter(pipeline_q, Deal, current_user)
     deals_pipeline_amount = float((await db.execute(pipeline_q)).scalar() or 0)
 
     # --- Deals : won ---
-    won_q = apply_ownership_filter(
+    won_q = apply_tenant_filter(
         select(
             func.count(Deal.id),
             func.coalesce(func.sum(Deal.amount), 0.0),
         ).where(Deal.stage == "won"),
         Deal, current_user,
     )
+    won_q = apply_ownership_filter(won_q, Deal, current_user)
     won_row = (await db.execute(won_q)).one()
     deals_won_count = won_row[0] or 0
     deals_won_amount = float(won_row[1] or 0)
 
     # --- Deals : lost ---
-    lost_q = apply_ownership_filter(
+    lost_q = apply_tenant_filter(
         select(func.count(Deal.id)).where(Deal.stage == "lost"),
         Deal, current_user,
     )
+    lost_q = apply_ownership_filter(lost_q, Deal, current_user)
     deals_lost_count = (await db.execute(lost_q)).scalar() or 0
 
     # --- Deals par stage (bar chart) ---
-    stage_q = apply_ownership_filter(
+    stage_q = apply_tenant_filter(
         select(
             Deal.stage,
             func.count(Deal.id),
@@ -97,6 +104,7 @@ async def get_dashboard_stats(
         ).group_by(Deal.stage),
         Deal, current_user,
     )
+    stage_q = apply_ownership_filter(stage_q, Deal, current_user)
     stage_rows = (await db.execute(stage_q)).all()
     deals_by_stage = [
         DealsByStage(stage=row[0], count=row[1], total_amount=float(row[2]))
@@ -104,11 +112,14 @@ async def get_dashboard_stats(
     ]
 
     # --- Activites par type (30 derniers jours) ---
-    act_q = apply_ownership_filter(
+    act_q = apply_tenant_filter(
         select(Activity.type, func.count(Activity.id))
         .where(Activity.created_at >= thirty_days_ago)
         .group_by(Activity.type),
-        Activity, current_user, owner_field="user_id",
+        Activity, current_user,
+    )
+    act_q = apply_ownership_filter(
+        act_q, Activity, current_user, owner_field="user_id",
     )
     act_rows = (await db.execute(act_q)).all()
     activities_by_type = [
@@ -117,33 +128,45 @@ async def get_dashboard_stats(
     activities_total_30d = sum(a.count for a in activities_by_type)
 
     # --- Taches ---
+    tasks_total_q = apply_tenant_filter(
+        select(func.count(Task.id)), Task, current_user,
+    )
     tasks_total_q = apply_ownership_filter(
-        select(func.count(Task.id)), Task, current_user, owner_field="assigned_to",
+        tasks_total_q, Task, current_user, owner_field="assigned_to",
     )
     tasks_total = (await db.execute(tasks_total_q)).scalar() or 0
 
-    tasks_completed_q = apply_ownership_filter(
+    tasks_completed_q = apply_tenant_filter(
         select(func.count(Task.id)).where(Task.is_completed.is_(True)),
-        Task, current_user, owner_field="assigned_to",
+        Task, current_user,
+    )
+    tasks_completed_q = apply_ownership_filter(
+        tasks_completed_q, Task, current_user, owner_field="assigned_to",
     )
     tasks_completed = (await db.execute(tasks_completed_q)).scalar() or 0
 
-    tasks_overdue_q = apply_ownership_filter(
+    tasks_overdue_q = apply_tenant_filter(
         select(func.count(Task.id)).where(
             Task.is_completed.is_(False),
             Task.due_date < func.now(),
         ),
-        Task, current_user, owner_field="assigned_to",
+        Task, current_user,
+    )
+    tasks_overdue_q = apply_ownership_filter(
+        tasks_overdue_q, Task, current_user, owner_field="assigned_to",
     )
     tasks_overdue = (await db.execute(tasks_overdue_q)).scalar() or 0
 
     # --- Emails envoyes (30 derniers jours) ---
-    emails_q = apply_ownership_filter(
+    emails_q = apply_tenant_filter(
         select(func.count(Activity.id)).where(
             Activity.type == "email",
             Activity.created_at >= thirty_days_ago,
         ),
-        Activity, current_user, owner_field="user_id",
+        Activity, current_user,
+    )
+    emails_q = apply_ownership_filter(
+        emails_q, Activity, current_user, owner_field="user_id",
     )
     emails_sent_30d = (await db.execute(emails_q)).scalar() or 0
 
@@ -151,37 +174,41 @@ async def get_dashboard_stats(
     # Filtrer sur Company.funding_date (renseigne par le sync SR multi-source).
     # Pas de filtre lead_source : peut etre 'startup_radar' ou autre (futurs flux).
     seven_days_ago = date.today() - timedelta(days=7)
-    recent_funding_count_q = apply_ownership_filter(
+    recent_funding_count_q = apply_tenant_filter(
         select(func.count(Company.id)).where(
             Company.funding_date >= seven_days_ago,
         ),
         Company, current_user,
     )
+    recent_funding_count_q = apply_ownership_filter(recent_funding_count_q, Company, current_user)
     recent_funding_count = (await db.execute(recent_funding_count_q)).scalar() or 0
 
-    recent_funding_amount_q = apply_ownership_filter(
+    recent_funding_amount_q = apply_tenant_filter(
         select(func.coalesce(func.sum(Company.funding_amount), 0)).where(
             Company.funding_date >= seven_days_ago,
         ),
         Company, current_user,
     )
+    recent_funding_amount_q = apply_ownership_filter(recent_funding_amount_q, Company, current_user)
     recent_funding_amount = int((await db.execute(recent_funding_amount_q)).scalar() or 0)
 
     # --- KPI pricing : MRR / ARR / one-shot (DC6 select minimal, RBAC applique) ---
     # On charge uniquement les 3 colonnes utiles puis on normalise en Python.
-    pricing_won_q = apply_ownership_filter(
+    pricing_won_q = apply_tenant_filter(
         select(Deal.pricing_type, Deal.amount, Deal.recurring_amount).where(
             Deal.stage == "won"
         ),
         Deal, current_user,
     )
+    pricing_won_q = apply_ownership_filter(pricing_won_q, Deal, current_user)
     # Pipeline : on n'a pas besoin de Deal.amount (one_shot pipeline ne contribue pas au MRR)
-    pricing_pipeline_q = apply_ownership_filter(
+    pricing_pipeline_q = apply_tenant_filter(
         select(Deal.pricing_type, Deal.recurring_amount).where(
             Deal.stage.in_(PIPELINE_STAGES)
         ),
         Deal, current_user,
     )
+    pricing_pipeline_q = apply_ownership_filter(pricing_pipeline_q, Deal, current_user)
     won_rows = (await db.execute(pricing_won_q)).all()
     pipeline_rows = (await db.execute(pricing_pipeline_q)).all()
 
@@ -261,12 +288,15 @@ async def get_dashboard_next_actions(
     in_seven_days = today + timedelta(days=7)
 
     # 1. Taches en retard (assignees a l'utilisateur, ou toutes pour manager/admin)
-    overdue_q = apply_ownership_filter(
+    overdue_q = apply_tenant_filter(
         select(func.count(Task.id)).where(
             Task.is_completed.is_(False),
             Task.due_date < func.now(),
         ),
-        Task, current_user, owner_field="assigned_to",
+        Task, current_user,
+    )
+    overdue_q = apply_ownership_filter(
+        overdue_q, Task, current_user, owner_field="assigned_to",
     )
     overdue = (await db.execute(overdue_q)).scalar() or 0
     if overdue > 0:
@@ -277,21 +307,25 @@ async def get_dashboard_next_actions(
         ))
 
     # 2. Deals chauds bloques : stage proposal/negotiation sans activity dans les 7j
-    recent_act_deal_subq = (
+    # La subquery est filtree par tenant : sinon une activite d'une autre org
+    # exclurait a tort un deal de l'org courante du "not_in".
+    recent_act_deal_subq = apply_tenant_filter(
         select(Activity.deal_id)
         .where(
             Activity.created_at >= seven_days_ago,
             Activity.deal_id.is_not(None),
         )
-        .distinct()
+        .distinct(),
+        Activity, current_user,
     )
-    hot_blocked_q = apply_ownership_filter(
+    hot_blocked_q = apply_tenant_filter(
         select(func.count(Deal.id)).where(
             Deal.stage.in_(["proposal", "negotiation"]),
             Deal.id.not_in(recent_act_deal_subq),
         ),
         Deal, current_user,
     )
+    hot_blocked_q = apply_ownership_filter(hot_blocked_q, Deal, current_user)
     hot_blocked = (await db.execute(hot_blocked_q)).scalar() or 0
     if hot_blocked > 0:
         suggestions.append(NextActionResponse(
@@ -304,21 +338,24 @@ async def get_dashboard_next_actions(
         ))
 
     # 3. Contacts qualifies stale : status=qualified sans activity dans les 14j
-    recent_act_contact_subq = (
+    # Subquery filtree par tenant (meme raison que la subquery deals ci-dessus).
+    recent_act_contact_subq = apply_tenant_filter(
         select(Activity.contact_id)
         .where(
             Activity.created_at >= fourteen_days_ago,
             Activity.contact_id.is_not(None),
         )
-        .distinct()
+        .distinct(),
+        Activity, current_user,
     )
-    stale_contacts_q = apply_ownership_filter(
+    stale_contacts_q = apply_tenant_filter(
         select(func.count(Contact.id)).where(
             Contact.status == "qualified",
             Contact.id.not_in(recent_act_contact_subq),
         ),
         Contact, current_user,
     )
+    stale_contacts_q = apply_ownership_filter(stale_contacts_q, Contact, current_user)
     stale_contacts = (await db.execute(stale_contacts_q)).scalar() or 0
     if stale_contacts > 0:
         suggestions.append(NextActionResponse(
@@ -329,7 +366,7 @@ async def get_dashboard_next_actions(
 
     # 4. Pipeline a closer cette semaine (calcule seulement si on a < MAX suggestions)
     if len(suggestions) < MAX_NEXT_ACTIONS:
-        close_q = apply_ownership_filter(
+        close_q = apply_tenant_filter(
             select(func.count(Deal.id)).where(
                 Deal.stage.in_(PIPELINE_STAGES),
                 Deal.expected_close_date.is_not(None),
@@ -338,6 +375,7 @@ async def get_dashboard_next_actions(
             ),
             Deal, current_user,
         )
+        close_q = apply_ownership_filter(close_q, Deal, current_user)
         close_imminent = (await db.execute(close_q)).scalar() or 0
         if close_imminent > 0:
             suggestions.append(NextActionResponse(

@@ -9,6 +9,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import get_current_admin, get_current_user
+from app.core.rbac import apply_tenant_filter, check_tenant_access
 from app.db.session import get_db
 from app.models.user import User
 from app.schemas.user import (
@@ -43,8 +44,9 @@ async def list_users(
     db: AsyncSession = Depends(get_db),
     admin: User = Depends(get_current_admin),
 ):
-    """Lister tous les utilisateurs (admin only)."""
+    """Lister les utilisateurs de l'org de l'admin (bypass super-admin)."""
     query = select(User)
+    query = apply_tenant_filter(query, User, admin)
 
     if search:
         search_filter = f"%{search}%"
@@ -103,8 +105,10 @@ async def list_users_lookup(
 
     # DC1 — pas de pagination explicite ici car on attend un nb users < 100 dans
     # un CRM interne. Le `.limit(500)` est un garde-fou defensif (DC1).
+    # Isolation multi-tenant : ne lister que les users de l'org du user courant.
+    lookup_q = apply_tenant_filter(select(User), User, user)
     result = await db.execute(
-        select(User)
+        lookup_q
         .where(User.is_active.is_(True))
         .order_by(User.full_name)
         .limit(500)
@@ -124,6 +128,7 @@ async def get_user(
     target = result.scalar_one_or_none()
     if not target:
         raise HTTPException(status_code=404, detail="Utilisateur non trouve")
+    check_tenant_access(target, admin)  # 404 si user d'une autre org
 
     return UserResponse(
         id=str(target.id), email=target.email, full_name=target.full_name,
@@ -148,11 +153,17 @@ async def update_user_role(
     target = result.scalar_one_or_none()
     if not target:
         raise HTTPException(status_code=404, detail="Utilisateur non trouve")
+    check_tenant_access(target, admin)  # 404 si user d'une autre org
 
-    # Guard : impossible de retirer le dernier admin
+    # Guard : impossible de retirer le dernier admin de l'org DE LA CIBLE.
+    # Compte scope explicitement sur target.organization_id (PAS via le filtre de
+    # l'appelant : un super-admin bypasserait et compterait toutes les orgs).
     if target.role == "admin" and data.role != "admin":
         admin_count = (await db.execute(
-            select(func.count()).select_from(select(User).where(User.role == "admin").subquery())
+            select(func.count()).select_from(User).where(
+                User.role == "admin",
+                User.organization_id == target.organization_id,
+            )
         )).scalar() or 0
         if admin_count <= 1:
             raise HTTPException(status_code=400, detail="Impossible de retirer le dernier administrateur")
@@ -184,6 +195,7 @@ async def toggle_user_active(
     target = result.scalar_one_or_none()
     if not target:
         raise HTTPException(status_code=404, detail="Utilisateur non trouve")
+    check_tenant_access(target, admin)  # 404 si user d'une autre org
 
     target.is_active = data.is_active
     await db.flush()

@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import get_current_user
-from app.core.rbac import apply_ownership_filter
+from app.core.rbac import apply_ownership_filter, apply_tenant_filter
 from app.db.session import get_db
 from app.models.company import Company
 from app.models.contact import Contact
@@ -35,6 +35,8 @@ async def global_search(
         | (Contact.last_name.ilike(search_filter))
         | (Contact.email.ilike(search_filter))
     )
+    # Isolation multi-tenant AVANT le filtre ownership (DC18)
+    contacts_q = apply_tenant_filter(contacts_q, Contact, user)
     contacts_q = apply_ownership_filter(contacts_q, Contact, user)
     contacts_q = contacts_q.limit(MAX_PER_ENTITY)
     contacts_result = await db.execute(contacts_q)
@@ -52,6 +54,8 @@ async def global_search(
         (Company.name.ilike(search_filter))
         | (Company.domain.ilike(search_filter))
     )
+    # Isolation multi-tenant AVANT le filtre ownership (DC18)
+    companies_q = apply_tenant_filter(companies_q, Company, user)
     companies_q = apply_ownership_filter(companies_q, Company, user)
     companies_q = companies_q.limit(MAX_PER_ENTITY)
     companies_result = await db.execute(companies_q)
@@ -62,6 +66,8 @@ async def global_search(
 
     # Deals — select minimal (DC6) + filtre ownership
     deals_q = select(Deal.id, Deal.title, Deal.stage).where(Deal.title.ilike(search_filter))
+    # Isolation multi-tenant AVANT le filtre ownership (DC18)
+    deals_q = apply_tenant_filter(deals_q, Deal, user)
     deals_q = apply_ownership_filter(deals_q, Deal, user)
     deals_q = deals_q.limit(MAX_PER_ENTITY)
     deals_result = await db.execute(deals_q)

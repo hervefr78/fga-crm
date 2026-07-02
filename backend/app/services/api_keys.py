@@ -41,8 +41,12 @@ async def create_api_key(
     raw_key = KEY_PREFIX + secrets.token_hex(KEY_BYTES)
     key_hash = _hash_key(raw_key)
 
+    # L'org de la cle = celle du user proprietaire (source de verite serveur, DC18).
+    owner_org = await db.scalar(select(User.organization_id).where(User.id == user_id))
+
     api_key = ApiKey(
         user_id=user_id,
+        organization_id=owner_org,
         key_hash=key_hash,
         name=name,
         scopes=scopes or [],
@@ -122,9 +126,10 @@ async def get_or_create_service_account(
     db: AsyncSession,
     email: str,
     full_name: str,
+    organization_id: uuid.UUID,
     hashed_password: str = "$2b$12$disabled",  # compte désactivé pour connexion UI  # noqa: S107
 ) -> User:
-    """Retourne le service account existant ou le crée.
+    """Retourne le service account existant ou le crée (dans l'org fournie).
 
     Les service accounts ont is_service=True et ne peuvent pas se connecter via l'UI.
     """
@@ -138,6 +143,7 @@ async def get_or_create_service_account(
             role="service",
             is_active=True,
             is_service=True,
+            organization_id=organization_id,
         )
         db.add(user)
         await db.flush()

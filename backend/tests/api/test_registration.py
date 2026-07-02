@@ -1,5 +1,5 @@
 # =============================================================================
-# FGA CRM - Tests Registration (role attribution automatique)
+# FGA CRM - Tests Registration (multi-tenant : 1 inscription = 1 org)
 # =============================================================================
 
 import pytest
@@ -7,48 +7,52 @@ from httpx import AsyncClient
 
 
 @pytest.mark.asyncio
-async def test_first_user_gets_admin_role(client: AsyncClient):
-    """Le premier utilisateur inscrit recoit le role admin."""
+async def test_register_creates_org_and_admin(client: AsyncClient):
+    """Toute inscription cree une organisation et le user en est l'admin."""
     resp = await client.post("/api/v1/auth/register", json={
-        "email": "first@fga.fr",
+        "email": "founder@fga.fr",
         "password": "Secure1234!",
-        "full_name": "First User",
+        "full_name": "Founder User",
     })
     assert resp.status_code == 201
-    assert resp.json()["role"] == "admin"
+    body = resp.json()
+    assert body["role"] == "admin"
+    assert body["organization_id"]  # une org a bien ete creee et rattachee
+    assert body["is_superadmin"] is False  # un signup n'est jamais super-admin
 
 
 @pytest.mark.asyncio
-async def test_second_user_gets_sales_role(client: AsyncClient):
-    """Le deuxieme utilisateur inscrit recoit le role sales."""
-    # Premier utilisateur → admin
-    await client.post("/api/v1/auth/register", json={
-        "email": "admin@fga.fr",
-        "password": "Secure1234!",
-        "full_name": "Admin User",
+async def test_each_registration_gets_its_own_org(client: AsyncClient):
+    """Deux inscriptions distinctes -> deux organisations distinctes (isolation)."""
+    r1 = await client.post("/api/v1/auth/register", json={
+        "email": "a@fga.fr", "password": "Secure1234!", "full_name": "User A",
     })
-
-    # Deuxieme utilisateur → sales
-    resp = await client.post("/api/v1/auth/register", json={
-        "email": "sales@fga.fr",
-        "password": "Secure1234!",
-        "full_name": "Sales User",
+    r2 = await client.post("/api/v1/auth/register", json={
+        "email": "b@fga.fr", "password": "Secure1234!", "full_name": "User B",
     })
-    assert resp.status_code == 201
-    assert resp.json()["role"] == "sales"
+    assert r1.status_code == 201
+    assert r2.status_code == 201
+    assert r1.json()["organization_id"] != r2.json()["organization_id"]
+    assert r1.json()["role"] == "admin"
+    assert r2.json()["role"] == "admin"
 
 
 @pytest.mark.asyncio
-async def test_third_user_also_gets_sales_role(client: AsyncClient):
-    """Le troisieme utilisateur recoit aussi le role sales."""
-    await client.post("/api/v1/auth/register", json={
-        "email": "admin@fga.fr", "password": "Secure1234!", "full_name": "Admin",
-    })
-    await client.post("/api/v1/auth/register", json={
-        "email": "user2@fga.fr", "password": "Secure1234!", "full_name": "User 2",
-    })
+async def test_register_custom_org_name(client: AsyncClient):
+    """Le nom d'organisation fourni est accepte."""
     resp = await client.post("/api/v1/auth/register", json={
-        "email": "user3@fga.fr", "password": "Secure1234!", "full_name": "User 3",
+        "email": "c@fga.fr", "password": "Secure1234!", "full_name": "User C",
+        "organization_name": "Acme Corp",
     })
     assert resp.status_code == 201
-    assert resp.json()["role"] == "sales"
+    assert resp.json()["organization_id"]
+
+
+@pytest.mark.asyncio
+async def test_register_duplicate_email_rejected(client: AsyncClient):
+    """Un email deja enregistre est rejete (unicite globale)."""
+    payload = {"email": "dup@fga.fr", "password": "Secure1234!", "full_name": "Dup"}
+    first = await client.post("/api/v1/auth/register", json=payload)
+    assert first.status_code == 201
+    second = await client.post("/api/v1/auth/register", json=payload)
+    assert second.status_code == 400

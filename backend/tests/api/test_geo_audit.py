@@ -26,10 +26,11 @@ _BODY = {
 
 
 @pytest_asyncio.fixture
-async def service_user(db_session: AsyncSession) -> User:
+async def service_user(db_session: AsyncSession, test_org) -> User:
     user = User(
         id=uuid.uuid4(), email="sr-service@fga.fr",
         hashed_password="x", full_name="SR Service", role="admin", is_active=True,
+        organization_id=test_org.id,
     )
     db_session.add(user)
     await db_session.commit()
@@ -119,7 +120,7 @@ async def test_post_creates_queued_job(client: AsyncClient, audit_headers: dict)
 
 
 async def test_dedup_returns_cache_hit(
-    client: AsyncClient, audit_headers: dict, db_session: AsyncSession
+    client: AsyncClient, audit_headers: dict, db_session: AsyncSession, service_user
 ):
     # Un job complete recent avec le meme request_hash -> cache_hit.
     request_hash = compute_request_hash(
@@ -130,6 +131,7 @@ async def test_dedup_returns_cache_hit(
         domain=_BODY["domain"], company_name=_BODY["company_name"], request_hash=request_hash,
         engine="perplexity", status="completed", finished_at=datetime.now(UTC),
         result_json={"visible": False, "summary": "0/2"},
+        organization_id=service_user.organization_id,
     )
     db_session.add(job)
     await db_session.commit()

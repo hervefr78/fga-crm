@@ -73,11 +73,13 @@ async def create_funding_activity(
     company_id: uuid.UUID,
     user_id: uuid.UUID,
     startup_data: dict,
+    organization_id: uuid.UUID,
 ) -> bool:
     """Cree une Activity 'funding_detected' depuis les donnees SR. Idempotente.
 
-    Idempotence : (company_id, type='funding_detected', subject) — le subject
-    inclut le montant + la serie donc un nouveau round produit une nouvelle activity.
+    Idempotence : (company_id, type='funding_detected', subject, organization_id)
+    — le subject inclut le montant + la serie donc un nouveau round produit une
+    nouvelle activity. Scopee a l'org pour l'isolation multi-tenant.
 
     Retourne True si activity creee, False si elle existait deja ou si pas de montant.
     """
@@ -96,11 +98,12 @@ async def create_funding_activity(
     # entre appels successifs au sein de la meme transaction.
     await db.flush()
 
-    # Idempotence : verifier si l'activity existe deja
+    # Idempotence : verifier si l'activity existe deja (scopee org)
     stmt = select(Activity).where(
         Activity.company_id == company_id,
         Activity.type == "funding_detected",
         Activity.subject == subject,
+        Activity.organization_id == organization_id,
     )
     if (await db.execute(stmt)).scalar_one_or_none():
         return False
@@ -136,6 +139,7 @@ async def create_funding_activity(
         metadata_=metadata,
         company_id=company_id,
         user_id=user_id,
+        organization_id=organization_id,
     )
     db.add(activity)
     # Flush pour que les appels suivants au sein de la meme transaction voient
@@ -150,6 +154,7 @@ async def create_qualification_task(
     company_id: uuid.UUID,
     assigned_to: uuid.UUID,
     startup_data: dict,
+    organization_id: uuid.UUID,
 ) -> bool:
     """Cree une Task 'qualification' pour qualifier la levee. Idempotente.
 
@@ -157,9 +162,10 @@ async def create_qualification_task(
     startup arrive ici, c'est qu'elle est qualifying. CRM cree donc la task
     systematiquement quand amount > 0.
 
-    Idempotence : (company_id, type='qualification', is_completed=False) —
-    une seule task ouverte a la fois. Si l'ancienne est completee, une nouvelle
-    peut etre creee (ex: nouveau round 6 mois plus tard).
+    Idempotence : (company_id, type='qualification', is_completed=False,
+    organization_id) — une seule task ouverte a la fois. Si l'ancienne est
+    completee, une nouvelle peut etre creee (ex: nouveau round 6 mois plus tard).
+    Scopee a l'org pour l'isolation multi-tenant.
 
     Retourne True si task creee, False sinon.
     """
@@ -170,11 +176,12 @@ async def create_qualification_task(
     # Flush pour rendre visible les inserts precedents (cf. create_funding_activity).
     await db.flush()
 
-    # Idempotence : verifier qu'aucune task qualification ouverte n'existe deja
+    # Idempotence : verifier qu'aucune task qualification ouverte n'existe deja (scopee org)
     stmt = select(Task).where(
         Task.company_id == company_id,
         Task.type == "qualification",
         Task.is_completed.is_(False),
+        Task.organization_id == organization_id,
     )
     if (await db.execute(stmt)).scalar_one_or_none():
         return False
@@ -196,6 +203,7 @@ async def create_qualification_task(
         company_id=company_id,
         assigned_to=assigned_to,
         is_completed=False,
+        organization_id=organization_id,
     )
     db.add(task)
     await db.flush()  # cf. note dans create_funding_activity
@@ -218,8 +226,12 @@ async def sync_startups(
     db: AsyncSession,
     client: StartupRadarClient,
     user: User,
+    organization_id: uuid.UUID,
 ) -> tuple[SyncResult, dict[str, uuid.UUID]]:
     """Synchroniser les startups SR en Companies CRM.
+
+    Toutes les entites creees sont taggees `organization_id` et les recherches
+    d'idempotence sont scopees a cette org (isolation multi-tenant).
 
     Retourne (result_partiel, sr_id_to_company_id_map).
     """
@@ -239,8 +251,11 @@ async def sync_startups(
 
         try:
             async with db.begin_nested():
-                # 1. Chercher par startup_radar_id (idempotence principale)
-                stmt = select(Company).where(Company.startup_radar_id == sr_id)
+                # 1. Chercher par startup_radar_id (idempotence principale, scopee org)
+                stmt = select(Company).where(
+                    Company.startup_radar_id == sr_id,
+                    Company.organization_id == organization_id,
+                )
                 existing = (await db.execute(stmt)).scalar_one_or_none()
 
                 # 2. Fallback SIREN : si SR fournit un siren, chercher une company
@@ -252,6 +267,7 @@ async def sync_startups(
                         stmt_siren = select(Company).where(
                             Company.siren == siren_clean,
                             Company.startup_radar_id.is_(None),
+                            Company.organization_id == organization_id,
                         )
                         existing = (await db.execute(stmt_siren)).scalar_one_or_none()
                         if existing:
@@ -265,6 +281,7 @@ async def sync_startups(
                     stmt2 = select(Company).where(
                         func.lower(Company.name) == s["name"].lower(),
                         Company.startup_radar_id.is_(None),
+                        Company.organization_id == organization_id,
                     )
                     existing = (await db.execute(stmt2)).scalar_one_or_none()
                     if existing:
@@ -323,6 +340,7 @@ async def sync_startups(
                         startup_radar_id=sr_id,
                         lead_source="startup_radar",
                         owner_id=user.id,
+                        organization_id=organization_id,
                         siren=(s.get("siren") or "")[:9] or None,
                         funding_date=_parse_iso_date(s.get("funding_date")),
                         funding_amount=s.get("amount"),
@@ -340,9 +358,9 @@ async def sync_startups(
                 if s.get("amount"):
                     # Flush pour que company_id existe avant les FK des Activity/Task
                     await db.flush()
-                    if await create_funding_activity(db, company_id, user.id, s):
+                    if await create_funding_activity(db, company_id, user.id, s, organization_id):
                         result.funding_activities_created += 1
-                    if await create_qualification_task(db, company_id, user.id, s):
+                    if await create_qualification_task(db, company_id, user.id, s, organization_id):
                         result.qualification_tasks_created += 1
 
         except Exception as e:
@@ -366,8 +384,13 @@ async def sync_investors(
     db: AsyncSession,
     client: StartupRadarClient,
     user: User,
+    organization_id: uuid.UUID,
 ) -> SyncResult:
-    """Synchroniser les investisseurs SR en Companies CRM (industry=Capital-risque)."""
+    """Synchroniser les investisseurs SR en Companies CRM (industry=Capital-risque).
+
+    Toutes les entites creees sont taggees `organization_id` et les recherches
+    d'idempotence sont scopees a cette org (isolation multi-tenant).
+    """
     result = SyncResult()
 
     try:
@@ -386,8 +409,11 @@ async def sync_investors(
 
         try:
             async with db.begin_nested():
-                # 1. Chercher par startup_radar_id
-                stmt = select(Company).where(Company.startup_radar_id == sr_id)
+                # 1. Chercher par startup_radar_id (scopee org)
+                stmt = select(Company).where(
+                    Company.startup_radar_id == sr_id,
+                    Company.organization_id == organization_id,
+                )
                 existing = (await db.execute(stmt)).scalar_one_or_none()
 
                 # 2. Fallback nom case-insensitive (evite doublons si cree manuellement)
@@ -395,6 +421,7 @@ async def sync_investors(
                     stmt2 = select(Company).where(
                         func.lower(Company.name) == inv["name"].lower(),
                         Company.startup_radar_id.is_(None),
+                        Company.organization_id == organization_id,
                     )
                     existing = (await db.execute(stmt2)).scalar_one_or_none()
                     if existing:
@@ -423,6 +450,7 @@ async def sync_investors(
                         startup_radar_id=sr_id,
                         lead_source="startup_radar",
                         owner_id=user.id,
+                        organization_id=organization_id,
                     )
                     db.add(company)
                     result.investors_created += 1
@@ -449,10 +477,14 @@ async def sync_contacts(
     client: StartupRadarClient,
     user: User,
     sr_to_crm: dict[str, uuid.UUID],
+    organization_id: uuid.UUID,
 ) -> SyncResult:
     """Synchroniser les contacts SR en Contacts CRM.
 
     sr_to_crm : mapping startup_radar_id → company_id CRM (pour lier contact → company).
+
+    Toutes les entites creees sont taggees `organization_id` et la recherche
+    d'idempotence est scopee a cette org (isolation multi-tenant).
     """
     result = SyncResult()
 
@@ -469,7 +501,10 @@ async def sync_contacts(
 
         try:
             async with db.begin_nested():
-                stmt = select(Contact).where(Contact.startup_radar_id == sr_id)
+                stmt = select(Contact).where(
+                    Contact.startup_radar_id == sr_id,
+                    Contact.organization_id == organization_id,
+                )
                 existing = (await db.execute(stmt)).scalar_one_or_none()
 
                 # Trouver la company CRM via startup_id du contact SR
@@ -513,6 +548,7 @@ async def sync_contacts(
                         company_id=company_id,
                         startup_radar_id=sr_id,
                         owner_id=user.id,
+                        organization_id=organization_id,
                         enrichment_source=(c.get("enrichment_source") or "")[:50] or None,
                         email_pattern_used=(c.get("email_pattern_used") or "")[:50] or None,
                         linkedin_url_status=(c.get("linkedin_url_status") or "")[:20] or None,
@@ -543,10 +579,14 @@ async def sync_audits(
     user: User,
     sr_to_crm: dict[str, uuid.UUID],
     startups: list[dict],
+    organization_id: uuid.UUID,
 ) -> SyncResult:
     """Synchroniser les analyses/audits SR en Activities CRM (type=audit).
 
     startups : liste des startups SR (pour le nom + id).
+
+    Toutes les Activities creees sont taggees `organization_id` et les recherches
+    d'idempotence sont scopees a cette org (isolation multi-tenant).
     """
     result = SyncResult()
 
@@ -564,11 +604,12 @@ async def sync_audits(
             if analysis and analysis.get("positioning"):
                 subject = f"Audit messaging: {startup_name}"
                 async with db.begin_nested():
-                    # Verifier si deja importe (par subject unique)
+                    # Verifier si deja importe (par subject unique, scopee org)
                     stmt = select(Activity).where(
                         Activity.company_id == company_id,
                         Activity.type == "audit",
                         Activity.subject == subject,
+                        Activity.organization_id == organization_id,
                     )
                     existing = (await db.execute(stmt)).scalar_one_or_none()
 
@@ -593,6 +634,7 @@ async def sync_audits(
                             metadata_=metadata,
                             company_id=company_id,
                             user_id=user.id,
+                            organization_id=organization_id,
                         )
                         db.add(activity)
                         result.audits_created += 1
@@ -610,6 +652,7 @@ async def sync_audits(
                         Activity.company_id == company_id,
                         Activity.type == "audit",
                         Activity.subject == subject,
+                        Activity.organization_id == organization_id,
                     )
                     existing = (await db.execute(stmt)).scalar_one_or_none()
 
@@ -659,6 +702,7 @@ async def sync_audits(
                             metadata_=metadata,
                             company_id=company_id,
                             user_id=user.id,
+                            organization_id=organization_id,
                         )
                         db.add(activity)
                         result.audits_created += 1
@@ -676,6 +720,7 @@ async def sync_audits(
                         Activity.company_id == company_id,
                         Activity.type == "audit",
                         Activity.subject == subject,
+                        Activity.organization_id == organization_id,
                     )
                     existing = (await db.execute(stmt)).scalar_one_or_none()
 
@@ -705,6 +750,7 @@ async def sync_audits(
                             metadata_=metadata,
                             company_id=company_id,
                             user_id=user.id,
+                            organization_id=organization_id,
                         )
                         db.add(activity)
                         result.audits_created += 1
@@ -722,10 +768,18 @@ async def sync_audits(
 # ---------------------------------------------------------------------------
 
 
-async def full_sync(db: AsyncSession, user: User) -> SyncResult:
+async def full_sync(
+    db: AsyncSession,
+    user: User,
+    organization_id: uuid.UUID,
+) -> SyncResult:
     """Synchronisation complete SR → CRM.
 
     Ordre : startups → investors → contacts → audits.
+
+    organization_id : org a laquelle rattacher toutes les entites creees (tag +
+    scope idempotence). Fournie par l'appelant (task Celery) qui la resout depuis
+    le user declencheur.
     """
     sr_client = StartupRadarClient()
     total = SyncResult()
@@ -739,15 +793,15 @@ async def full_sync(db: AsyncSession, user: User) -> SyncResult:
         raise
 
     # 2. Sync startups → Companies
-    startups_result, sr_to_crm = await sync_startups(db, sr_client, user)
+    startups_result, sr_to_crm = await sync_startups(db, sr_client, user, organization_id)
     _merge_results(total, startups_result)
 
     # 3. Sync investors → Companies (industry=Capital-risque)
-    investors_result = await sync_investors(db, sr_client, user)
+    investors_result = await sync_investors(db, sr_client, user, organization_id)
     _merge_results(total, investors_result)
 
     # 4. Sync contacts → Contacts (avec mapping company)
-    contacts_result = await sync_contacts(db, sr_client, user, sr_to_crm)
+    contacts_result = await sync_contacts(db, sr_client, user, sr_to_crm, organization_id)
     _merge_results(total, contacts_result)
 
     # 5. Sync audits → Activities
@@ -758,7 +812,7 @@ async def full_sync(db: AsyncSession, user: User) -> SyncResult:
         total.errors.append(f"Re-fetch startups pour audits: {e}")
         startups = []
 
-    audits_result = await sync_audits(db, sr_client, user, sr_to_crm, startups)
+    audits_result = await sync_audits(db, sr_client, user, sr_to_crm, startups, organization_id)
     _merge_results(total, audits_result)
 
     # 6. Commit final
@@ -819,6 +873,10 @@ async def sync_recent_startups(
     Returns:
         SyncResult agrege (companies + contacts + funding activities + tasks).
     """
+    # Isolation multi-tenant : toutes les entites creees sont rattachees a l'org
+    # du user declencheur (humain). Scope aussi les recherches d'idempotence.
+    organization_id = user.organization_id
+
     result = SyncResult()
     sr_client = StartupRadarClient()
 
@@ -868,7 +926,7 @@ async def sync_recent_startups(
             return getattr(self._real, name)
 
     partial_client = _PartialClient(sr_client, items)
-    startups_result, sr_to_crm = await sync_startups(db, partial_client, user)  # type: ignore[arg-type]
+    startups_result, sr_to_crm = await sync_startups(db, partial_client, user, organization_id)  # type: ignore[arg-type]
     _merge_results(result, startups_result)
 
     # 3. Sync contacts uniquement pour les startups touchees (eviter full pull)
@@ -896,7 +954,7 @@ async def sync_recent_startups(
                 return getattr(self._real, name)
 
         contacts_client = _ContactsClient(sr_client, relevant_contacts)
-        contacts_result = await sync_contacts(db, contacts_client, user, sr_to_crm)  # type: ignore[arg-type]
+        contacts_result = await sync_contacts(db, contacts_client, user, sr_to_crm, organization_id)  # type: ignore[arg-type]
         _merge_results(result, contacts_result)
 
     # 4. Commit final

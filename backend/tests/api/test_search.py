@@ -93,4 +93,4 @@ async def test_global_search_empty_results(client: AsyncClient, auth_headers: di
 async def test_global_search_unauthenticated(client: AsyncClient):
     """Recherche sans token = 403."""
     response = await client.get("/api/v1/search/", params={"q": "test"})
-    assert response.status_code == 403
+    assert response.status_code == 401

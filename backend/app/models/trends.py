@@ -101,8 +101,9 @@ class TrendJob(Base, UUIDMixin, TimestampMixin):
 
     __tablename__ = "trend_jobs"
 
-    organization_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), nullable=True, index=True
+    # NOT NULL depuis mt_contract_001 (job cree par la route, toujours tague org).
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), nullable=False, index=True
     )
     # Utilisateur declencheur (SET NULL si l'utilisateur est supprime)
     created_by: Mapped[uuid.UUID | None] = mapped_column(
