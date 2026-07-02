@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING, Optional
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -70,8 +70,8 @@ class Contact(Base, UUIDMixin, OrgScopedMixin, TimestampMixin):
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
 
-    # Integration — Startup Radar
-    startup_radar_id: Mapped[str | None] = mapped_column(String(255), nullable=True, unique=True)
+    # Integration — Startup Radar. Unicite SCOPEE par org (voir __table_args__).
+    startup_radar_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     # Enrichment metadata (synced from Startup Radar multi-source pipeline)
     # enrichment_source : pappers, sirene, scraping, manual, etc.
@@ -86,6 +86,12 @@ class Contact(Base, UUIDMixin, OrgScopedMixin, TimestampMixin):
     deals: Mapped[list["Deal"]] = relationship(back_populates="contact", lazy="selectin")
     activities: Mapped[list["Activity"]] = relationship(back_populates="contact", lazy="selectin")
     tasks: Mapped[list["Task"]] = relationship(back_populates="contact", lazy="selectin")
+
+    # Isolation multi-tenant : unicite startup_radar_id SCOPEE par org (jamais
+    # globale — sinon deux orgs ne peuvent pas importer le meme lead SR).
+    __table_args__ = (
+        UniqueConstraint("organization_id", "startup_radar_id", name="uq_contacts_org_startup_radar_id"),
+    )
 
     def __repr__(self) -> str:
         return f"<Contact {self.first_name} {self.last_name}>"
