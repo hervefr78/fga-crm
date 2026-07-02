@@ -10,7 +10,7 @@ from sqlalchemy import Date, DateTime, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.models.base import Base, TimestampMixin, UUIDMixin
+from app.models.base import Base, OrgScopedMixin, TimestampMixin, UUIDMixin
 
 if TYPE_CHECKING:
     from app.models.activity import Activity
@@ -38,7 +38,7 @@ PRICING_TYPES = ["one_shot", "monthly", "quarterly", "biannual", "annual"]
 PERIOD_TO_MONTHS: dict[str, int] = {"monthly": 1, "quarterly": 3, "biannual": 6, "annual": 12}
 
 
-class Deal(Base, UUIDMixin, TimestampMixin):
+class Deal(Base, UUIDMixin, OrgScopedMixin, TimestampMixin):
     __tablename__ = "deals"
 
     title: Mapped[str] = mapped_column(String(255), nullable=False)

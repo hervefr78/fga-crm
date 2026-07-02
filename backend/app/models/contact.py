@@ -10,7 +10,7 @@ from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.models.base import Base, TimestampMixin, UUIDMixin
+from app.models.base import Base, OrgScopedMixin, TimestampMixin, UUIDMixin
 
 if TYPE_CHECKING:
     from app.models.activity import Activity
@@ -19,7 +19,7 @@ if TYPE_CHECKING:
     from app.models.task import Task
 
 
-class Contact(Base, UUIDMixin, TimestampMixin):
+class Contact(Base, UUIDMixin, OrgScopedMixin, TimestampMixin):
     __tablename__ = "contacts"
 
     # Company link

@@ -9,7 +9,7 @@ from sqlalchemy import ForeignKey, String, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.models.base import Base, TimestampMixin, UUIDMixin
+from app.models.base import Base, OrgScopedMixin, TimestampMixin, UUIDMixin
 
 if TYPE_CHECKING:
     from app.models.company import Company
@@ -21,7 +21,7 @@ if TYPE_CHECKING:
 ACTIVITY_TYPES = ["email", "call", "meeting", "note", "linkedin", "task", "audit"]
 
 
-class Activity(Base, UUIDMixin, TimestampMixin):
+class Activity(Base, UUIDMixin, OrgScopedMixin, TimestampMixin):
     __tablename__ = "activities"
 
     type: Mapped[str] = mapped_column(String(50), nullable=False, index=True)  # email, call, meeting, note, linkedin
