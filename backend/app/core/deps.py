@@ -120,6 +120,14 @@ async def get_service_user(
         )
 
     api_key, user = result
+
+    # Soft-delete tenant : cle d'un service account dont l'org est desactivee -> 403.
+    org_active = await db.scalar(
+        select(Organization.is_active).where(Organization.id == user.organization_id)
+    )
+    if org_active is False:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Organisation desactivee")
+
     # Stocker les scopes pour require_service_scope
     request.state.api_key_scopes = list(api_key.scopes or [])
     request.state.api_key_name = api_key.name
