@@ -16,9 +16,11 @@ import logging
 import httpx
 
 from app.services.enrichment.ports import (
+    Company,
     EmailCandidate,
     EmailFinder,
     EmailVerifier,
+    PeopleSource,
     PersonCandidate,
     VerificationResult,
 )
@@ -129,6 +131,41 @@ class IcypeasClient:
         sid = await self._submit("email-verification", {"email": email})
         return await self._await_result(sid) if sid else None
 
+    async def find_people(
+        self,
+        *,
+        domain: str | None = None,
+        company_name: str | None = None,
+        job_titles: list[str] | None = None,
+        size: int = 25,
+    ) -> list[dict]:
+        """Leads DB (SYNCHRONE) : retourne les profils matchant societe + titres."""
+        query: dict = {}
+        if domain:
+            query["currentCompanyWebsite"] = {"include": [domain]}
+        elif company_name:
+            query["currentCompanyName"] = {"include": [company_name]}
+        if job_titles:
+            query["currentJobTitle"] = {"include": list(job_titles)}
+        if not query:
+            return []
+        try:
+            async with self._client() as client:
+                resp = await client.post(
+                    f"{self._base}/find-people",
+                    headers=self._headers(),
+                    json={"query": query, "pagination": {"size": size}},
+                )
+                resp.raise_for_status()
+                data = resp.json()
+        except (httpx.HTTPError, ValueError) as exc:
+            logger.warning("[Icypeas] find-people KO : %s", exc)
+            return []
+        if not data.get("success"):
+            logger.warning("[Icypeas] find-people refuse : %s", data.get("validationErrors"))
+            return []
+        return data.get("leads") or []
+
 
 def _first_email(item: dict | None) -> dict | None:
     """Extrait la premiere entree emails[] du resultat Icypeas (ou None)."""
@@ -136,6 +173,39 @@ def _first_email(item: dict | None) -> dict | None:
         return None
     emails = ((item.get("results") or {}).get("emails")) or []
     return emails[0] if emails else None
+
+
+class IcypeasPeopleSource(PeopleSource):
+    name = "icypeas"
+    cost_per_result = 1.0  # 1 credit leads DB par profil retourne
+
+    _SIZE = 25
+
+    def __init__(self, client: IcypeasClient) -> None:
+        self._client = client
+
+    async def find_people(self, company: Company, roles: list[str]) -> list[PersonCandidate]:
+        # Domaine prioritaire (plus precis), sinon nom de societe.
+        leads = await self._client.find_people(
+            domain=company.domain,
+            company_name=None if company.domain else company.name,
+            job_titles=roles,
+            size=self._SIZE,
+        )
+        out: list[PersonCandidate] = []
+        for lead in leads:
+            fn = (lead.get("firstname") or "").strip()
+            ln = (lead.get("lastname") or "").strip()
+            if not fn or not ln:
+                continue
+            out.append(PersonCandidate(
+                first_name=fn,
+                last_name=ln,
+                title_raw=lead.get("lastJobTitle") or "",
+                source="icypeas",
+                linkedin_url=lead.get("profileUrl") or None,
+            ))
+        return out
 
 
 class IcypeasEmailFinder(EmailFinder):

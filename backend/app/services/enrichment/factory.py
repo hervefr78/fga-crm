@@ -12,6 +12,7 @@ from app.services.enrichment.adapters.icypeas import (
     IcypeasClient,
     IcypeasEmailFinder,
     IcypeasEmailVerifier,
+    IcypeasPeopleSource,
 )
 from app.services.enrichment.adapters.mock import (
     MockCompanySource,
@@ -38,8 +39,10 @@ def get_company_source() -> CompanySource:
 
 
 def get_people_sources() -> list[PeopleSource]:
-    # Ordre cout-croissant. P6 : CrmPeopleSource(0) -> StartupRadar(0) -> Icypeas
-    # find-people (leads DB, schema a capturer avant integration).
+    # Icypeas find-people (leads DB) si cle configuree. Une future CrmPeopleSource
+    # (contacts importes LinkedIn) viendra en amont (cout 0) dans la cascade.
+    if settings.icypeas_api_key:
+        return [IcypeasPeopleSource(_icypeas_client())]
     return [MockPeopleSource()]
 
 

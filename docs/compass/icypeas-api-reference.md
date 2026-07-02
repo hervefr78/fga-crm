@@ -56,7 +56,22 @@ Réponse (finder ET verifier ont la MÊME structure) :
 - `not_found` : inconnu → `invalid`.
 - (pas de `catch_all` explicite dans les certitudes Icypeas.)
 
-## Find People (leads DB, synchrone) — NON encore intégré
-`POST /api/find-people` : `{"query":{"currentCompanyWebsite":{"include":[...]},"currentJobTitle":{"include":["CTO"]}},"pagination":{"size":N}}`
-→ `{"success":true,"total":N,"leads":[...],"pagination":{"token":...}}`
-(structure de `leads[]` à capturer avant implémentation ; feature leads-db, dépend du plan.)
+## Find People (leads DB, SYNCHRONE) — intégré (IcypeasPeopleSource)
+`POST /api/find-people`
+```json
+{"query":{"currentCompanyWebsite":{"include":["www.upsun.com"]},
+          "currentJobTitle":{"include":["CTO"]}},
+ "pagination":{"size":2}}
+```
+→ `{"total":2,"success":true,"leads":[{...}]}`. Un lead (pas d'email — profil LinkedIn) :
+```json
+{"firstname":"Guillaume","lastname":"Moigneu","lastJobTitle":"Field CTO",
+ "profileUrl":"https://www.linkedin.com/in/guillaumemoigneu",
+ "headline":"...","description":"...","address":"...",
+ "lastCompanyName":"Upsun","lastCompanyWebsite":"http://www.upsun.com",
+ "lastCompanyIndustry":"Software Development","lastCompanySize":281,
+ "lastCompanyAddress":"22 Rue de Palestro, 75002, Paris, ..."}
+```
+- `currentJobTitle.include` fait du fuzzy ("CTO" matche "Field CTO").
+- Mapping : `firstname`/`lastname`, `title_raw=lastJobTitle`, `linkedin_url=profileUrl`.
+- Pas d'email → alimente ensuite le finder (email-search).

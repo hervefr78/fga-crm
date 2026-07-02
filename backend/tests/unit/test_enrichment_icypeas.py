@@ -13,9 +13,10 @@ from app.services.enrichment.adapters.icypeas import (
     IcypeasClient,
     IcypeasEmailFinder,
     IcypeasEmailVerifier,
+    IcypeasPeopleSource,
     _map_certainty,
 )
-from app.services.enrichment.ports import PersonCandidate
+from app.services.enrichment.ports import Company, PersonCandidate
 
 _PERSON = PersonCandidate(first_name="Herve", last_name="Dhelin", title_raw="CTO", source="mock")
 
@@ -142,3 +143,54 @@ async def test_http_error_degrades_to_none():
     assert await IcypeasEmailFinder(_client(handler)).find(_PERSON, "x.fr") is None
     res = await IcypeasEmailVerifier(_client(handler)).verify("x@y.fr")
     assert res.status == "invalid"  # fail-safe : deny by default
+
+
+# ---------------------------------------------------------------------------
+# find-people (leads DB) — reponse REELLE capturee (2 CTO chez Upsun)
+# ---------------------------------------------------------------------------
+
+_LEADS_RESPONSE = {
+    "total": 2, "success": True,
+    "leads": [
+        {"firstname": "Guillaume", "lastname": "Moigneu", "lastJobTitle": "Field CTO",
+         "profileUrl": "https://www.linkedin.com/in/guillaumemoigneu",
+         "lastCompanyName": "Upsun", "lastCompanyWebsite": "http://www.upsun.com"},
+        {"firstname": "Florian", "lastname": "Margaine", "lastJobTitle": "Field CTO",
+         "profileUrl": "https://www.linkedin.com/in/florian-margaine-43971136",
+         "lastCompanyName": "Upsun", "lastCompanyWebsite": "http://www.upsun.com"},
+    ],
+}
+
+_COMPANY = Company(siren="123", name="Upsun", domain="www.upsun.com")
+
+
+async def test_people_source_maps_leads_to_candidates():
+    captured = {}
+
+    def handler(request):
+        captured["path"] = request.url.path
+        return _resp(_LEADS_RESPONSE)
+
+    people = await IcypeasPeopleSource(_client(handler)).find_people(_COMPANY, ["CTO", "CPO", "CMO"])
+    assert captured["path"].endswith("/find-people")
+    assert len(people) == 2
+    p = people[0]
+    assert p.first_name == "Guillaume" and p.last_name == "Moigneu"
+    assert p.title_raw == "Field CTO"
+    assert p.linkedin_url == "https://www.linkedin.com/in/guillaumemoigneu"
+    assert p.source == "icypeas"
+
+
+async def test_people_source_empty_and_missing_names():
+    def handler(request):
+        return _resp({"success": True, "total": 1, "leads": [{"firstname": "", "lastname": "X"}]})
+
+    # firstname vide -> lead ignore
+    assert await IcypeasPeopleSource(_client(handler)).find_people(_COMPANY, ["CTO"]) == []
+
+
+async def test_people_source_error_returns_empty():
+    def handler(request):
+        return httpx.Response(500, json={})
+
+    assert await IcypeasPeopleSource(_client(handler)).find_people(_COMPANY, ["CTO"]) == []
