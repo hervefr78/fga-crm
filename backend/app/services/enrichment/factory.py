@@ -32,6 +32,11 @@ def _icypeas_client() -> IcypeasClient:
     return IcypeasClient(settings.icypeas_api_key)
 
 
+def get_bulk_client() -> IcypeasClient | None:
+    """Client bulk (email-search async via webhook). None si pas de cle Icypeas."""
+    return _icypeas_client() if settings.icypeas_api_key else None
+
+
 def get_company_source() -> CompanySource:
     # P6 : PleinPhareCompanySource (frdata) si dispo. Reste mock (Icypeas ne fait
     # pas la resolution siren->societe FR).

@@ -17,6 +17,7 @@ from app.api.v1 import (
     email_templates,
     emails,
     enrichment,
+    enrichment_webhook,
     geo,
     geo_audit,
     integrations,
@@ -49,6 +50,7 @@ api_router.include_router(geo.router, prefix="/geo", tags=["GEO"])
 api_router.include_router(geo_audit.router, prefix="/geo", tags=["GEO Audit (SR)"])
 api_router.include_router(trends.router, prefix="/trends", tags=["Trends"])
 api_router.include_router(enrichment.router, prefix="/enrichment", tags=["Enrichment (Compass)"])
+api_router.include_router(enrichment_webhook.router, prefix="/integrations/icypeas", tags=["Enrichment Webhook"])
 api_router.include_router(mcp_usage.router, prefix="/mcp-usage", tags=["MCP Usage"])
 # AI router : routes absolues (/companies/{id}/next-action, /contacts/{id}/next-action,
 # /deals/{id}/next-action). Pas de prefix ici — chaque route porte son chemin complet.

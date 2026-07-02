@@ -13,11 +13,17 @@ from datetime import UTC, datetime
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.models.enrichment import EnrichmentEmailVerification, EnrichmentJob
+from app.models.enrichment import (
+    EnrichmentBulk,
+    EnrichmentBulkItem,
+    EnrichmentEmailVerification,
+    EnrichmentJob,
+)
 from app.services.enrichment import freshness
 from app.services.enrichment.credit_ledger import CreditLedger
 from app.services.enrichment.crm_writer import upsert_contact
 from app.services.enrichment.factory import (
+    get_bulk_client,
     get_company_source,
     get_email_finders,
     get_email_verifiers,
@@ -39,6 +45,11 @@ logger = logging.getLogger(__name__)
 _TARGET_ROLES = ["CTO", "CPO", "CMO"]
 _KEEP_ROLES = frozenset({"CTO", "CPO", "CMO", "FOUNDER"})
 _MAX_ERROR_LEN = 2000
+
+# Mode bulk (batch/icp) : email-search asynchrone via webhook (W3). Cout estime
+# par ligne pour respecter le plafond du run (le debit reel est cote Icypeas).
+_BULK_TASK = "email-search"
+_BULK_CREDIT = 1.0
 
 
 def _now() -> datetime:
@@ -105,6 +116,42 @@ def _freshness_key(org_id, siren: str | None, person: PersonCandidate) -> str:
     return f"person:{org}:{siren}:{person.first_name}.{person.last_name}".lower()
 
 
+async def _source_people(
+    db: AsyncSession,
+    *,
+    company: Company,
+    company_src,
+    people_srcs,
+    ledger: CreditLedger,
+    org_id,
+    stats: dict,
+) -> tuple[str | None, list[PersonCandidate]]:
+    """Resout le domaine + source les personnes (cascade cout-croissant, stop-on-cover).
+
+    Retourne (domain, people). Societe supprimee -> (None, []) (rien a traiter).
+    Modifie `stats` en place.
+    """
+    domain = company.domain or await company_src.resolve_domain(company)
+    if domain and await is_suppressed(db, organization_id=org_id, domain=domain):
+        stats["suppressed"] += 1
+        return None, []
+    stats["companies"] += 1
+
+    people: list[PersonCandidate] = []
+    for src in people_srcs:
+        if not ledger.can_spend(src.cost_per_result):
+            break
+        found = await src.find_people(company, _TARGET_ROLES)
+        for _ in found:
+            ledger.record(src.name, src.cost_per_result)
+        people.extend(found)
+        if _covers_targets(people):
+            break
+    people = _normalize_and_dedup(people)
+    stats["people_found"] += len(people)
+    return domain, people
+
+
 async def _process_company(
     db: AsyncSession,
     *,
@@ -122,25 +169,10 @@ async def _process_company(
     Modifie `stats` en place. Ne commit PAS : l'appelant gere le checkpoint par
     societe (resilience) et la transaction.
     """
-    domain = company.domain or await company_src.resolve_domain(company)
-    if domain and await is_suppressed(db, organization_id=org_id, domain=domain):
-        stats["suppressed"] += 1
-        return
-    stats["companies"] += 1
-
-    # Etape 3 : sourcing personnes (cascade cout-croissant, stop-on-cover)
-    people: list[PersonCandidate] = []
-    for src in people_srcs:
-        if not ledger.can_spend(src.cost_per_result):
-            break
-        found = await src.find_people(company, _TARGET_ROLES)
-        for _ in found:
-            ledger.record(src.name, src.cost_per_result)
-        people.extend(found)
-        if _covers_targets(people):
-            break
-    people = _normalize_and_dedup(people)
-    stats["people_found"] += len(people)
+    domain, people = await _source_people(
+        db, company=company, company_src=company_src, people_srcs=people_srcs,
+        ledger=ledger, org_id=org_id, stats=stats,
+    )
 
     # Etapes 4-6 : email -> verif -> RGPD -> contact
     for person in people:
@@ -211,6 +243,102 @@ async def _process_company(
         await freshness.touch(fresh_key, settings.enrichment_refresh_days)
 
 
+def _should_use_bulk(target: TargetSpec) -> bool:
+    """Mode bulk (W3) : batch/icp + Icypeas reel + URL webhook configuree.
+
+    Sinon (on-demand, mock, ou pas d'URL) -> pipeline inline synchrone (polling).
+    """
+    return (
+        target.kind in ("batch", "icp")
+        and bool(settings.icypeas_api_key)
+        and bool(settings.icypeas_webhook_url)
+    )
+
+
+async def _submit_bulk_job(
+    db: AsyncSession,
+    job: EnrichmentJob,
+    companies: list[Company],
+    *,
+    company_src,
+    people_srcs,
+    ledger: CreditLedger,
+    org_id,
+    stats: dict,
+) -> None:
+    """Mode bulk : source les personnes (inline) puis soumet UN bulk email-search
+    a Icypeas avec callback webhook. Les contacts sont crees au callback (W2), pas ici.
+    Le job passe `awaiting_results` (ou `done` si rien a enrichir)."""
+    client = get_bulk_client()
+    if client is None:  # garde defensive (ne devrait pas arriver vu _should_use_bulk)
+        raise RuntimeError("Bulk indisponible : client Icypeas absent")
+
+    rows: list[list[str]] = []
+    ext_ids: list[str] = []
+    contexts: list[dict] = []
+
+    for company in companies:
+        domain, people = await _source_people(
+            db, company=company, company_src=company_src, people_srcs=people_srcs,
+            ledger=ledger, org_id=org_id, stats=stats,
+        )
+        for person in people:
+            if not domain:
+                stats["skipped_no_domain"] += 1
+                continue
+            fresh_key = _freshness_key(org_id, company.siren, person)
+            if await freshness.is_fresh(fresh_key):
+                stats["skipped_fresh"] += 1
+                continue
+            if person.email:
+                # Aucun PeopleSource actuel ne fournit d'email : signale si ca change (DC2).
+                stats["skipped_pre_emailed"] += 1
+                continue
+            if not ledger.can_spend(_BULK_CREDIT):
+                break
+            ledger.record("icypeas-bulk", _BULK_CREDIT)
+            ext_ids.append(str(len(rows)))  # deterministe + unique dans le bulk
+            rows.append([person.first_name, person.last_name, domain])
+            contexts.append({
+                "company": {"siren": company.siren, "name": company.name, "domain": domain},
+                "person": {
+                    "first_name": person.first_name, "last_name": person.last_name,
+                    "title_raw": person.title_raw, "role": person.role,
+                    "linkedin_url": person.linkedin_url,
+                },
+            })
+
+    stats["credits_spent"] = ledger.spent_this_run()
+
+    if not rows:  # rien a enrichir -> job termine directement
+        job.stats_json = stats
+        job.status = "done"
+        job.finished_at = _now()
+        await db.commit()
+        return
+
+    file_id = await client.submit_bulk(_BULK_TASK, rows, ext_ids, settings.icypeas_webhook_url or "")
+    if not file_id:
+        raise RuntimeError("Icypeas bulk-search : soumission refusee")
+
+    bulk = EnrichmentBulk(
+        file=file_id, task=_BULK_TASK, status="awaiting_results",
+        total=len(rows), done=0, found=0, organization_id=org_id, job_id=job.id,
+    )
+    db.add(bulk)
+    await db.flush()
+    for ext, ctx in zip(ext_ids, contexts, strict=True):
+        db.add(EnrichmentBulkItem(
+            bulk_id=bulk.id, external_id=ext, organization_id=org_id,
+            status="pending", context_json=ctx,
+        ))
+
+    stats["bulk_submitted"] = len(rows)
+    job.stats_json = stats
+    job.status = "awaiting_results"  # le callback (W2) finalisera le job
+    await db.commit()
+
+
 async def run_enrichment_job(db: AsyncSession, job: EnrichmentJob) -> None:
     """Execute le pipeline. Ne leve pas : echec -> statut failed (DC2)."""
     if job.status in ("done", "failed"):
@@ -225,6 +353,7 @@ async def run_enrichment_job(db: AsyncSession, job: EnrichmentJob) -> None:
     stats = {
         "companies": 0, "people_found": 0, "emails_found": 0,
         "valid": 0, "suppressed": 0, "skipped_fresh": 0,
+        "skipped_no_domain": 0, "skipped_pre_emailed": 0, "bulk_submitted": 0,
         "errors": 0, "credits_spent": 0.0,
     }
     ledger = CreditLedger(max_per_run=settings.enrichment_max_credits_per_run)
@@ -237,6 +366,15 @@ async def run_enrichment_job(db: AsyncSession, job: EnrichmentJob) -> None:
 
         target = _parse_target(job.target_json or {})
         companies = await _resolve_companies(company_src, target)
+
+        # Mode bulk (W3) : batch/icp avec Icypeas reel -> soumission async + webhook.
+        # Les contacts sont crees au callback (W2). Le pipeline inline est saute.
+        if _should_use_bulk(target):
+            await _submit_bulk_job(
+                db, job, companies, company_src=company_src, people_srcs=people_srcs,
+                ledger=ledger, org_id=org_id, stats=stats,
+            )
+            return
 
         for company in companies:
             # Resilience par societe : une erreur (provider reel KO, etc.) isole la

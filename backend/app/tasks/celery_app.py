@@ -66,6 +66,13 @@ app.conf.beat_schedule = {
         "schedule": crontab(hour=7, minute=0),
         "args": (),
     },
+    # Enrichissement — filet de securite : finalise les bulks sans callback webhook
+    # (timeout). Horaire ; le webhook (includeResults) reste le chemin nominal.
+    "enrichment-reconcile-bulks-hourly": {
+        "task": "app.tasks.enrichment.enrichment_reconcile_bulks_task",
+        "schedule": crontab(minute=15),
+        "args": (),
+    },
 }
 
 # Decouverte automatique : autodiscover_tasks scanne pour `tasks.py` dans

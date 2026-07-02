@@ -8,7 +8,9 @@ import asyncio
 import logging
 from uuid import UUID
 
+from app.config import settings
 from app.db.session import task_session_maker
+from app.services.enrichment.bulk_callback import reconcile_stuck_bulks
 from app.services.enrichment.orchestrator import run_enrichment_job
 from app.tasks.celery_app import app
 
@@ -42,4 +44,23 @@ def enrichment_run_job_task(self, job_id: str) -> dict:
         return result
     except Exception as exc:
         logger.exception("[Enrichment task] erreur fatale %s : %s", job_id, exc)
+        raise
+
+
+async def _reconcile() -> dict:
+    async with task_session_maker() as db:
+        n = await reconcile_stuck_bulks(db, timeout_hours=settings.enrichment_bulk_timeout_hours)
+        return {"reconciled": n}
+
+
+@app.task(name="app.tasks.enrichment.enrichment_reconcile_bulks_task")
+def enrichment_reconcile_bulks_task() -> dict:
+    """Task Celery (beat) — finalise les bulks bloques sans callback (timeout)."""
+    try:
+        result = asyncio.run(_reconcile())
+        if result["reconciled"]:
+            logger.info("[Enrichment reconcile] %s bulk(s) finalise(s)", result["reconciled"])
+        return result
+    except Exception as exc:
+        logger.exception("[Enrichment reconcile] erreur : %s", exc)
         raise
