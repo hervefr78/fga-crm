@@ -328,4 +328,4 @@ async def test_users_lookup_excludes_inactive(
 async def test_users_lookup_unauthenticated(client: AsyncClient):
     """Sans token → 403."""
     resp = await client.get("/api/v1/users/lookup")
-    assert resp.status_code == 403
+    assert resp.status_code == 401

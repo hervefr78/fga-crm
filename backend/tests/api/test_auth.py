@@ -92,4 +92,4 @@ async def test_me_authenticated(client: AsyncClient):
 async def test_me_unauthenticated(client: AsyncClient):
     """GET /auth/me sans token = 403."""
     response = await client.get("/api/v1/auth/me")
-    assert response.status_code == 403
+    assert response.status_code == 401

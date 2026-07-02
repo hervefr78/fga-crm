@@ -231,7 +231,7 @@ class TestSummary:
         # Endpoint JWT : HTTPBearer(auto_error=True) leve 403 sans header
         # (comportement cohérent avec tout le projet, cf. GEO /brands).
         resp = await client.get("/api/v1/mcp-usage/summary")
-        assert resp.status_code == 403
+        assert resp.status_code == 401
 
     async def test_summary_empty_ok(self, client: AsyncClient, auth_headers: dict):
         """Aucune donnee -> total a zero, by_tool vide."""

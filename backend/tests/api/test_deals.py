@@ -732,4 +732,4 @@ async def test_list_deals_includes_contact_name(
 async def test_deals_unauthenticated(client: AsyncClient):
     """Acces sans token → 403."""
     resp = await client.get("/api/v1/deals")
-    assert resp.status_code == 403
+    assert resp.status_code == 401

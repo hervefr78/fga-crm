@@ -69,7 +69,7 @@ async def test_import_contacts_empty(client: AsyncClient, auth_headers: dict):
 async def test_import_contacts_unauthenticated(client: AsyncClient):
     """Import sans token = 403."""
     response = await client.post("/api/v1/contacts/import", json={"rows": []})
-    assert response.status_code == 403
+    assert response.status_code == 401
 
 
 @pytest.mark.asyncio

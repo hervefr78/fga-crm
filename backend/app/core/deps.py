@@ -18,7 +18,9 @@ from app.models.organization import Organization
 from app.models.user import User
 
 # Bearer pour les utilisateurs humains (JWT)
-security = HTTPBearer(auto_error=not settings.auth_bypass)
+# auto_error=False : on gere l'absence de credentials nous-memes (401 explicite dans
+# get_current_user), sinon HTTPBearer renvoie un 403 au lieu d'un 401 sur header manquant.
+security = HTTPBearer(auto_error=False)
 
 # Bearer optionnel — utilisé pour la validation de clés API service
 security_optional = HTTPBearer(auto_error=False)
