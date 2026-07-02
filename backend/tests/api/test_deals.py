@@ -627,14 +627,14 @@ async def test_list_deals_includes_owner_name(
 
 @pytest.mark.asyncio
 async def test_list_deals_includes_company_name(
-    client: AsyncClient, auth_headers: dict, db_session
+    client: AsyncClient, auth_headers: dict, db_session, test_org
 ):
     """list_deals expose company_name si le deal est rattache a une company."""
     import uuid as _uuid
 
     from app.models.company import Company as _Company
 
-    company = _Company(id=_uuid.uuid4(), name="Acme Corp")
+    company = _Company(id=_uuid.uuid4(), name="Acme Corp", organization_id=test_org.id)
     db_session.add(company)
     await db_session.commit()
 
@@ -690,7 +690,7 @@ async def test_get_deal_without_company_returns_null_company_name(
 
 @pytest.mark.asyncio
 async def test_list_deals_includes_contact_name(
-    client: AsyncClient, auth_headers: dict, db_session
+    client: AsyncClient, auth_headers: dict, db_session, test_org
 ):
     """list_deals expose contact_name si le deal est rattache a un Contact (DC6 selectinload)."""
     import uuid as _uuid
@@ -698,7 +698,8 @@ async def test_list_deals_includes_contact_name(
     from app.models.contact import Contact as _Contact
 
     contact = _Contact(
-        id=_uuid.uuid4(), first_name="Marie", last_name="Curie", email="m@curie.fr"
+        id=_uuid.uuid4(), first_name="Marie", last_name="Curie", email="m@curie.fr",
+        organization_id=test_org.id,
     )
     db_session.add(contact)
     await db_session.commit()

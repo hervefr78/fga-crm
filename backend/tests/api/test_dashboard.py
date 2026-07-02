@@ -277,6 +277,7 @@ async def test_dashboard_next_actions_overdue_tasks(
         is_completed=False,
         due_date=datetime.now(UTC) - timedelta(days=2),
         assigned_to=test_user.id,
+        organization_id=test_user.organization_id,
     )
     db_session.add(task)
     await db_session.commit()
@@ -302,6 +303,7 @@ async def test_dashboard_next_actions_hot_blocked_deals(
         title="Proposition en standby",
         stage="proposal",
         owner_id=test_user.id,
+        organization_id=test_user.organization_id,
     )
     db_session.add(deal)
     await db_session.commit()
@@ -328,6 +330,7 @@ async def test_dashboard_next_actions_hot_blocked_excluded_when_recent_activity(
         title="Deal actif",
         stage="proposal",
         owner_id=test_user.id,
+        organization_id=test_user.organization_id,
     )
     db_session.add(deal)
     await db_session.flush()
@@ -338,6 +341,7 @@ async def test_dashboard_next_actions_hot_blocked_excluded_when_recent_activity(
         subject="Recente",
         deal_id=deal.id,
         user_id=test_user.id,
+        organization_id=test_user.organization_id,
     )
     db_session.add(activity)
     await db_session.commit()
@@ -365,6 +369,7 @@ async def test_dashboard_next_actions_stale_qualified_contacts(
         email="stale-qualif@test.fr",
         status="qualified",
         owner_id=test_user.id,
+        organization_id=test_user.organization_id,
     )
     db_session.add(contact)
     await db_session.commit()
@@ -390,6 +395,7 @@ async def test_dashboard_next_actions_close_imminent(
         stage="negotiation",
         owner_id=test_user.id,
         expected_close_date=date.today() + timedelta(days=3),
+        organization_id=test_user.organization_id,
     )
     db_session.add(deal)
     await db_session.commit()
@@ -419,6 +425,7 @@ async def test_dashboard_next_actions_max_3(
         is_completed=False,
         due_date=datetime.now(UTC) - timedelta(days=1),
         assigned_to=test_user.id,
+        organization_id=test_user.organization_id,
     ))
     # 2. Deal proposal sans activity
     db_session.add(Deal(
@@ -426,6 +433,7 @@ async def test_dashboard_next_actions_max_3(
         title="Hot blocked",
         stage="proposal",
         owner_id=test_user.id,
+        organization_id=test_user.organization_id,
     ))
     # 3. Contact qualified stale
     db_session.add(Contact(
@@ -434,6 +442,7 @@ async def test_dashboard_next_actions_max_3(
         last_name="Qualif",
         status="qualified",
         owner_id=test_user.id,
+        organization_id=test_user.organization_id,
     ))
     # 4. Deal close imminent (different du #2 pour garantir signal distinct)
     db_session.add(Deal(
@@ -442,6 +451,7 @@ async def test_dashboard_next_actions_max_3(
         stage="meeting",  # pipeline mais hors proposal/negotiation
         owner_id=test_user.id,
         expected_close_date=date.today() + timedelta(days=4),
+        organization_id=test_user.organization_id,
     ))
     await db_session.commit()
 
@@ -470,6 +480,7 @@ async def test_dashboard_next_actions_rbac_isolation(
         is_completed=False,
         due_date=datetime.now(UTC) - timedelta(days=1),
         assigned_to=sales_user.id,
+        organization_id=sales_user.organization_id,
     ))
     await db_session.commit()
 

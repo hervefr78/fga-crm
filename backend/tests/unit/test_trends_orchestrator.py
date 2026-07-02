@@ -6,7 +6,13 @@ import pytest
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.trends import TrendCategory, TrendJob, TrendKeyword, TrendReport, TrendSnapshot
+from app.models.trends import (
+    TrendCategory,
+    TrendJob,
+    TrendKeyword,
+    TrendReport,
+    TrendSnapshot,
+)
 from app.services.trends import cache, orchestrator
 
 
