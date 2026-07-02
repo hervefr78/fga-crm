@@ -12,17 +12,22 @@
 Le cout € est calcule A LA LECTURE via pricing.cost_eur (le tarif depend du
 modele -> on agrege par (tool, modele) avant de sommer les couts).
 
+Isolation multi-tenant : chaque ligne est taggee avec l'organization_id du user
+service authentifie a l'ingest ; les lectures (summary/by-tool) sont filtrees par
+l'org de l'admin appelant.
+
 UPSERT : SELECT-puis-update/insert unifie (portable PG/SQLite), calque sur
 l'esprit de services/geo/scorer.py. On N'utilise PAS pg_insert ON CONFLICT ici
-car la contrainte unique porte sur organization_id qui est NULL en Phase 1 :
+car la contrainte unique porte sur organization_id qui peut etre NULL :
 en Postgres, NULL est traite comme distinct dans une UNIQUE, donc ON CONFLICT
-ne matcherait jamais -> doublons silencieux. Le SELECT explicite (filtre IS NULL)
-est correct pour les deux dialectes. Source d'ingest unique (le MCP, flush
-sequentiel) -> pas de race condition concurrente en pratique (DC17).
+ne matcherait jamais -> doublons silencieux. Le SELECT explicite (filtre IS NULL
+quand org None, == sinon) est correct pour les deux dialectes. Source d'ingest
+unique (le MCP, flush sequentiel) -> pas de race condition concurrente (DC17).
 """
 
 import contextlib
 import logging
+import uuid
 from datetime import UTC, date, datetime, timedelta
 
 import redis.asyncio as redis_async
@@ -154,6 +159,7 @@ def _resolve_window(date_from: str | None, date_to: str | None) -> tuple[date, d
 
 async def _upsert_event(
     db: AsyncSession,
+    organization_id: uuid.UUID | None,
     day: date,
     tool_name: str,
     model: str,
@@ -165,14 +171,15 @@ async def _upsert_event(
 ) -> None:
     """UPSERT incremental d'un evenement sur (organization_id, day, tool, model).
 
-    organization_id reste None (multi-tenant futur). Sur conflit, les sommes
-    sont INCREMENTEES (calls = existing.calls + nouveau, idem tokens).
+    organization_id vient du user service authentifie (isolation multi-tenant).
+    Sur conflit, les sommes sont INCREMENTEES (calls = existing.calls + nouveau,
+    idem tokens).
 
     SELECT-puis-update/insert (portable PG/SQLite). Le filtre organization_id
-    utilise IS NULL explicitement — indispensable car NULL = NULL est faux en SQL.
+    utilise IS NULL quand None (NULL = NULL est faux en SQL), == sinon.
     """
     values = {
-        "organization_id": None,
+        "organization_id": organization_id,
         "day": day,
         "tool_name": tool_name,
         "model": model,
@@ -183,11 +190,16 @@ async def _upsert_event(
         "cache_write_tokens": cache_write_tokens,
     }
 
+    org_predicate = (
+        McpToolUsage.organization_id.is_(None)
+        if organization_id is None
+        else McpToolUsage.organization_id == organization_id
+    )
     existing = (
         await db.execute(
             select(McpToolUsage).where(
                 and_(
-                    McpToolUsage.organization_id.is_(None),
+                    org_predicate,
                     McpToolUsage.day == day,
                     McpToolUsage.tool_name == tool_name,
                     McpToolUsage.model == model,
@@ -206,11 +218,11 @@ async def _upsert_event(
 @router.post(
     "/ingest",
     response_model=McpUsageIngestResponse,
-    dependencies=[Depends(require_service_scope("write:mcp_usage"))],
 )
 async def ingest_usage(
     payload: McpUsageIngestRequest,
     db: AsyncSession = Depends(get_db),
+    service_user: User = Depends(require_service_scope("write:mcp_usage")),
 ) -> McpUsageIngestResponse:
     """Ingerer un batch d'evenements d'usage (pousse par le MCP).
 
@@ -227,6 +239,7 @@ async def ingest_usage(
         for event in payload.events:
             await _upsert_event(
                 db,
+                organization_id=service_user.organization_id,
                 day=event.day,
                 tool_name=event.tool_name,
                 model=event.model,
@@ -279,7 +292,13 @@ async def usage_summary(
                 func.sum(McpToolUsage.cache_read_tokens),
                 func.sum(McpToolUsage.cache_write_tokens),
             )
-            .where(and_(McpToolUsage.day >= d_from, McpToolUsage.day <= d_to))
+            .where(
+                and_(
+                    McpToolUsage.organization_id == _admin.organization_id,
+                    McpToolUsage.day >= d_from,
+                    McpToolUsage.day <= d_to,
+                )
+            )
             .group_by(McpToolUsage.tool_name, McpToolUsage.model)
         )
     ).all()
@@ -366,6 +385,7 @@ async def usage_by_tool(
             )
             .where(
                 and_(
+                    McpToolUsage.organization_id == _admin.organization_id,
                     McpToolUsage.tool_name == tool,
                     McpToolUsage.day >= d_from,
                     McpToolUsage.day <= d_to,

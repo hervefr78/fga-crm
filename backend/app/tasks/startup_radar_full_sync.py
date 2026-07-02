@@ -57,7 +57,25 @@ async def _run_full_sync(user_id: str) -> dict:
             logger.error("[FullSync] Owner invalide/inactif: %s", user_id)
             raise ValueError("Utilisateur introuvable ou inactif")
 
-        result = await full_sync(db, user)
+        # Isolation multi-tenant : org de rattachement des entites creees.
+        # Priorite au user declencheur ; fallback sur le premier admin actif si
+        # le user n'a pas encore d'org (phase expand : organization_id nullable).
+        organization_id = user.organization_id
+        if organization_id is None:
+            admin = (await db.execute(
+                select(User).where(
+                    User.role == "admin", User.is_active.is_(True)
+                ).limit(1)
+            )).scalar_one_or_none()
+            organization_id = admin.organization_id if admin else None
+        if organization_id is None:
+            logger.error(
+                "[FullSync] Aucune organization_id resoluble (user=%s sans org, "
+                "pas d'admin avec org)", user_id,
+            )
+            raise ValueError("Organisation introuvable pour la synchronisation")
+
+        result = await full_sync(db, user, organization_id)
         return dataclasses.asdict(result)
 
 

@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.core.deps import get_current_user
+from app.core.rbac import apply_tenant_filter, check_tenant_access
 from app.db.session import get_db
 from app.models.trends import TrendCategory, TrendJob, TrendReport
 from app.models.user import User
@@ -189,16 +190,15 @@ async def create_report(
         ttl_cutoff = datetime.now(UTC) - timedelta(
             seconds=settings.trends_cache_ttl_quick_seconds
         )
+        # Dedup restreint a l'org du user (isolation multi-tenant).
+        dedup_query = apply_tenant_filter(select(TrendJob), TrendJob, user).where(
+            TrendJob.request_hash == request_hash,
+            TrendJob.status == "completed",
+            TrendJob.created_at >= ttl_cutoff,
+        )
         recent = (
             await db.execute(
-                select(TrendJob)
-                .where(
-                    TrendJob.request_hash == request_hash,
-                    TrendJob.status == "completed",
-                    TrendJob.created_at >= ttl_cutoff,
-                )
-                .order_by(TrendJob.created_at.desc())
-                .limit(1)
+                dedup_query.order_by(TrendJob.created_at.desc()).limit(1)
             )
         ).scalar_one_or_none()
         if recent is not None:
@@ -207,6 +207,7 @@ async def create_report(
     # 3. Creation du job
     provider = get_trends_provider()
     job = TrendJob(
+        organization_id=user.organization_id,
         created_by=user.id,
         mode=payload.mode.value,
         provider_primary=provider.name,
@@ -247,11 +248,12 @@ async def create_report(
 async def get_job(
     job_id: str,
     db: AsyncSession = Depends(get_db),
-    _user: User = Depends(_require_trends_access),
+    user: User = Depends(_require_trends_access),
 ) -> TrendJobResponse:
     job = await db.get(TrendJob, _parse_uuid(job_id, "job_id"))
     if job is None:
         raise HTTPException(status_code=404, detail="Job introuvable")
+    check_tenant_access(job, user)
     return _job_to_response(job)
 
 
@@ -265,21 +267,19 @@ async def get_latest_report(
     country: str = Query("FR", max_length=8),
     language: str = Query("fr", max_length=8),
     db: AsyncSession = Depends(get_db),
-    _user: User = Depends(_require_trends_access),
+    user: User = Depends(_require_trends_access),
 ) -> TrendReportResponse:
     cat_uuid = _parse_uuid(category_id, "category_id")
     # Dernier job complete pour cette categorie (+ pays/langue), tous timeframes.
+    latest_query = apply_tenant_filter(select(TrendJob), TrendJob, user).where(
+        TrendJob.status == "completed",
+        TrendJob.params_json["category_id"].astext == str(cat_uuid),
+        TrendJob.params_json["country"].astext == country,
+        TrendJob.params_json["language"].astext == language,
+    )
     job = (
         await db.execute(
-            select(TrendJob)
-            .where(
-                TrendJob.status == "completed",
-                TrendJob.params_json["category_id"].astext == str(cat_uuid),
-                TrendJob.params_json["country"].astext == country,
-                TrendJob.params_json["language"].astext == language,
-            )
-            .order_by(TrendJob.created_at.desc())
-            .limit(1)
+            latest_query.order_by(TrendJob.created_at.desc()).limit(1)
         )
     ).scalar_one_or_none()
     if job is None:
@@ -294,11 +294,12 @@ async def get_latest_report(
 async def get_report(
     job_id: str,
     db: AsyncSession = Depends(get_db),
-    _user: User = Depends(_require_trends_access),
+    user: User = Depends(_require_trends_access),
 ) -> TrendReportResponse:
     job = await db.get(TrendJob, _parse_uuid(job_id, "job_id"))
     if job is None:
         raise HTTPException(status_code=404, detail="Job introuvable")
+    check_tenant_access(job, user)
     report = (
         await db.execute(select(TrendReport).where(TrendReport.job_id == job.id))
     ).scalar_one_or_none()

@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.core.deps import get_current_manager, security_optional
-from app.core.rbac import check_entity_access
+from app.core.rbac import check_entity_access, check_tenant_access
 from app.db.session import get_db
 from app.models.activity import Activity
 from app.models.company import Company
@@ -177,18 +177,27 @@ async def nomo_new_subscription(
 
     # 1. Trouver ou creer la Company
     #    Priorite : domaine email (unique en DB) → nom case-insensitive → creation
+    # Isolation multi-tenant : toutes les entites creees appartiennent a l'org
+    # de l'admin resolu (service call, pas de user humain). Les recherches
+    # d'idempotence sont scopees a cette org (pas de dedup cross-org).
+    org_id = admin.organization_id
+
     email_domain = payload.email.split("@")[1] if "@" in payload.email else None
     company: Company | None = None
 
     if email_domain:
         company = (await db.execute(
-            select(Company).where(Company.domain == email_domain)
+            select(Company).where(
+                Company.domain == email_domain,
+                Company.organization_id == org_id,
+            )
         )).scalar_one_or_none()
 
     if not company:
         company = (await db.execute(
             select(Company).where(
-                func.lower(Company.name) == payload.company_name.lower()
+                func.lower(Company.name) == payload.company_name.lower(),
+                Company.organization_id == org_id,
             )
         )).scalar_one_or_none()
 
@@ -204,6 +213,7 @@ async def nomo_new_subscription(
             country=payload.country or "France",
             lead_source="nomo-ia",
             owner_id=admin.id,
+            organization_id=org_id,
         )
         db.add(company)
         await db.flush()
@@ -211,9 +221,12 @@ async def nomo_new_subscription(
         # Enrichir la company existante avec le domaine si elle n'en avait pas
         company.domain = email_domain
 
-    # 2. Trouver ou creer le Contact (idempotence par email)
+    # 2. Trouver ou creer le Contact (idempotence par email, scopee org)
     contact = (await db.execute(
-        select(Contact).where(Contact.email == payload.email)
+        select(Contact).where(
+            Contact.email == payload.email,
+            Contact.organization_id == org_id,
+        )
     )).scalar_one_or_none()
 
     if contact:
@@ -232,11 +245,12 @@ async def nomo_new_subscription(
             status="qualified",
             is_decision_maker=True,
             owner_id=admin.id,
+            organization_id=org_id,
         )
         db.add(contact)
         await db.flush()
 
-    # 3. Creer le Deal (idempotence : verifier si un deal identique existe deja)
+    # 3. Creer le Deal (idempotence : verifier si un deal identique existe deja, scopee org)
     pricing_type = _PLAN_PRICING_TYPE.get(payload.billing_cycle, "monthly")
     deal_title = f"Nomo-IA — {payload.plan.capitalize()} — {payload.company_name}"
     existing_deal = (await db.execute(
@@ -244,6 +258,7 @@ async def nomo_new_subscription(
             Deal.contact_id == contact.id,
             Deal.title == deal_title[:255],
             Deal.stage == "won",
+            Deal.organization_id == org_id,
         )
     )).scalar_one_or_none()
 
@@ -264,6 +279,7 @@ async def nomo_new_subscription(
             contact_id=contact.id,
             description=f"Souscription Nomo-IA le {payload.subscription_date}. Plan : {payload.plan}.",
             owner_id=admin.id,
+            organization_id=org_id,
         )
         db.add(deal)
 
@@ -338,6 +354,10 @@ async def plein_phare_new_order(
     if admin is None:
         raise HTTPException(status_code=503, detail="No admin user found in CRM")
 
+    # Isolation multi-tenant : toutes les entites creees appartiennent a l'org
+    # de l'admin resolu (service call). Idempotence scopee a cette org.
+    org_id = admin.organization_id
+
     created_company = False
     created_contact = False
     created_deal = False
@@ -350,13 +370,17 @@ async def plein_phare_new_order(
 
     if email_domain:
         company = (await db.execute(
-            select(Company).where(Company.domain == email_domain)
+            select(Company).where(
+                Company.domain == email_domain,
+                Company.organization_id == org_id,
+            )
         )).scalar_one_or_none()
 
     if not company:
         company = (await db.execute(
             select(Company).where(
-                func.lower(Company.name) == payload.company_name.lower()
+                func.lower(Company.name) == payload.company_name.lower(),
+                Company.organization_id == org_id,
             )
         )).scalar_one_or_none()
 
@@ -372,6 +396,7 @@ async def plein_phare_new_order(
             country=payload.country or "France",
             lead_source="plein-phare",
             owner_id=admin.id,
+            organization_id=org_id,
         )
         db.add(company)
         await db.flush()
@@ -380,9 +405,12 @@ async def plein_phare_new_order(
         # Enrichir la company existante avec le domaine si elle n'en avait pas
         company.domain = email_domain
 
-    # 2. Trouver ou creer le Contact (idempotence par email)
+    # 2. Trouver ou creer le Contact (idempotence par email, scopee org)
     contact = (await db.execute(
-        select(Contact).where(Contact.email == email_str)
+        select(Contact).where(
+            Contact.email == email_str,
+            Contact.organization_id == org_id,
+        )
     )).scalar_one_or_none()
 
     if contact:
@@ -401,17 +429,19 @@ async def plein_phare_new_order(
             status="qualified",
             is_decision_maker=True,
             owner_id=admin.id,
+            organization_id=org_id,
         )
         db.add(contact)
         await db.flush()
         created_contact = True
 
-    # 3. Creer le Deal (idempotence par audit_order_id via le titre)
+    # 3. Creer le Deal (idempotence par audit_order_id via le titre, scopee org)
     deal_title = _plein_phare_deal_title(payload.audit_order_id)
     existing_deal = (await db.execute(
         select(Deal).where(
             Deal.contact_id == contact.id,
             Deal.title == deal_title[:255],
+            Deal.organization_id == org_id,
         )
     )).scalar_one_or_none()
 
@@ -438,6 +468,7 @@ async def plein_phare_new_order(
             contact_id=contact.id,
             description=description[:5000],
             owner_id=admin.id,
+            organization_id=org_id,
         )
         db.add(deal)
         await db.flush()
@@ -478,9 +509,21 @@ async def plein_phare_refund(
     db: AsyncSession = Depends(get_db),
 ) -> PleinPhareRefundResponse:
     """Marquer une commande Plein Phare comme remboursee (stage=lost)."""
+    # Isolation multi-tenant : scoper la recherche du deal a l'org de l'admin
+    # (service call, pas de user humain) pour ne pas rembourser un deal cross-org.
+    admin = (await db.execute(
+        select(User).where(User.role == "admin", User.is_active.is_(True)).limit(1)
+    )).scalar_one_or_none()
+    if admin is None:
+        raise HTTPException(status_code=503, detail="No admin user found in CRM")
+    org_id = admin.organization_id
+
     deal_title = _plein_phare_deal_title(payload.audit_order_id)
     deal = (await db.execute(
-        select(Deal).where(Deal.title == deal_title[:255])
+        select(Deal).where(
+            Deal.title == deal_title[:255],
+            Deal.organization_id == org_id,
+        )
     )).scalar_one_or_none()
 
     if deal is None:
@@ -718,7 +761,8 @@ async def trigger_company_audit(
             detail="Les audits ne sont pas disponibles pour les investisseurs",
         )
 
-    # 4. RBAC
+    # 4. RBAC (isolation tenant d'abord, puis ownership)
+    check_tenant_access(company, current_user)
     check_entity_access(company, current_user)
 
     sr_id = company.startup_radar_id
@@ -747,6 +791,7 @@ async def trigger_company_audit(
                             Activity.company_id == company.id,
                             Activity.type == "audit",
                             Activity.subject == subject,
+                            Activity.organization_id == company.organization_id,
                         )
                     )
                 ).scalar_one_or_none()
@@ -775,6 +820,8 @@ async def trigger_company_audit(
                         metadata_=metadata,
                         company_id=company.id,
                         user_id=current_user.id,
+                        # Herite de l'org de la company parente (source de verite)
+                        organization_id=company.organization_id,
                     )
                     db.add(activity)
                     audits_created += 1
@@ -797,6 +844,7 @@ async def trigger_company_audit(
                             Activity.company_id == company.id,
                             Activity.type == "audit",
                             Activity.subject == subject,
+                            Activity.organization_id == company.organization_id,
                         )
                     )
                 ).scalar_one_or_none()
@@ -824,6 +872,8 @@ async def trigger_company_audit(
                         metadata_=metadata,
                         company_id=company.id,
                         user_id=current_user.id,
+                        # Herite de l'org de la company parente (source de verite)
+                        organization_id=company.organization_id,
                     )
                     db.add(activity)
                     audits_created += 1
@@ -881,6 +931,7 @@ async def _resolve_sr_company(db: AsyncSession, company_id: str, user: User) -> 
             status_code=422,
             detail="Les audits ne sont pas disponibles pour les investisseurs",
         )
+    check_tenant_access(company, user)
     check_entity_access(company, user)
     return company
 

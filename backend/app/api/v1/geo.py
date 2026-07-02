@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.core.deps import get_current_user
+from app.core.rbac import apply_tenant_filter, check_tenant_access
 from app.db.session import get_db
 from app.models.geo import GeoBrand, GeoMetricsDaily, GeoPrompt, GeoRun
 from app.models.user import User
@@ -114,17 +115,21 @@ def _engine_configured(engine: str) -> bool:
     return bool(getattr(settings, attr, None))
 
 
-async def _get_brand_or_404(db: AsyncSession, brand_id: uuid.UUID) -> GeoBrand:
+async def _get_brand_or_404(
+    db: AsyncSession, brand_id: uuid.UUID, user: User
+) -> GeoBrand:
     brand = (
         await db.execute(select(GeoBrand).where(GeoBrand.id == brand_id))
     ).scalar_one_or_none()
     if brand is None:
         raise HTTPException(status_code=404, detail="Marque GEO introuvable")
+    # Isolation multi-tenant : 404 si la marque est hors organisation (bypass super-admin)
+    check_tenant_access(brand, user)
     return brand
 
 
 async def _get_prompt_or_404(
-    db: AsyncSession, brand_id: uuid.UUID, prompt_id: uuid.UUID
+    db: AsyncSession, brand_id: uuid.UUID, prompt_id: uuid.UUID, user: User
 ) -> GeoPrompt:
     prompt = (
         await db.execute(
@@ -135,6 +140,8 @@ async def _get_prompt_or_404(
     ).scalar_one_or_none()
     if prompt is None:
         raise HTTPException(status_code=404, detail="Prompt GEO introuvable")
+    # Isolation multi-tenant : 404 si le prompt est hors organisation (bypass super-admin)
+    check_tenant_access(prompt, user)
     return prompt
 
 
@@ -147,9 +154,11 @@ async def list_brands(
     is_owned: bool | None = Query(None),
     organization_id: str | None = Query(None),
     db: AsyncSession = Depends(get_db),
-    _user: User = Depends(_require_geo_access),
+    user: User = Depends(_require_geo_access),
 ) -> list[GeoBrandResponse]:
     query = select(GeoBrand).where(GeoBrand.active.is_(True))
+    # Isolation multi-tenant : restreindre a l'organisation du user (bypass super-admin)
+    query = apply_tenant_filter(query, GeoBrand, user)
     if is_owned is not None:
         query = query.where(GeoBrand.is_owned.is_(is_owned))
     if organization_id is not None:
@@ -165,7 +174,7 @@ async def brands_overview(
     engine: GeoEngine = Query(...),
     days: int = Query(30, ge=1, le=365),
     db: AsyncSession = Depends(get_db),
-    _user: User = Depends(_require_geo_access),
+    user: User = Depends(_require_geo_access),
 ) -> list[GeoBrandOverviewResponse]:
     """Marques possedees + leur visibilite moyenne (moteur/periode) pour le selecteur.
 
@@ -192,6 +201,8 @@ async def brands_overview(
         .order_by(GeoBrand.name)
         .limit(500)
     )
+    # Isolation multi-tenant : restreindre a l'organisation du user (bypass super-admin)
+    query = apply_tenant_filter(query, GeoBrand, user)
     rows = (await db.execute(query)).all()
     return [
         GeoBrandOverviewResponse(
@@ -208,7 +219,7 @@ async def brands_overview(
 async def create_brand(
     payload: GeoBrandCreate,
     db: AsyncSession = Depends(get_db),
-    _user: User = Depends(_require_geo_admin),
+    user: User = Depends(_require_geo_admin),
 ) -> GeoBrandResponse:
     # Unicite du slug (DC2 — erreur explicite plutot qu'IntegrityError brute)
     existing = (
@@ -218,7 +229,8 @@ async def create_brand(
         raise HTTPException(status_code=409, detail="Un slug identique existe deja")
 
     brand = GeoBrand(
-        organization_id=payload.organization_id,
+        # Isolation multi-tenant : org resolue cote serveur, pas depuis le payload (DC18)
+        organization_id=user.organization_id,
         slug=payload.slug,
         name=payload.name,
         aliases=payload.aliases,
@@ -235,10 +247,10 @@ async def create_brand(
 async def get_brand(
     brand_id: str,
     db: AsyncSession = Depends(get_db),
-    _user: User = Depends(_require_geo_access),
+    user: User = Depends(_require_geo_access),
 ) -> GeoBrandResponse:
     bid = _parse_uuid(brand_id, "brand_id")
-    brand = await _get_brand_or_404(db, bid)
+    brand = await _get_brand_or_404(db, bid, user)
     return GeoBrandResponse.model_validate(brand)
 
 
@@ -247,10 +259,10 @@ async def update_brand(
     brand_id: str,
     payload: GeoBrandUpdate,
     db: AsyncSession = Depends(get_db),
-    _user: User = Depends(_require_geo_admin),
+    user: User = Depends(_require_geo_admin),
 ) -> GeoBrandResponse:
     bid = _parse_uuid(brand_id, "brand_id")
-    brand = await _get_brand_or_404(db, bid)
+    brand = await _get_brand_or_404(db, bid, user)
 
     data = payload.model_dump(exclude_unset=True)
     if "slug" in data and data["slug"] != brand.slug:
@@ -270,10 +282,10 @@ async def update_brand(
 async def delete_brand(
     brand_id: str,
     db: AsyncSession = Depends(get_db),
-    _user: User = Depends(_require_geo_admin),
+    user: User = Depends(_require_geo_admin),
 ) -> None:
     bid = _parse_uuid(brand_id, "brand_id")
-    brand = await _get_brand_or_404(db, bid)
+    brand = await _get_brand_or_404(db, bid, user)
     # Soft delete (active=False) — preserve l'historique des runs/metriques
     brand.active = False
     await db.commit()
@@ -287,10 +299,11 @@ async def delete_brand(
 async def list_prompts(
     brand_id: str,
     db: AsyncSession = Depends(get_db),
-    _user: User = Depends(_require_geo_access),
+    user: User = Depends(_require_geo_access),
 ) -> list[GeoPromptResponse]:
     bid = _parse_uuid(brand_id, "brand_id")
-    await _get_brand_or_404(db, bid)
+    # Garde cross-FK : la marque parente doit appartenir a l'org du user
+    await _get_brand_or_404(db, bid, user)
     prompts = (
         await db.execute(
             select(GeoPrompt)
@@ -309,13 +322,14 @@ async def create_prompt(
     brand_id: str,
     payload: GeoPromptCreate,
     db: AsyncSession = Depends(get_db),
-    _user: User = Depends(_require_geo_admin),
+    user: User = Depends(_require_geo_admin),
 ) -> GeoPromptResponse:
     bid = _parse_uuid(brand_id, "brand_id")
-    # organization_id hérité de la brand parente si non fourni explicitement
-    brand_obj = await _get_brand_or_404(db, bid)
+    # Garde cross-FK : la marque parente doit appartenir a l'org du user
+    await _get_brand_or_404(db, bid, user)
     prompt = GeoPrompt(
-        organization_id=payload.organization_id or brand_obj.organization_id,
+        # Isolation multi-tenant : org resolue cote serveur, pas depuis le payload (DC18)
+        organization_id=user.organization_id,
         brand_id=bid,
         text=payload.text,
         intent=payload.intent.value,
@@ -340,11 +354,11 @@ async def update_prompt(
     prompt_id: str,
     payload: GeoPromptUpdate,
     db: AsyncSession = Depends(get_db),
-    _user: User = Depends(_require_geo_admin),
+    user: User = Depends(_require_geo_admin),
 ) -> GeoPromptResponse:
     bid = _parse_uuid(brand_id, "brand_id")
     pid = _parse_uuid(prompt_id, "prompt_id")
-    prompt = await _get_prompt_or_404(db, bid, pid)
+    prompt = await _get_prompt_or_404(db, bid, pid, user)
 
     data = payload.model_dump(exclude_unset=True)
     # intent est un enum -> stocker la valeur str
@@ -362,11 +376,11 @@ async def delete_prompt(
     brand_id: str,
     prompt_id: str,
     db: AsyncSession = Depends(get_db),
-    _user: User = Depends(_require_geo_admin),
+    user: User = Depends(_require_geo_admin),
 ) -> None:
     bid = _parse_uuid(brand_id, "brand_id")
     pid = _parse_uuid(prompt_id, "prompt_id")
-    prompt = await _get_prompt_or_404(db, bid, pid)
+    prompt = await _get_prompt_or_404(db, bid, pid, user)
     prompt.active = False
     await db.commit()
 
@@ -379,7 +393,7 @@ async def delete_prompt(
 async def trigger_runs(
     payload: GeoRunTriggerRequest,
     db: AsyncSession = Depends(get_db),
-    _user: User = Depends(_require_geo_admin),
+    user: User = Depends(_require_geo_admin),
 ) -> GeoRunTriggerResponse:
     engine = payload.engine.value
 
@@ -390,8 +404,8 @@ async def trigger_runs(
             detail=f"Moteur '{engine}' non configure (cle API absente cote serveur)",
         )
 
-    # 2. Marque existe ?
-    brand = await _get_brand_or_404(db, payload.brand_id)
+    # 2. Marque existe et appartient a l'org du user (garde cross-FK) ?
+    brand = await _get_brand_or_404(db, payload.brand_id, user)
 
     # 3. Tous les prompt_ids existent et appartiennent a la marque ?
     prompt_ids = list(payload.prompt_ids)
@@ -445,9 +459,13 @@ async def list_runs(
     page: int = Query(1, ge=1),
     size: int = Query(50, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
-    _user: User = Depends(_require_geo_access),
+    user: User = Depends(_require_geo_access),
 ) -> GeoRunListResponse:
     bid = _parse_uuid(brand_id, "brand_id")
+    # Garde cross-FK : la marque parente doit appartenir a l'org du user.
+    # On isole les runs via la marque (deterministe) plutot que via
+    # GeoRun.organization_id (peuple cote task, hors scope de cette route).
+    await _get_brand_or_404(db, bid, user)
 
     filters = [GeoRun.brand_id == bid]
     if engine:
@@ -511,12 +529,12 @@ async def brand_dashboard(
     date_from: str | None = Query(None),
     date_to: str | None = Query(None),
     db: AsyncSession = Depends(get_db),
-    _user: User = Depends(_require_geo_access),
+    user: User = Depends(_require_geo_access),
 ) -> GeoDashboardResponse:
     bid = _parse_uuid(brand_id, "brand_id")
     if engine not in {e.value for e in GeoEngine}:
         raise HTTPException(status_code=422, detail="engine invalide")
-    brand = await _get_brand_or_404(db, bid)
+    brand = await _get_brand_or_404(db, bid, user)
     d_from, d_to = _resolve_window(date_from, date_to)
 
     # Metriques pre-calculees sur la fenetre
@@ -622,10 +640,10 @@ async def brand_competitors(
     date_from: str | None = Query(None),
     date_to: str | None = Query(None),
     db: AsyncSession = Depends(get_db),
-    _user: User = Depends(_require_geo_access),
+    user: User = Depends(_require_geo_access),
 ) -> list[dict]:
     bid = _parse_uuid(brand_id, "brand_id")
-    await _get_brand_or_404(db, bid)
+    await _get_brand_or_404(db, bid, user)
     if engine is not None and engine not in {e.value for e in GeoEngine}:
         raise HTTPException(status_code=422, detail="engine invalide")
     d_from, d_to = _resolve_window(date_from, date_to)
@@ -722,13 +740,13 @@ async def brand_alerts(
     brand_id: str,
     engine: str | None = Query(None),
     db: AsyncSession = Depends(get_db),
-    _user: User = Depends(_require_geo_access),
+    user: User = Depends(_require_geo_access),
 ) -> list[dict]:
     """Alertes GEO detectees sur la semaine ecoulee pour une marque."""
     from app.services.geo.alerts import detect_weekly_alerts
 
     bid = _parse_uuid(brand_id, "brand_id")
-    await _get_brand_or_404(db, bid)
+    await _get_brand_or_404(db, bid, user)
 
     if engine is not None and engine not in {e.value for e in GeoEngine}:
         raise HTTPException(status_code=422, detail="engine invalide")
@@ -757,7 +775,7 @@ async def brand_gaps(
     engine: str = Query(...),
     days: int = Query(default=7, ge=1, le=90),
     db: AsyncSession = Depends(get_db),
-    _user: User = Depends(_require_geo_access),
+    user: User = Depends(_require_geo_access),
 ) -> list[dict]:
     """Prompts ou la marque n'a pas ete mentionnee dans les N derniers jours.
 
@@ -767,7 +785,7 @@ async def brand_gaps(
     from datetime import timedelta
 
     bid = _parse_uuid(brand_id, "brand_id")
-    await _get_brand_or_404(db, bid)
+    await _get_brand_or_404(db, bid, user)
 
     if engine not in {e.value for e in GeoEngine}:
         raise HTTPException(422, detail="engine invalide")
@@ -911,7 +929,7 @@ async def trigger_gap_remeasure(
     days: int = Query(default=7, ge=1, le=90),
     n_runs: int = Query(default=3, ge=1, le=5),
     db: AsyncSession = Depends(get_db),
-    _user: User = Depends(_require_geo_admin),
+    user: User = Depends(_require_geo_admin),
 ) -> GeoRunTriggerResponse:
     """Declencher un re-run sur TOUS les prompts en gap pour re-mesurer l'impact.
 
@@ -920,7 +938,7 @@ async def trigger_gap_remeasure(
     from datetime import timedelta
 
     bid = _parse_uuid(brand_id, "brand_id")
-    await _get_brand_or_404(db, bid)
+    await _get_brand_or_404(db, bid, user)
 
     if engine not in {e.value for e in GeoEngine}:
         raise HTTPException(422, "engine invalide")

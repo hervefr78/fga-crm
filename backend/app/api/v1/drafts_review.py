@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.deps import get_current_user
+from app.core.rbac import apply_tenant_filter
 from app.db.session import get_db
 from app.models.contact import Contact
 from app.models.user import User
@@ -205,6 +206,9 @@ async def export_heyreach_csv(
             .options(selectinload(Contact.company))
             .where(Contact.id.in_(list(uuid_to_lead.keys())))
         )
+        # Isolation multi-tenant : ne joindre que les contacts de l'org du user
+        # (les drafts viennent de compass-core, cross-org — voir note module).
+        stmt = apply_tenant_filter(stmt, Contact, user)
         result = await db.execute(stmt)
         for contact in result.scalars().all():
             contacts_by_id[contact.id] = contact
