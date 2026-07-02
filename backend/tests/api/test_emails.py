@@ -322,3 +322,25 @@ async def test_list_emails_rbac_isolation(
     # Sales B ne voit rien
     resp = await client.get(LIST_URL, headers=sales_b_headers)
     assert resp.json()["total"] == 0
+
+
+@pytest.mark.asyncio
+async def test_send_email_rejects_cross_org_deal(
+    client: AsyncClient, auth_headers: dict, db_session: AsyncSession,
+    mock_smtp, mock_smtp_settings,
+):
+    """#10 : un deal_id d'une AUTRE org -> 404 (pas d'Activity cross-org)."""
+    from app.models.deal import Deal
+    from app.models.organization import Organization
+
+    org_b = Organization(id=uuid.uuid4(), name="Org B", slug=f"orgb-{uuid.uuid4().hex[:8]}", is_active=True)
+    db_session.add(org_b)
+    await db_session.flush()
+    deal_b = Deal(title="Deal B", organization_id=org_b.id)
+    db_session.add(deal_b)
+    await db_session.commit()
+
+    resp = await client.post(SEND_URL, json={
+        "to_email": "x@y.fr", "subject": "s", "body": "b", "deal_id": str(deal_b.id),
+    }, headers=auth_headers)
+    assert resp.status_code == 404

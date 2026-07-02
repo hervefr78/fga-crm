@@ -329,3 +329,38 @@ async def test_users_lookup_unauthenticated(client: AsyncClient):
     """Sans token → 403."""
     resp = await client.get("/api/v1/users/lookup")
     assert resp.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_cannot_demote_last_active_admin(client: AsyncClient, db_session, test_org, test_user: User):
+    """#7 : le guard 'dernier admin' compte les admins ACTIFS. Avec un admin
+    inactif present, demote le seul admin ACTIF est bloque (via un superadmin,
+    seul chemin ou le caller n'est pas la cible)."""
+    import uuid
+
+    from app.core.security import create_access_token, hash_password
+    from app.models.organization import Organization
+
+    # Admin INACTIF dans l'org de test_user (ne doit PAS compter dans le guard)
+    inactive_admin = User(
+        id=uuid.uuid4(), email="inactive@fga.fr", hashed_password=hash_password("Xx123456!"),
+        full_name="Inactive Admin", role="admin", is_active=False, organization_id=test_org.id,
+    )
+    # Superadmin dans une autre org (bypass tenant, peut cibler test_org)
+    super_org = Organization(id=uuid.uuid4(), name="Super", slug=f"super-{uuid.uuid4().hex[:8]}", is_active=True)
+    db_session.add_all([inactive_admin, super_org])
+    await db_session.flush()
+    superadmin = User(
+        id=uuid.uuid4(), email="super@fga.fr", hashed_password=hash_password("Xx123456!"),
+        full_name="Super Admin", role="admin", is_active=True, is_superadmin=True,
+        organization_id=super_org.id,
+    )
+    db_session.add(superadmin)
+    await db_session.commit()
+
+    headers = {"Authorization": f"Bearer {create_access_token(data={'sub': str(superadmin.id)})}"}
+    # test_user est le seul admin ACTIF de test_org (inactive_admin exclu) -> 400
+    resp = await client.patch(
+        f"/api/v1/users/{test_user.id}/role", json={"role": "sales"}, headers=headers
+    )
+    assert resp.status_code == 400

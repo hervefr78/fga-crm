@@ -22,6 +22,7 @@ from app.db.session import get_db
 from app.models.activity import Activity
 from app.models.company import Company
 from app.models.contact import Contact
+from app.models.deal import Deal
 from app.models.email_template import EmailTemplate
 from app.models.user import User
 from app.schemas.email import EmailSendRequest, EmailSendResponse
@@ -73,15 +74,29 @@ async def send_email_endpoint(
         if contact.company:
             company = contact.company
 
-    # Charger la company separement si specifie sans contact
-    if data.company_id and not company:
+    # Valider company_id des qu'il est fourni (#10 jumeau) : ne PAS sauter la garde
+    # si un contact a deja fourni une company — data.company_id est ecrit tel quel
+    # dans l'Activity et pourrait pointer vers une autre org.
+    if data.company_id:
         company_uuid = _parse_uuid(data.company_id, "company_id")
         result = await db.execute(select(Company).where(Company.id == company_uuid))
-        company = result.scalar_one_or_none()
-        if not company:
+        explicit_company = result.scalar_one_or_none()
+        if not explicit_company:
             raise HTTPException(status_code=404, detail="Entreprise non trouvee")
-        check_tenant_access(company, user)
-        check_entity_access(company, user)
+        check_tenant_access(explicit_company, user)
+        check_entity_access(explicit_company, user)
+        if not company:
+            company = explicit_company
+
+    # Valider deal_id (#10) : sinon une Activity de l'org peut referencer un deal
+    # d'une autre org (incoherence FK / IDOR d'ecriture).
+    if data.deal_id:
+        deal_uuid = _parse_uuid(data.deal_id, "deal_id")
+        deal = (await db.execute(select(Deal).where(Deal.id == deal_uuid))).scalar_one_or_none()
+        if not deal:
+            raise HTTPException(status_code=404, detail="Deal non trouve")
+        check_tenant_access(deal, user)
+        check_entity_access(deal, user)
 
     # Construire les variables de substitution
     variables_dict = build_variables_dict(contact, company, user)
