@@ -42,14 +42,14 @@ class UUIDMixin:
 class OrgScopedMixin:
     """Isolation multi-tenant : chaque entite metier appartient a une organisation.
 
-    Colonne nullable pendant la phase expand (backfill de l'existant). La migration
-    finale (contract) la passe NOT NULL une fois tous les writers garantis. Le
-    filtrage par org est centralise dans `core/rbac.py` (apply_tenant_filter).
+    NOT NULL depuis le contract (migration mt_contract_001) : tous les writers
+    taggent organization_id = user.organization_id. Le filtrage par org est
+    centralise dans `core/rbac.py` (apply_tenant_filter).
     """
 
     organization_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("organizations.id", ondelete="CASCADE"),
-        nullable=True,
+        nullable=False,
         index=True,
     )

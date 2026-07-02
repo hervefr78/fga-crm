@@ -95,6 +95,7 @@ async def create_key(
         raise HTTPException(status_code=404, detail="Service account introuvable")
     check_tenant_access(service_account, admin)
 
+    # create_api_key derive l'org depuis le user proprietaire (DC18) -> pas de tag ici.
     api_key, raw_key = await create_api_key(
         db=db,
         user_id=body.user_id,
@@ -102,10 +103,6 @@ async def create_key(
         scopes=body.scopes,
         expires_at=body.expires_at,
     )
-    # La cle herite de l'org de l'admin (DC18 : org = source de verite serveur).
-    # Le service create_api_key ne gere pas l'org — on la tague ici avant commit.
-    api_key.organization_id = admin.organization_id
-    await db.flush()
     await db.commit()
     return CreateApiKeyResponse(id=api_key.id, name=api_key.name, key=raw_key)
 
@@ -173,15 +170,12 @@ async def create_service_account(
     Les service accounts ont is_service=True et ne peuvent pas se connecter via l'UI.
     Associer ensuite une API key via POST /admin/api-keys.
     """
-    user = await get_or_create_service_account(db, body.email, body.full_name)
-    # Le service ne gere pas l'org : on rattache le service account a l'org de
-    # l'admin s'il n'en a pas encore (DC18). Si l'email existe deja dans une
-    # autre org, on refuse (anti-collision cross-org).
-    if user.organization_id is None:
-        user.organization_id = admin.organization_id
-        await db.flush()
-    else:
-        check_tenant_access(user, admin)
+    # Nouveau compte -> cree dans l'org de l'admin (DC18). Compte existant dans une
+    # autre org -> refuse (check_tenant_access, anti-collision cross-org).
+    user = await get_or_create_service_account(
+        db, body.email, body.full_name, admin.organization_id
+    )
+    check_tenant_access(user, admin)
     await db.commit()
     return ServiceAccountOut(
         id=user.id,
