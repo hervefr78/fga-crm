@@ -74,6 +74,7 @@ app.conf.beat_schedule = {
 # les modules pour declencher l'enregistrement des @app.task.
 app.autodiscover_tasks(["app.tasks"])
 from app.tasks import (  # noqa: E402, F401, I001  — register tasks
+    enrichment,
     funding_sync,
     geo,
     startup_radar_full_sync,
