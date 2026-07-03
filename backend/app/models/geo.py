@@ -48,7 +48,10 @@ class GeoBrand(Base, UUIDMixin, TimestampMixin):
     organization_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), nullable=True, index=True
     )
-    slug: Mapped[str] = mapped_column(Text, unique=True, nullable=False, index=True)
+    # slug : unicite COMPOSITE (organization_id, slug), pas globale (FIX #9). Une
+    # unicite globale faisait fuiter/collisionner les marques entre organisations.
+    # `index=True` conserve un index (non-unique) pour le lookup par slug.
+    slug: Mapped[str] = mapped_column(Text, nullable=False, index=True)
     name: Mapped[str] = mapped_column(Text, nullable=False)
     # Aliases alternatifs (variantes de nom) utilises pour matcher la marque
     aliases: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
@@ -59,6 +62,11 @@ class GeoBrand(Base, UUIDMixin, TimestampMixin):
     # Relationships
     prompts: Mapped[list["GeoPrompt"]] = relationship(
         back_populates="brand", cascade="all, delete-orphan"
+    )
+
+    __table_args__ = (
+        # Unicite du slug PAR organisation (isolation multi-tenant — FIX #9).
+        UniqueConstraint("organization_id", "slug", name="uq_geo_brands_org_slug"),
     )
 
     def __repr__(self) -> str:

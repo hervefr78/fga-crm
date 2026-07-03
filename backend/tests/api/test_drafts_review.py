@@ -193,9 +193,15 @@ async def test_pending_max_age_out_of_bounds_422(
 
 @pytest.mark.asyncio
 async def test_get_draft_returns_draft(
-    client: AsyncClient, auth_headers: dict, fake_compass: FakeCompassClient
+    client: AsyncClient,
+    auth_headers: dict,
+    fake_compass: FakeCompassClient,
+    db_session,
+    test_org,
 ):
-    fake_compass.draft_response = _draft_payload(draft_id="d-abc")
+    """Le lead du draft appartient a l'org du user (FIX #7) → 200."""
+    lead_id = await _seed_contact_in_org(db_session, test_org.id)
+    fake_compass.draft_response = _draft_payload(draft_id="d-abc", lead_id=lead_id)
     resp = await client.get("/api/v1/drafts-review/d-abc", headers=auth_headers)
     assert resp.status_code == 200, resp.text
     assert resp.json()["draft_id"] == "d-abc"
@@ -233,9 +239,18 @@ async def test_get_draft_service_error_502(
 
 @pytest.mark.asyncio
 async def test_patch_status_sets_reviewer_to_current_user(
-    client: AsyncClient, auth_headers: dict, fake_compass: FakeCompassClient
+    client: AsyncClient,
+    auth_headers: dict,
+    fake_compass: FakeCompassClient,
+    db_session,
+    test_org,
 ):
     """Le reviewer envoye a compass = email du user authentifie (test@fga.fr)."""
+    lead_id = await _seed_contact_in_org(db_session, test_org.id)
+    # Le PATCH resout d'abord le draft (GET) pour verifier l'org du lead AVANT
+    # de muter : draft_response doit donc aussi porter le lead de l'org.
+    fake_compass.draft_response = _draft_payload(lead_id=lead_id)
+    fake_compass.status_response = _draft_payload(status="approved", lead_id=lead_id)
     resp = await client.patch(
         "/api/v1/drafts-review/d-123/status",
         json={"status": "approved"},
@@ -514,3 +529,121 @@ async def test_export_503_when_not_configured(
     resp = await client.get(EXPORT_URL, headers=auth_headers)
     assert resp.status_code == 503, resp.text
     assert "not configured" in resp.json()["detail"].lower()
+
+
+# ---------------------------------------------------------------------------
+# FIX #7 — IDOR cross-org : lecture PII / mutation statut d'un draft d'une autre org
+# ---------------------------------------------------------------------------
+
+import pytest_asyncio  # noqa: E402
+
+from app.core.security import create_access_token, hash_password  # noqa: E402
+from app.models.contact import Contact  # noqa: E402
+from app.models.organization import Organization  # noqa: E402
+from app.models.user import User  # noqa: E402
+
+
+async def _seed_contact_in_org(db_session, org_id) -> str:
+    """Cree un Contact dans l'org donnee ; retourne son UUID en str (= lead_id)."""
+    contact = Contact(
+        id=uuid.uuid4(),
+        first_name="Lead",
+        last_name="Test",
+        organization_id=org_id,
+    )
+    db_session.add(contact)
+    await db_session.commit()
+    return str(contact.id)
+
+
+def _headers_for(user: User) -> dict[str, str]:
+    return {"Authorization": f"Bearer {create_access_token({'sub': str(user.id)})}"}
+
+
+@pytest_asyncio.fixture
+async def org_b_draft(db_session) -> Organization:
+    org = Organization(
+        id=uuid.uuid4(),
+        name="Org B Draft",
+        slug=f"orgb-draft-{uuid.uuid4().hex[:8]}",
+        is_active=True,
+    )
+    db_session.add(org)
+    await db_session.commit()
+    await db_session.refresh(org)
+    return org
+
+
+@pytest_asyncio.fixture
+async def user_b_draft(db_session, org_b_draft: Organization) -> User:
+    user = User(
+        id=uuid.uuid4(),
+        email="user-b-draft@fga.fr",
+        hashed_password=hash_password("UserB1234!"),
+        full_name="User B",
+        role="admin",
+        is_active=True,
+        organization_id=org_b_draft.id,
+    )
+    db_session.add(user)
+    await db_session.commit()
+    await db_session.refresh(user)
+    return user
+
+
+@pytest.mark.asyncio
+async def test_get_draft_cross_org_lead_returns_404(
+    client: AsyncClient,
+    fake_compass: FakeCompassClient,
+    db_session,
+    test_org,
+    user_b_draft: User,
+):
+    """GET /{id} : draft dont le lead est un Contact de l'org A, appele par un
+    user de l'org B → 404 (anti-IDOR FIX #7). Sans le fix : 200 + fuite PII."""
+    lead_id = await _seed_contact_in_org(db_session, test_org.id)  # contact org A
+    fake_compass.draft_response = _draft_payload(draft_id="d-x", lead_id=lead_id)
+
+    resp = await client.get(
+        "/api/v1/drafts-review/d-x", headers=_headers_for(user_b_draft)
+    )
+    assert resp.status_code == 404, resp.text
+
+
+@pytest.mark.asyncio
+async def test_get_draft_same_org_lead_returns_200(
+    client: AsyncClient,
+    auth_headers: dict,
+    fake_compass: FakeCompassClient,
+    db_session,
+    test_org,
+):
+    """GET /{id} : draft dont le lead est dans l'org du user (proprietaire) → 200."""
+    lead_id = await _seed_contact_in_org(db_session, test_org.id)
+    fake_compass.draft_response = _draft_payload(draft_id="d-x", lead_id=lead_id)
+    resp = await client.get("/api/v1/drafts-review/d-x", headers=auth_headers)
+    assert resp.status_code == 200, resp.text
+
+
+@pytest.mark.asyncio
+async def test_patch_status_cross_org_lead_returns_404(
+    client: AsyncClient,
+    fake_compass: FakeCompassClient,
+    db_session,
+    test_org,
+    user_b_draft: User,
+):
+    """PATCH /{id}/status : draft dont le lead est dans l'org A, par un user de
+    l'org B → 404 (anti-IDOR FIX #7)."""
+    lead_id = await _seed_contact_in_org(db_session, test_org.id)
+    # Le draft (lead dans l'org A) est resolu par le GET pre-mutation.
+    fake_compass.draft_response = _draft_payload(lead_id=lead_id)
+    fake_compass.status_response = _draft_payload(status="approved", lead_id=lead_id)
+    resp = await client.patch(
+        "/api/v1/drafts-review/d-x/status",
+        json={"status": "approved"},
+        headers=_headers_for(user_b_draft),
+    )
+    assert resp.status_code == 404, resp.text
+    # La mutation cross-org ne doit PAS avoir eu lieu (garde AVANT le PATCH).
+    assert fake_compass.status_calls == []

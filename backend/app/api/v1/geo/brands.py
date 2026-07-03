@@ -107,9 +107,14 @@ async def create_brand(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(_require_geo_admin),
 ) -> GeoBrandResponse:
-    # Unicite du slug (DC2 — erreur explicite plutot qu'IntegrityError brute)
+    # Unicite du slug PAR organisation (DC2 — erreur explicite plutot qu'IntegrityError
+    # brute). Dedup scopee a l'org (FIX #9) : deux orgs peuvent avoir le meme slug.
     existing = (
-        await db.execute(select(GeoBrand).where(GeoBrand.slug == payload.slug))
+        await db.execute(
+            apply_tenant_filter(
+                select(GeoBrand).where(GeoBrand.slug == payload.slug), GeoBrand, user
+            )
+        )
     ).scalar_one_or_none()
     if existing is not None:
         raise HTTPException(status_code=409, detail="Un slug identique existe deja")
@@ -152,8 +157,15 @@ async def update_brand(
 
     data = payload.model_dump(exclude_unset=True)
     if "slug" in data and data["slug"] != brand.slug:
+        # Dedup scopee a l'org (FIX #9) : un meme slug peut exister dans une autre org.
         clash = (
-            await db.execute(select(GeoBrand).where(GeoBrand.slug == data["slug"]))
+            await db.execute(
+                apply_tenant_filter(
+                    select(GeoBrand).where(GeoBrand.slug == data["slug"]),
+                    GeoBrand,
+                    user,
+                )
+            )
         ).scalar_one_or_none()
         if clash is not None:
             raise HTTPException(status_code=409, detail="Un slug identique existe deja")

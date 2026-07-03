@@ -148,10 +148,13 @@ def require_service_scope(scope: str) -> Callable[..., Coroutine[Any, Any, User]
         user: User = Depends(get_service_user),
     ) -> User:
         scopes: list[str] = getattr(request.state, "api_key_scopes", [])
-        # Wildcard : "read:*" donne accès à tout ce qui commence par "read:"
+        # Wildcard : "<resource>:*" donne accès a tout "<resource>:X".
+        # Ex : "read:*" couvre "read:deals" (resource == "read"), mais PAS
+        # "geo:audit" (resource == "geo"). On ne traite JAMAIS "read:*" comme un
+        # super-wildcard global (broken access control corrige — FIX #5).
         resource = scope.split(":")[0] if ":" in scope else scope
         wildcard = f"{resource}:*"
-        if scope not in scopes and wildcard not in scopes and "read:*" not in scopes:
+        if scope not in scopes and wildcard not in scopes:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=f"Scope '{scope}' requis pour cette ressource",

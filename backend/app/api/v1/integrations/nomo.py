@@ -5,7 +5,7 @@
 import logging
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -19,7 +19,7 @@ from app.schemas.integration import (
     NomoNewSubscriptionResponse,
 )
 
-from ._auth import _require_nomo_api_key
+from ._auth import require_nomo_key_user, resolve_integration_owner
 
 logger = logging.getLogger(__name__)
 
@@ -39,10 +39,10 @@ _PLAN_PRICING_TYPE: dict[str, str] = {
     "/nomo-ia/new-subscription",
     response_model=NomoNewSubscriptionResponse,
     status_code=201,
-    dependencies=[Depends(_require_nomo_api_key)],
 )
 async def nomo_new_subscription(
     payload: NomoNewSubscriptionRequest,
+    key_user: User | None = Depends(require_nomo_key_user),
     db: AsyncSession = Depends(get_db),
 ) -> NomoNewSubscriptionResponse:
     """Enregistrer un nouveau client Nomo-IA dans le CRM.
@@ -50,20 +50,14 @@ async def nomo_new_subscription(
     Cree (ou retrouve) la Company, cree le Contact et le Deal (stage=won).
     Appelee par Marketing Assistant apres checkout.session.completed.
     """
-    # Owner = premier admin (service call, pas d'utilisateur connecte)
-    admin = (await db.execute(
-        select(User).where(User.role == "admin", User.is_active.is_(True)).limit(1)
-    )).scalar_one_or_none()
-    if admin is None:
-        raise HTTPException(status_code=503, detail="No admin user found in CRM")
+    # Isolation multi-tenant (DC18 — FIX #6) : owner + org resolus depuis la cle
+    # API authentifiee (Bearer crm_xxx). Le fallback legacy (header partage, sans
+    # org) retombe sur le premier admin actif. Les recherches d'idempotence sont
+    # scopees a cette org (pas de dedup cross-org).
+    owner, org_id = await resolve_integration_owner(db, key_user)
 
     # 1. Trouver ou creer la Company
     #    Priorite : domaine email (unique en DB) → nom case-insensitive → creation
-    # Isolation multi-tenant : toutes les entites creees appartiennent a l'org
-    # de l'admin resolu (service call, pas de user humain). Les recherches
-    # d'idempotence sont scopees a cette org (pas de dedup cross-org).
-    org_id = admin.organization_id
-
     email_domain = payload.email.split("@")[1] if "@" in payload.email else None
     company: Company | None = None
 
@@ -94,7 +88,7 @@ async def nomo_new_subscription(
             city=payload.city,
             country=payload.country or "France",
             lead_source="nomo-ia",
-            owner_id=admin.id,
+            owner_id=owner.id,
             organization_id=org_id,
         )
         db.add(company)
@@ -126,7 +120,7 @@ async def nomo_new_subscription(
             source="nomo-ia",
             status="qualified",
             is_decision_maker=True,
-            owner_id=admin.id,
+            owner_id=owner.id,
             organization_id=org_id,
         )
         db.add(contact)
@@ -160,7 +154,7 @@ async def nomo_new_subscription(
             company_id=company.id,
             contact_id=contact.id,
             description=f"Souscription Nomo-IA le {payload.subscription_date}. Plan : {payload.plan}.",
-            owner_id=admin.id,
+            owner_id=owner.id,
             organization_id=org_id,
         )
         db.add(deal)
