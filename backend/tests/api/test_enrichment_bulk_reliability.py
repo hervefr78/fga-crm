@@ -67,7 +67,7 @@ async def test_bulk_callback_marks_person_fresh(db_session: AsyncSession, test_o
 @pytest.mark.asyncio
 async def test_bulk_callback_isolates_failing_item(db_session: AsyncSession, test_org, monkeypatch):
     # #1 : un item qui plante est marque 'error' et n'annule pas les autres (pas de 500)
-    async def flaky(db, bulk, item, res):
+    async def flaky(db, bulk, item, res, *, fresh_client=None):
         if item.external_id == "ext-1":
             raise ValueError("boom")
         item.status = "found"

@@ -48,7 +48,8 @@ def _to_uuid(val: object) -> uuid.UUID | None:
 
 
 async def _resolve_item(
-    db: AsyncSession, bulk: EnrichmentBulk, item: EnrichmentBulkItem, res: dict
+    db: AsyncSession, bulk: EnrichmentBulk, item: EnrichmentBulkItem, res: dict,
+    *, fresh_client=None,
 ) -> None:
     """Resout une ligne : RGPD -> contact CRM + verif + provenance. Modifie `item`."""
     org_id = bulk.organization_id
@@ -132,7 +133,7 @@ async def _resolve_item(
     # -> un re-run du meme batch ne re-soumet/re-facture pas cette personne.
     await freshness.touch(
         freshness.person_key(org_id, comp.get("siren"), first, last),
-        settings.enrichment_refresh_days,
+        settings.enrichment_refresh_days, client=fresh_client,
     )
 
 
@@ -163,20 +164,22 @@ async def process_bulk_callback(db: AsyncSession, data: dict) -> dict:
     ).scalars().all()
     by_ext = {i.external_id: i for i in items}
 
-    for res in parse_bulk_callback(data):
-        item = by_ext.get(res.get("external_id"))
-        if item is None or item.status != "pending":
-            continue  # inconnu ou deja resolu (idempotence)
-        try:
-            # Savepoint par item (#1/DC4) : une erreur (collision, ecriture) sur une
-            # ligne n'annule pas tout le bulk (sinon perte des contacts Icypeas payes).
-            async with db.begin_nested():
-                await _resolve_item(db, bulk, item, res)
-        except Exception:  # noqa: BLE001 — echec isole a l'item, on continue
-            logger.exception(
-                "[Icypeas webhook] item %s echoue, marque error", res.get("external_id")
-            )
-            item.status = "error"
+    # #6 : un seul client Redis pour toute la boucle (au lieu d'un par item via touch).
+    async with freshness.client_scope() as fresh_client:
+        for res in parse_bulk_callback(data):
+            item = by_ext.get(res.get("external_id"))
+            if item is None or item.status != "pending":
+                continue  # inconnu ou deja resolu (idempotence)
+            try:
+                # Savepoint par item (#1/DC4) : une erreur (collision, ecriture) sur une
+                # ligne n'annule pas tout le bulk (sinon perte des contacts Icypeas payes).
+                async with db.begin_nested():
+                    await _resolve_item(db, bulk, item, res, fresh_client=fresh_client)
+            except Exception:  # noqa: BLE001 — echec isole a l'item, on continue
+                logger.exception(
+                    "[Icypeas webhook] item %s echoue, marque error", res.get("external_id")
+                )
+                item.status = "error"
 
     bulk.done = sum(1 for i in items if i.status != "pending")
     bulk.found = sum(1 for i in items if i.status == "found")
