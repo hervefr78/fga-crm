@@ -58,7 +58,11 @@ async def _resolve_item(
         return
 
     domain_type = classify_email(email)
-    if domain_type != "pro" or await is_suppressed(db, organization_id=org_id, email=email):
+    # Reverify (email-verification) : l'email existe deja dans le CRM -> on ne
+    # re-applique PAS le filtre RGPD (on rafraichit juste sa deliverabilite).
+    if bulk.task != "email-verification" and (
+        domain_type != "pro" or await is_suppressed(db, organization_id=org_id, email=email)
+    ):
         item.status = "not_found"  # rejete RGPD/suppression
         return
 
@@ -160,10 +164,22 @@ async def process_bulk_callback(db: AsyncSession, data: dict) -> dict:
         bulk.status = "done"
         bulk.finished_at = _now()
         if bulk.job_id:
-            job = await db.get(EnrichmentJob, bulk.job_id)
-            if job is not None and job.status == "awaiting_results":
-                job.status = "done"
-                job.finished_at = _now()
+            # Job termine seulement quand TOUS ses bulks sont done (un job reverify
+            # a 2 bulks : email-search + email-verification). On exclut le bulk courant
+            # (deja done) pour ne pas dependre de l'autoflush de son statut.
+            other_statuses = (
+                await db.execute(
+                    select(EnrichmentBulk.status).where(
+                        EnrichmentBulk.job_id == bulk.job_id,
+                        EnrichmentBulk.id != bulk.id,
+                    )
+                )
+            ).scalars().all()
+            if all(s == "done" for s in other_statuses):
+                job = await db.get(EnrichmentJob, bulk.job_id)
+                if job is not None and job.status == "awaiting_results":
+                    job.status = "done"
+                    job.finished_at = _now()
 
     await db.commit()
     return {"matched": True, "done": bulk.done, "found": bulk.found, "total": bulk.total}
