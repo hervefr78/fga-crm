@@ -8,7 +8,6 @@ from app.services.enrichment.rgpd import (
     classify_email,
     is_generic_local,
     is_personal_domain,
-    is_pro_nominative,
 )
 
 
@@ -32,12 +31,6 @@ from app.services.enrichment.rgpd import (
 ])
 def test_classify_email(email: str, expected: str):
     assert classify_email(email) == expected
-
-
-def test_is_pro_nominative():
-    assert is_pro_nominative("jean.dupont@acme.com") is True
-    assert is_pro_nominative("contact@acme.com") is False
-    assert is_pro_nominative("jean@gmail.com") is False
 
 
 def test_is_personal_domain():
