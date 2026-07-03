@@ -123,6 +123,9 @@ class Settings(BaseSettings):
     icypeas_api_secret: str | None = None           # secret HMAC pour verifier les webhooks
     icypeas_webhook_verify: bool = True             # verifier la signature des callbacks
     icypeas_webhook_url: str | None = None          # URL publique du callback (prod)
+    # Source societe pour l'enrichissement : "mock" (dev/tests) | "gouv" (API
+    # recherche-entreprises.api.gouv.fr, gratuite, sans cle — CompanySource FR).
+    enrichment_company_source: str = "mock"
     enrichment_bulk_timeout_hours: int = 24         # bulk sans callback -> reconcilie failed
     enrichment_daily_quota: int = 5000              # credits/jour par organisation
     enrichment_max_credits_per_run: int = 5000      # plafond par job

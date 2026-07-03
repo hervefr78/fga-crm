@@ -190,11 +190,14 @@ async def _process_company(
             continue
 
         email = person.email
-        if not email and domain:
+        # Icypeas accepte `domainOrCompany` : a defaut de domaine resolu (~40% seulement),
+        # on passe le nom de societe -> la personne reste enrichissable.
+        dom_or_company = domain or company.name
+        if not email and dom_or_company:
             for finder in finders:
                 if not ledger.can_spend(finder.cost_per_hit):
                     break
-                cand = await finder.find(person, domain)
+                cand = await finder.find(person, dom_or_company)
                 if cand:
                     ledger.record(finder.name, finder.cost_per_hit)
                     email = cand.email
@@ -291,7 +294,9 @@ async def _submit_bulk_job(
             ledger=ledger, org_id=org_id, stats=stats,
         )
         for person in people:
-            if not domain:
+            # Icypeas accepte `domainOrCompany` : domaine resolu si dispo, sinon nom.
+            dom_or_company = domain or company.name
+            if not dom_or_company:
                 stats["skipped_no_domain"] += 1
                 continue
             fresh_key = _freshness_key(org_id, company.siren, person)
@@ -306,7 +311,7 @@ async def _submit_bulk_job(
                 break
             ledger.record("icypeas-bulk", _BULK_CREDIT)
             ext_ids.append(str(len(rows)))  # deterministe + unique dans le bulk
-            rows.append([person.first_name, person.last_name, domain])
+            rows.append([person.first_name, person.last_name, dom_or_company])
             contexts.append({
                 "company": {"siren": company.siren, "name": company.name, "domain": domain},
                 "person": {

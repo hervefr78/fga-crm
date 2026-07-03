@@ -140,3 +140,14 @@ def test_normalize_and_candidates():
     assert "fastgrowthadvisor.fr" in cands
     assert "fast-growth-advisor.com" in cands
     assert "fast.fr" in cands  # premier mot
+
+
+def test_factory_selects_source_by_config(monkeypatch):
+    from app.config import settings
+    from app.services.enrichment.adapters.mock import MockCompanySource
+    from app.services.enrichment.factory import get_company_source
+
+    monkeypatch.setattr(settings, "enrichment_company_source", "gouv")
+    assert isinstance(get_company_source(), GouvCompanySource)
+    monkeypatch.setattr(settings, "enrichment_company_source", "mock")
+    assert isinstance(get_company_source(), MockCompanySource)

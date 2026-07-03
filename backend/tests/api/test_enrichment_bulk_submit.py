@@ -81,6 +81,56 @@ async def test_batch_mode_submits_bulk_without_creating_contacts(
     assert len(body["custom"]["externalIds"]) == bulk.total
 
 
+class _NoDomainCompanySource:
+    """Source societe FR-like sans domaine resolu (cas ~60% de l'heuristique)."""
+
+    async def get_by_siren(self, siren):
+        from app.services.enrichment.ports import Company
+        return Company(siren=siren, name="Acme Corp", domain=None)
+
+    async def resolve_domain(self, company):
+        return None
+
+    async def get_companies(self, icp):
+        return []
+
+
+@pytest.mark.asyncio
+async def test_batch_uses_company_name_when_no_domain(db_session: AsyncSession, test_org, monkeypatch):
+    # Feature A : sans domaine resolu, on passe le NOM societe (domainOrCompany)
+    # au lieu de skipper la personne.
+    monkeypatch.setattr(settings, "icypeas_api_key", "k")
+    monkeypatch.setattr(
+        settings, "icypeas_webhook_url",
+        "https://crm.example/api/v1/integrations/icypeas/webhook",
+    )
+    captured: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["body"] = json.loads(request.content)
+        return httpx.Response(200, json={"success": True, "file": "BF2"})
+
+    client = IcypeasClient("k", transport=httpx.MockTransport(handler))
+    monkeypatch.setattr(orchestrator, "get_bulk_client", lambda: client)
+    monkeypatch.setattr(orchestrator, "get_people_sources", lambda: [MockPeopleSource()])
+    monkeypatch.setattr(orchestrator, "get_company_source", lambda: _NoDomainCompanySource())
+
+    job = EnrichmentJob(
+        mode="batch", status="queued",
+        target_json={"kind": "batch", "sirens": ["123456789"]},
+        organization_id=test_org.id,
+    )
+    db_session.add(job)
+    await db_session.commit()
+
+    await orchestrator.run_enrichment_job(db_session, job)
+
+    assert job.status == "awaiting_results"
+    rows = captured["body"]["data"]  # [[firstname, lastname, domainOrCompany], ...]
+    assert len(rows) >= 1
+    assert all(row[2] == "Acme Corp" for row in rows)  # nom societe, pas skip
+
+
 @pytest.mark.asyncio
 async def test_batch_mode_falls_back_inline_without_webhook_url(
     db_session: AsyncSession, test_org, monkeypatch

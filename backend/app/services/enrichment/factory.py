@@ -8,6 +8,7 @@ Startup Radar, Plein Phare) en respectant l'ordre cout-croissant."""
 from __future__ import annotations
 
 from app.config import settings
+from app.services.enrichment.adapters.gouv import GouvCompanySource
 from app.services.enrichment.adapters.icypeas import (
     IcypeasClient,
     IcypeasEmailFinder,
@@ -38,8 +39,9 @@ def get_bulk_client() -> IcypeasClient | None:
 
 
 def get_company_source() -> CompanySource:
-    # P6 : PleinPhareCompanySource (frdata) si dispo. Reste mock (Icypeas ne fait
-    # pas la resolution siren->societe FR).
+    # "gouv" -> API recherche-entreprises (gratuite, sans cle). Sinon mock (dev/tests).
+    if settings.enrichment_company_source == "gouv":
+        return GouvCompanySource()
     return MockCompanySource()
 
 
