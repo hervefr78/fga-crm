@@ -2,7 +2,9 @@
 # FGA CRM - Integration Schemas (Startup Radar sync)
 # =============================================================================
 
-from pydantic import BaseModel, Field
+from datetime import datetime
+
+from pydantic import BaseModel, EmailStr, Field
 
 
 class SyncResultResponse(BaseModel):
@@ -75,3 +77,76 @@ class SyncEnqueuedResponse(BaseModel):
     status: str = Field("running", description="Statut initial du job")
     job_id: str = Field(..., description="Identifiant du job de sync")
     started_at: str = Field(..., description="ISO — horodatage du lancement")
+
+
+# ---------- Schemas Nomo-IA ----------
+
+
+class NomoNewSubscriptionRequest(BaseModel):
+    company_name: str = Field(..., min_length=1, max_length=255)
+    first_name: str = Field(..., min_length=1, max_length=255)
+    last_name: str = Field("", max_length=255)
+    email: str = Field(..., max_length=255)
+    phone: str | None = Field(None, max_length=50)
+    address_line: str | None = Field(None, max_length=500)
+    postal_code: str | None = Field(None, max_length=20)
+    city: str | None = Field(None, max_length=100)
+    country: str | None = Field(None, max_length=100)
+    plan: str = Field(..., max_length=100)
+    amount_eur: float = Field(..., ge=0)
+    billing_cycle: str = Field("monthly", max_length=20)
+    subscription_date: str = Field(..., max_length=30)
+
+
+class NomoNewSubscriptionResponse(BaseModel):
+    company_id: str
+    contact_id: str
+    deal_id: str
+
+
+# ---------- Schemas Plein Phare Digital ----------
+
+
+class PleinPhareNewOrderRequest(BaseModel):
+    """Webhook entrant : nouvelle commande "Rapport Complet" one-shot."""
+
+    email: EmailStr
+    first_name: str | None = Field(None, max_length=255)
+    last_name: str | None = Field(None, max_length=255)
+    company_name: str = Field(..., min_length=1, max_length=200)
+    phone: str | None = Field(None, max_length=50)
+    address_line: str | None = Field(None, max_length=500)
+    postal_code: str | None = Field(None, max_length=20)
+    city: str | None = Field(None, max_length=100)
+    country: str | None = Field("France", max_length=100)
+    amount_eur: float = Field(..., ge=0)
+    currency: str = Field("EUR", max_length=3)
+    audit_order_id: str = Field(..., min_length=1, max_length=64)
+    audit_url: str | None = Field(None, max_length=2048)
+    paid_at: datetime
+    stripe_session_id: str | None = Field(None, max_length=255)
+
+
+class PleinPhareCreatedFlags(BaseModel):
+    company: bool
+    contact: bool
+    deal: bool
+
+
+class PleinPhareNewOrderResponse(BaseModel):
+    company_id: str
+    contact_id: str
+    deal_id: str
+    created: PleinPhareCreatedFlags
+
+
+class PleinPhareRefundRequest(BaseModel):
+    audit_order_id: str = Field(..., min_length=1, max_length=64)
+    refunded_at: datetime
+    reason: str | None = Field(None, max_length=500)
+
+
+class PleinPhareRefundResponse(BaseModel):
+    deal_id: str
+    old_stage: str
+    new_stage: str
