@@ -24,10 +24,14 @@ class IcpFilter:
 
 @dataclass
 class TargetSpec:
-    kind: str  # 'company' | 'batch' | 'icp'
+    kind: str  # 'company' | 'batch' | 'icp' | 'contacts'
     siren: str | None = None
     sirens: list[str] = field(default_factory=list)
     icp_filter: IcpFilter | None = None
+    # Mode 'contacts' (Feature B — enrichir des contacts existants).
+    contact_ids: list[str] = field(default_factory=list)
+    all_missing_email: bool = False  # tous les contacts de l'org sans email
+    reverify: bool = False           # re-verifier aussi les emails deja presents
 
 
 @dataclass

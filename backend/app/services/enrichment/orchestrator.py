@@ -8,11 +8,15 @@ echec -> failed borne (DC2). Providers via factory (mock-first)."""
 from __future__ import annotations
 
 import logging
+import uuid
 from datetime import UTC, datetime
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
+from app.models.company import Company as CrmCompany
+from app.models.contact import Contact
 from app.models.enrichment import (
     EnrichmentBulk,
     EnrichmentBulkItem,
@@ -21,7 +25,7 @@ from app.models.enrichment import (
 )
 from app.services.enrichment import freshness
 from app.services.enrichment.credit_ledger import CreditLedger
-from app.services.enrichment.crm_writer import upsert_contact
+from app.services.enrichment.crm_writer import update_contact_email, upsert_contact
 from app.services.enrichment.factory import (
     get_bulk_client,
     get_company_source,
@@ -45,6 +49,14 @@ logger = logging.getLogger(__name__)
 _TARGET_ROLES = ["CTO", "CPO", "CMO"]
 _KEEP_ROLES = frozenset({"CTO", "CPO", "CMO", "FOUNDER"})
 _MAX_ERROR_LEN = 2000
+_MAX_CONTACTS = 1000  # borne DC1 sur une selection de contacts a enrichir
+
+
+def _to_uuid(val: str) -> uuid.UUID | None:
+    try:
+        return uuid.UUID(str(val))
+    except (ValueError, TypeError, AttributeError):
+        return None
 
 # Mode bulk (batch/icp) : email-search asynchrone via webhook (W3). Cout estime
 # par ligne pour respecter le plafond du run (le debit reel est cote Icypeas).
@@ -63,6 +75,9 @@ def _parse_target(raw: dict) -> TargetSpec:
         siren=raw.get("siren"),
         sirens=raw.get("sirens", []),
         icp_filter=IcpFilter(**icp) if icp else None,
+        contact_ids=raw.get("contact_ids", []),
+        all_missing_email=bool(raw.get("all_missing_email", False)),
+        reverify=bool(raw.get("reverify", False)),
     )
 
 
@@ -352,6 +367,120 @@ async def _submit_bulk_job(
     await db.commit()
 
 
+async def _resolve_contacts(db: AsyncSession, target: TargetSpec, org_id) -> list[Contact]:
+    """Resout la selection de contacts (org-scopee, bornee) : ids explicites OU
+    tous les contacts sans email. Feature B."""
+    stmt = select(Contact).where(Contact.organization_id == org_id)
+    if target.contact_ids:
+        ids = [u for u in (_to_uuid(c) for c in target.contact_ids) if u is not None]
+        if not ids:
+            return []
+        stmt = stmt.where(Contact.id.in_(ids))
+    elif target.all_missing_email:
+        stmt = stmt.where(Contact.email.is_(None))
+    else:
+        return []
+    stmt = stmt.limit(_MAX_CONTACTS)
+    return list((await db.execute(stmt)).scalars().all())
+
+
+async def _process_contact(
+    db: AsyncSession,
+    contact: Contact,
+    *,
+    finders,
+    verifiers,
+    ledger: CreditLedger,
+    org_id,
+    stats: dict,
+    reverify: bool,
+) -> None:
+    """Enrichit UN contact existant (Feature B) : trouve l'email manquant (ou
+    re-verifie l'existant si reverify), met a jour le contact + provenance."""
+    has_email = bool(contact.email)
+    if has_email and not reverify:
+        stats["skipped_has_email"] += 1
+        return
+
+    email = contact.email
+    person = PersonCandidate(
+        first_name=contact.first_name, last_name=contact.last_name,
+        title_raw=contact.title or "", source="crm", linkedin_url=contact.linkedin_url,
+    )
+
+    if not has_email:
+        # Trouver l'email : domaine de la societe liee, sinon nom (domainOrCompany).
+        company = await db.get(CrmCompany, contact.company_id) if contact.company_id else None
+        dom_or_company = (company.domain or company.name) if company else None
+        if not dom_or_company:
+            stats["skipped_no_company"] += 1
+            return
+        for finder in finders:
+            if not ledger.can_spend(finder.cost_per_hit):
+                break
+            cand = await finder.find(person, dom_or_company)
+            if cand:
+                ledger.record(finder.name, finder.cost_per_hit)
+                email = cand.email
+                break
+        if not email:
+            return
+        stats["emails_found"] += 1
+        # Filtres RGPD bloquants (uniquement sur un email nouvellement trouve).
+        domain_type = classify_email(email)
+        if domain_type != "pro" or await is_suppressed(db, organization_id=org_id, email=email):
+            return
+
+    # Verification (email trouve OU existant a re-verifier)
+    verification = None
+    for v in verifiers:
+        if not ledger.can_spend(v.cost_per_check):
+            break
+        verification = await v.verify(email)
+        ledger.record(v.name, v.cost_per_check)
+        break
+    status = verification.status if verification else "unknown"
+    deliverable = status == "valid"
+
+    cid = await update_contact_email(
+        db, contact_id=contact.id, email=email, email_status=status, organization_id=org_id,
+    )
+    if cid is None:  # contact disparu / hors org
+        return
+    db.add(EnrichmentEmailVerification(
+        organization_id=org_id, contact_id=cid, email=email, domain_type=classify_email(email),
+        confidence=verification.confidence if verification else None,
+        status=status, deliverable=deliverable,
+        source=verification.source if verification else "icypeas",
+    ))
+    await record_provenance(
+        db, entity_type="email", field="email", source="icypeas",
+        contact_id=cid, organization_id=org_id,
+    )
+    if deliverable:
+        stats["valid"] += 1
+    stats["updated"] += 1
+
+
+async def _run_contacts_inline(
+    db: AsyncSession, target: TargetSpec, *,
+    finders, verifiers, ledger: CreditLedger, org_id, stats: dict,
+) -> None:
+    """Mode contacts (inline) : enrichit chaque contact, checkpoint par contact."""
+    contacts = await _resolve_contacts(db, target, org_id)
+    for contact in contacts:
+        try:
+            await _process_contact(
+                db, contact, finders=finders, verifiers=verifiers, ledger=ledger,
+                org_id=org_id, stats=stats, reverify=target.reverify,
+            )
+            await db.commit()
+        except Exception:  # noqa: BLE001 — echec isole au contact
+            logger.exception("[Enrichment] job contacts : contact %s echoue, skip", contact.id)
+            await db.rollback()
+            stats["errors"] += 1
+
+
 async def run_enrichment_job(db: AsyncSession, job: EnrichmentJob) -> None:
     """Execute le pipeline. Ne leve pas : echec -> statut failed (DC2)."""
     if job.status in ("done", "failed"):
@@ -367,6 +496,7 @@ async def run_enrichment_job(db: AsyncSession, job: EnrichmentJob) -> None:
         "companies": 0, "people_found": 0, "emails_found": 0,
         "valid": 0, "suppressed": 0, "skipped_fresh": 0,
         "skipped_no_domain": 0, "skipped_pre_emailed": 0, "bulk_submitted": 0,
+        "updated": 0, "skipped_has_email": 0, "skipped_no_company": 0,
         "errors": 0, "credits_spent": 0.0,
     }
     ledger = CreditLedger(max_per_run=settings.enrichment_max_credits_per_run)
@@ -378,6 +508,20 @@ async def run_enrichment_job(db: AsyncSession, job: EnrichmentJob) -> None:
         verifiers = get_email_verifiers()
 
         target = _parse_target(job.target_json or {})
+
+        # Mode contacts (Feature B) : enrichir des contacts existants (inline).
+        if target.kind == "contacts":
+            await _run_contacts_inline(
+                db, target, finders=finders, verifiers=verifiers,
+                ledger=ledger, org_id=org_id, stats=stats,
+            )
+            stats["credits_spent"] = ledger.spent_this_run()
+            job.stats_json = stats
+            job.status = "done"
+            job.finished_at = _now()
+            await db.commit()
+            return
+
         companies = await _resolve_companies(company_src, target)
 
         # Client Redis reutilise sur toute la phase (fix #13 : un seul connect/close
