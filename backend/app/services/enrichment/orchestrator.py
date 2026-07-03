@@ -61,6 +61,7 @@ def _to_uuid(val: str) -> uuid.UUID | None:
 # Mode bulk (batch/icp) : email-search asynchrone via webhook (W3). Cout estime
 # par ligne pour respecter le plafond du run (le debit reel est cote Icypeas).
 _BULK_TASK = "email-search"
+_VERIFY_TASK = "email-verification"
 _BULK_CREDIT = 1.0
 
 
@@ -336,31 +337,36 @@ async def _submit_bulk_job(
                 },
             })
 
-    await _submit_and_persist_bulk(
-        db, job, client, rows, ext_ids, contexts, org_id=org_id, stats=stats, ledger=ledger,
-    )
-
-
-async def _submit_and_persist_bulk(
-    db: AsyncSession, job: EnrichmentJob, client, rows: list[list[str]],
-    ext_ids: list[str], contexts: list[dict], *, org_id, stats: dict, ledger: CreditLedger,
-) -> None:
-    """Soumet le bulk a Icypeas + persiste EnrichmentBulk/Items. Job -> awaiting_results
-    (ou done si rien a enrichir). Partage entre le mode societes et le mode contacts."""
     stats["credits_spent"] = ledger.spent_this_run()
-    if not rows:  # rien a enrichir -> job termine directement
-        job.stats_json = stats
+    n = await _persist_bulk(db, job, client, _BULK_TASK, rows, ext_ids, contexts, org_id=org_id)
+    _finalize_bulk_job(job, stats, n)
+    await db.commit()
+
+
+def _finalize_bulk_job(job: EnrichmentJob, stats: dict, submitted: int) -> None:
+    """Statut final apres soumission des bulks : awaiting_results si >0, sinon done."""
+    stats["bulk_submitted"] = submitted
+    job.stats_json = stats
+    if submitted > 0:
+        job.status = "awaiting_results"  # le(s) callback(s) (W2) finalisent le job
+    else:
         job.status = "done"
         job.finished_at = _now()
-        await db.commit()
-        return
 
-    file_id = await client.submit_bulk(_BULK_TASK, rows, ext_ids, settings.icypeas_webhook_url or "")
+
+async def _persist_bulk(
+    db: AsyncSession, job: EnrichmentJob, client, task: str,
+    rows: list[list[str]], ext_ids: list[str], contexts: list[dict], *, org_id,
+) -> int:
+    """Soumet UN bulk (task) a Icypeas + persiste EnrichmentBulk/Items. Retourne le
+    nb de lignes soumises (0 si rien). Ne commit pas (l'appelant gere le job)."""
+    if not rows:
+        return 0
+    file_id = await client.submit_bulk(task, rows, ext_ids, settings.icypeas_webhook_url or "")
     if not file_id:
-        raise RuntimeError("Icypeas bulk-search : soumission refusee")
-
+        raise RuntimeError(f"Icypeas bulk ({task}) : soumission refusee")
     bulk = EnrichmentBulk(
-        file=file_id, task=_BULK_TASK, status="awaiting_results",
+        file=file_id, task=task, status="awaiting_results",
         total=len(rows), done=0, found=0, organization_id=org_id, job_id=job.id,
     )
     db.add(bulk)
@@ -370,19 +376,14 @@ async def _submit_and_persist_bulk(
             bulk_id=bulk.id, external_id=ext, organization_id=org_id,
             status="pending", context_json=ctx,
         ))
-
-    stats["bulk_submitted"] = len(rows)
-    job.stats_json = stats
-    job.status = "awaiting_results"  # le callback (W2) finalisera le job
-    await db.commit()
+    return len(rows)
 
 
 def _contacts_use_bulk(target: TargetSpec) -> bool:
-    """Mode contacts en bulk : find des emails manquants (pas reverify) + Icypeas
-    reel + URL webhook. Reverify reste inline (bulk email-verification = plus tard)."""
+    """Mode contacts en bulk (find manquants + reverify existants via 2 bulks) :
+    Icypeas reel + URL webhook."""
     return (
         target.kind == "contacts"
-        and not target.reverify
         and bool(settings.icypeas_api_key)
         and bool(settings.icypeas_webhook_url)
     )
@@ -392,21 +393,39 @@ async def _submit_bulk_contacts(
     db: AsyncSession, job: EnrichmentJob, target: TargetSpec, *,
     ledger: CreditLedger, org_id, stats: dict,
 ) -> None:
-    """Mode contacts (bulk) : soumet UN bulk email-search pour les contacts sans
-    email. Le contexte porte `contact_id` -> le webhook MET A JOUR le contact (W2)."""
+    """Mode contacts (bulk) : soumet UN bulk email-search (contacts sans email) ET,
+    si reverify, UN bulk email-verification (contacts avec email). Le contexte porte
+    `contact_id` -> le webhook MET A JOUR le contact (W2). Job done quand TOUS finis."""
     client = get_bulk_client()
     if client is None:
         raise RuntimeError("Bulk indisponible : client Icypeas absent")
 
     contacts = await _resolve_contacts(db, target, org_id)
-    rows: list[list[str]] = []
-    ext_ids: list[str] = []
-    contexts: list[dict] = []
+    s_rows: list[list[str]] = []
+    s_ext: list[str] = []
+    s_ctx: list[dict] = []
+    v_rows: list[list[str]] = []
+    v_ext: list[str] = []
+    v_ctx: list[dict] = []
 
     for contact in contacts:
-        if contact.email:  # reverify=False ici -> on ne re-traite pas les remplis
-            stats["skipped_has_email"] += 1
+        base_ctx = {
+            "contact_id": str(contact.id),  # marque le mode UPDATE cote webhook
+            "person": {"first_name": contact.first_name, "last_name": contact.last_name},
+        }
+        if contact.email:
+            if not target.reverify:
+                stats["skipped_has_email"] += 1
+                continue
+            # Reverify : bulk email-verification (row = [email])
+            if not ledger.can_spend(_BULK_CREDIT):
+                break
+            ledger.record("icypeas-verify", _BULK_CREDIT)
+            v_ext.append(str(len(v_rows)))
+            v_rows.append([contact.email])
+            v_ctx.append(base_ctx)
             continue
+        # Sans email : bulk email-search (row = [first, last, domainOrCompany])
         company = await db.get(CrmCompany, contact.company_id) if contact.company_id else None
         dom_or_company = (company.domain or company.name) if company else None
         if not dom_or_company:
@@ -415,22 +434,26 @@ async def _submit_bulk_contacts(
         if not ledger.can_spend(_BULK_CREDIT):
             break
         ledger.record("icypeas-bulk", _BULK_CREDIT)
-        ext_ids.append(str(len(rows)))
-        rows.append([contact.first_name, contact.last_name, dom_or_company])
-        contexts.append({
-            "contact_id": str(contact.id),  # marque le mode UPDATE cote webhook
+        s_ext.append(str(len(s_rows)))
+        s_rows.append([contact.first_name, contact.last_name, dom_or_company])
+        s_ctx.append({
+            **base_ctx,
             "company": {"siren": "", "name": company.name if company else "", "domain": company.domain if company else None},
-            "person": {"first_name": contact.first_name, "last_name": contact.last_name},
         })
 
-    await _submit_and_persist_bulk(
-        db, job, client, rows, ext_ids, contexts, org_id=org_id, stats=stats, ledger=ledger,
-    )
+    stats["credits_spent"] = ledger.spent_this_run()
+    n = await _persist_bulk(db, job, client, _BULK_TASK, s_rows, s_ext, s_ctx, org_id=org_id)
+    n += await _persist_bulk(db, job, client, _VERIFY_TASK, v_rows, v_ext, v_ctx, org_id=org_id)
+    _finalize_bulk_job(job, stats, n)
+    await db.commit()
 
 
 async def _resolve_contacts(db: AsyncSession, target: TargetSpec, org_id) -> list[Contact]:
-    """Resout la selection de contacts (org-scopee, bornee) : ids explicites OU
-    tous les contacts sans email. Feature B."""
+    """Resout la selection de contacts (org-scopee, bornee). Feature B :
+    - contact_ids : ces contacts precis.
+    - all_missing_email sans reverify : contacts sans email (a trouver).
+    - all_missing_email avec reverify : TOUS les contacts (manquants -> find,
+      remplis -> re-verify) — sinon le reverify n'aurait aucune cible."""
     stmt = select(Contact).where(Contact.organization_id == org_id)
     if target.contact_ids:
         ids = [u for u in (_to_uuid(c) for c in target.contact_ids) if u is not None]
@@ -438,7 +461,8 @@ async def _resolve_contacts(db: AsyncSession, target: TargetSpec, org_id) -> lis
             return []
         stmt = stmt.where(Contact.id.in_(ids))
     elif target.all_missing_email:
-        stmt = stmt.where(Contact.email.is_(None))
+        if not target.reverify:
+            stmt = stmt.where(Contact.email.is_(None))
     else:
         return []
     stmt = stmt.limit(_MAX_CONTACTS)

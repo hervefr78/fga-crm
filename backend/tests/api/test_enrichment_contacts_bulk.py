@@ -98,3 +98,114 @@ async def test_webhook_updates_existing_contact_not_create(db_session: AsyncSess
     # aucun NOUVEAU contact cree (update, pas create)
     all_contacts = (await db_session.execute(select(Contact))).scalars().all()
     assert len(all_contacts) == 1
+
+
+@pytest.mark.asyncio
+async def test_reverify_submits_search_and_verify_bulks(db_session: AsyncSession, test_org, monkeypatch):
+    monkeypatch.setattr(settings, "icypeas_api_key", "k")
+    monkeypatch.setattr(
+        settings, "icypeas_webhook_url",
+        "https://crm.example/api/v1/integrations/icypeas/webhook",
+    )
+    bodies: list[dict] = []
+    files = iter(["SEARCH1", "VERIFY1"])
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        bodies.append(json.loads(request.content))
+        return httpx.Response(200, json={"success": True, "file": next(files)})
+
+    monkeypatch.setattr(orchestrator, "get_bulk_client",
+                        lambda: IcypeasClient("k", transport=httpx.MockTransport(handler)))
+
+    co1 = Company(name="Acme", domain="acme.fr", organization_id=test_org.id)
+    co2 = Company(name="Beta", domain="beta.fr", organization_id=test_org.id)
+    db_session.add_all([co1, co2])
+    await db_session.flush()
+    c_missing = Contact(first_name="Julie", last_name="Martin", organization_id=test_org.id,
+                        company_id=co1.id, email=None)
+    c_filled = Contact(first_name="Marc", last_name="Bernard", organization_id=test_org.id,
+                       company_id=co2.id, email="marc@beta.fr")
+    db_session.add_all([c_missing, c_filled])
+    await db_session.flush()
+    job = EnrichmentJob(mode="contacts", status="queued",
+                        target_json={"kind": "contacts",
+                                     "contact_ids": [str(c_missing.id), str(c_filled.id)],
+                                     "reverify": True},
+                        organization_id=test_org.id)
+    db_session.add(job)
+    await db_session.commit()
+
+    await orchestrator.run_enrichment_job(db_session, job)
+
+    assert job.status == "awaiting_results"
+    bulks = (await db_session.execute(select(EnrichmentBulk))).scalars().all()
+    assert {b.task for b in bulks} == {"email-search", "email-verification"}
+    # 1er body = search ([first,last,domainOrCompany]), 2e = verify ([email])
+    tasks_sent = {b["task"]: b["data"] for b in bodies}
+    assert tasks_sent["email-search"] == [["Julie", "Martin", "acme.fr"]]
+    assert tasks_sent["email-verification"] == [["marc@beta.fr"]]
+
+
+@pytest.mark.asyncio
+async def test_webhook_verify_updates_status_skipping_rgpd(db_session: AsyncSession, test_org):
+    # Email PERSO deja en base : le reverify (email-verification) ne doit PAS le
+    # rejeter au filtre RGPD, juste rafraichir son statut de deliverabilite.
+    contact = Contact(first_name="J", last_name="M", email="j@gmail.com",
+                      organization_id=test_org.id)
+    db_session.add(contact)
+    await db_session.flush()
+    job = EnrichmentJob(mode="contacts", status="awaiting_results", target_json={},
+                        organization_id=test_org.id)
+    db_session.add(job)
+    await db_session.flush()
+    bulk = EnrichmentBulk(file="V1", task="email-verification", status="awaiting_results",
+                          total=1, organization_id=test_org.id, job_id=job.id)
+    db_session.add(bulk)
+    await db_session.flush()
+    db_session.add(EnrichmentBulkItem(
+        bulk_id=bulk.id, external_id="0", organization_id=test_org.id, status="pending",
+        context_json={"contact_id": str(contact.id), "person": {"first_name": "J", "last_name": "M"}},
+    ))
+    await db_session.commit()
+
+    data = {"file": "V1", "results": [
+        {"results": {"emails": [{"email": "j@gmail.com", "certainty": "undeliverable"}]},
+         "status": "DEBITED", "userData": {"externalId": "0"}},
+    ]}
+    await process_bulk_callback(db_session, data)
+
+    await db_session.refresh(contact)
+    assert contact.email == "j@gmail.com"
+    assert contact.email_status == "invalid"  # undeliverable, malgre gmail (pas de RGPD block)
+    assert contact.email_verified_by_icypeas is True
+
+
+@pytest.mark.asyncio
+async def test_multi_bulk_job_done_only_when_all_bulks_done(db_session: AsyncSession, test_org):
+    job = EnrichmentJob(mode="contacts", status="awaiting_results", target_json={},
+                        organization_id=test_org.id)
+    db_session.add(job)
+    await db_session.flush()
+    b_search = EnrichmentBulk(file="S", task="email-search", status="awaiting_results", total=1,
+                              organization_id=test_org.id, job_id=job.id)
+    b_verify = EnrichmentBulk(file="V", task="email-verification", status="awaiting_results", total=1,
+                              organization_id=test_org.id, job_id=job.id)
+    db_session.add_all([b_search, b_verify])
+    await db_session.flush()
+    db_session.add(EnrichmentBulkItem(bulk_id=b_search.id, external_id="0", organization_id=test_org.id,
+                                      status="pending", context_json={}))
+    db_session.add(EnrichmentBulkItem(bulk_id=b_verify.id, external_id="0", organization_id=test_org.id,
+                                      status="pending", context_json={}))
+    await db_session.commit()
+
+    # 1er callback (search, non trouve) -> job PAS encore done (verify en attente)
+    await process_bulk_callback(db_session, {"file": "S", "results": [
+        {"results": {}, "status": "NOT_FOUND", "userData": {"externalId": "0"}}]})
+    refreshed = await db_session.get(EnrichmentJob, job.id)
+    assert refreshed.status == "awaiting_results"
+
+    # 2e callback (verify) -> tous les bulks done -> job done
+    await process_bulk_callback(db_session, {"file": "V", "results": [
+        {"results": {}, "status": "NOT_FOUND", "userData": {"externalId": "0"}}]})
+    refreshed = await db_session.get(EnrichmentJob, job.id)
+    assert refreshed.status == "done"
