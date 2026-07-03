@@ -9,6 +9,7 @@ import type { EnrichmentJob, EnrichmentJobStatus } from '../../types/enrichment'
 const STATUS_STYLE: Record<EnrichmentJobStatus, string> = {
   queued: 'bg-slate-100 text-slate-600',
   running: 'bg-blue-50 text-blue-700',
+  awaiting_results: 'bg-amber-50 text-amber-700',
   done: 'bg-emerald-50 text-emerald-700',
   failed: 'bg-red-50 text-red-600',
 };
@@ -16,6 +17,7 @@ const STATUS_STYLE: Record<EnrichmentJobStatus, string> = {
 const STATUS_LABEL: Record<EnrichmentJobStatus, string> = {
   queued: 'En file',
   running: 'En cours',
+  awaiting_results: 'En attente (webhook)',
   done: 'Termine',
   failed: 'Echec',
 };

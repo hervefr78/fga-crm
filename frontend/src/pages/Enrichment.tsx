@@ -46,8 +46,9 @@ export default function EnrichmentPage() {
     enabled: hasAccess,
     refetchInterval: (query) => {
       const items = query.state.data?.items ?? [];
-      return items.some((j) => j.status === 'queued' || j.status === 'running')
-        ? JOBS_POLL_INTERVAL : false;
+      // 'awaiting_results' : bulk soumis, en attente du webhook Icypeas -> continuer a poller.
+      const active = new Set(['queued', 'running', 'awaiting_results']);
+      return items.some((j) => active.has(j.status)) ? JOBS_POLL_INTERVAL : false;
     },
   });
 

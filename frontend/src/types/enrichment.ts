@@ -3,7 +3,7 @@
 // =============================================================================
 
 export type EnrichmentMode = 'company' | 'batch' | 'icp';
-export type EnrichmentJobStatus = 'queued' | 'running' | 'done' | 'failed';
+export type EnrichmentJobStatus = 'queued' | 'running' | 'awaiting_results' | 'done' | 'failed';
 
 export interface EnrichmentJobStats {
   companies?: number;
