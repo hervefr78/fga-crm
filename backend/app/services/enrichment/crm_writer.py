@@ -86,3 +86,57 @@ async def upsert_contact(
     contact.company_id = crm_company.id
     await db.flush()
     return contact.id
+
+
+def _domain_from_email(email: str) -> str | None:
+    if not email or email.count("@") != 1:
+        return None
+    return (email.split("@", 1)[1].strip().lower()) or None
+
+
+async def update_contact_email(
+    db: AsyncSession,
+    *,
+    contact_id: uuid.UUID,
+    email: str,
+    email_status: str,
+    organization_id: uuid.UUID,
+    verified_by_icypeas: bool = True,
+    source: str = "icypeas",
+) -> uuid.UUID | None:
+    """Feature B : met a jour un contact EXISTANT (email + statut + flag Icypeas).
+
+    Backfille le domaine de la societe liee si Icypeas a resolu un domaine inedit
+    (email pro valide). Retourne contact_id, ou None si contact absent / hors org."""
+    contact = (
+        await db.execute(select(Contact).where(
+            Contact.id == contact_id,
+            Contact.organization_id == organization_id,
+        ))
+    ).scalars().first()
+    if contact is None:
+        return None  # inexistant ou cross-org -> no-op (isolation)
+
+    contact.email = email
+    contact.email_status = email_status
+    contact.email_verified_by_icypeas = verified_by_icypeas
+    contact.enrichment_source = source
+
+    # Backfill domaine societe depuis l'email valide par Icypeas (si absent),
+    # en evitant la collision (organization_id, domain).
+    dom = _domain_from_email(email)
+    if dom and verified_by_icypeas and contact.company_id:
+        company = await db.get(CrmCompany, contact.company_id)
+        if company is not None and company.organization_id == organization_id and not company.domain:
+            clash = (
+                await db.execute(select(CrmCompany.id).where(
+                    CrmCompany.domain == dom,
+                    CrmCompany.organization_id == organization_id,
+                ))
+            ).first()
+            if clash is None:
+                company.domain = dom
+                company.domain_verified_by_icypeas = True
+
+    await db.flush()
+    return contact.id

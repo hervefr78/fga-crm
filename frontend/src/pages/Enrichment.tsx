@@ -8,7 +8,7 @@
 
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, Building2, Filter, List, Play, ShieldAlert } from 'lucide-react';
+import { AlertTriangle, Building2, Filter, List, Play, ShieldAlert, Users } from 'lucide-react';
 import clsx from 'clsx';
 
 import { useAuth } from '../contexts/useAuth';
@@ -39,6 +39,7 @@ export default function EnrichmentPage() {
   const [sirensInput, setSirensInput] = useState('');
   const [nafInput, setNafInput] = useState(DEFAULT_NAF);
   const [limit, setLimit] = useState(50);
+  const [reverify, setReverify] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const { data: jobsData } = useQuery({
@@ -66,6 +67,9 @@ export default function EnrichmentPage() {
         payload.siren = siren.trim();
       } else if (mode === 'batch') {
         payload.sirens = parsedSirens;
+      } else if (mode === 'contacts') {
+        payload.all_missing_email = true;
+        payload.reverify = reverify;
       } else {
         payload.icp_filter = {
           naf_codes: nafInput.split(',').map((s) => s.trim()).filter(Boolean),
@@ -100,6 +104,7 @@ export default function EnrichmentPage() {
   const canLaunch =
     mode === 'company' ? siren.trim().length > 0
     : mode === 'batch' ? parsedSirens.length > 0
+    : mode === 'contacts' ? true
     : nafInput.trim().length > 0;
 
   return (
@@ -116,7 +121,7 @@ export default function EnrichmentPage() {
       <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-4 space-y-4">
         {/* Selecteur de mode */}
         <div className="inline-flex rounded-lg border border-slate-200 p-0.5">
-          {([['company', 'A la demande', Building2], ['batch', 'Liste de SIREN', List], ['icp', 'ICP (NAF)', Filter]] as const).map(
+          {([['company', 'A la demande', Building2], ['batch', 'Liste de SIREN', List], ['icp', 'ICP (NAF)', Filter], ['contacts', 'Contacts existants', Users]] as const).map(
             ([m, label, Icon]) => (
               <button
                 key={m}
@@ -159,6 +164,22 @@ export default function EnrichmentPage() {
             />
             <span className="text-xs text-slate-400">{parsedSirens.length} SIREN valides detectes</span>
           </div>
+        ) : mode === 'contacts' ? (
+          <div className="flex flex-col gap-2">
+            <span className="text-sm text-slate-600">
+              Enrichit <strong>tous les contacts sans email</strong> de votre organisation
+              (trouve + verifie l&apos;email pro).
+            </span>
+            <label className="inline-flex items-center gap-2 text-sm text-slate-600">
+              <input
+                type="checkbox"
+                checked={reverify}
+                onChange={(e) => setReverify(e.target.checked)}
+                className="rounded border-slate-300 text-primary-600 focus-visible:ring-primary-500"
+              />
+              Re-verifier aussi les emails deja presents en base
+            </label>
+          </div>
         ) : (
           <div className="flex flex-wrap items-end gap-3">
             <label className="flex flex-col gap-1">
@@ -198,7 +219,9 @@ export default function EnrichmentPage() {
               ? 'Enrichit les decideurs de cette societe.'
               : mode === 'batch'
                 ? 'Enrichit les decideurs d’un lot de societes (par SIREN).'
-                : 'Enrichit un lot de societes filtrees par code NAF.'}
+                : mode === 'contacts'
+                  ? 'Enrichit les contacts existants sans email (import LinkedIn/CSV).'
+                  : 'Enrichit un lot de societes filtrees par code NAF.'}
           </span>
         </div>
       </div>

@@ -5,9 +5,10 @@
 import { useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Users, Plus, Trash2, Download, Upload } from 'lucide-react';
+import { Users, Plus, Trash2, Download, Upload, Sparkles } from 'lucide-react';
 
 import { getContacts, deleteContact } from '../api/client';
+import { createEnrichmentJob } from '../api/enrichment';
 import type { Contact } from '../types';
 import { CONTACT_SOURCES } from '../types';
 import { Modal, SearchInput, Pagination, LoadingSpinner, EmptyState, ConfirmDialog, Badge, Button, FilterBar } from '../components/ui';
@@ -51,6 +52,8 @@ export default function ContactsPage() {
   const [filters, setFilters] = useState<Record<string, string>>({});
   const [importOpen, setImportOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [enrichMsg, setEnrichMsg] = useState<string | null>(null);
 
   // Modals
   const [formOpen, setFormOpen] = useState(false);
@@ -74,6 +77,28 @@ export default function ContactsPage() {
       setDeletingContact(null);
     },
   });
+
+  // Feature B : enrichir les contacts selectionnes (emails manquants).
+  const enrichMutation = useMutation({
+    mutationFn: (ids: string[]) => createEnrichmentJob({ mode: 'contacts', contact_ids: ids }),
+    onSuccess: () => {
+      setEnrichMsg('Enrichissement lance. Suivez la progression dans la page Enrichissement.');
+      setSelectedIds(new Set());
+    },
+    onError: () => setEnrichMsg("Echec du lancement de l'enrichissement."),
+  });
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = (ids: string[]) => {
+    setSelectedIds((prev) => (ids.every((id) => prev.has(id)) ? new Set() : new Set(ids)));
+  };
 
   const handleSearch = (value: string) => {
     setSearch(value);
@@ -121,6 +146,15 @@ export default function ContactsPage() {
           <p className="text-slate-400 text-sm mt-1">{data?.total || 0} contacts au total</p>
         </div>
         <div className="flex items-center gap-2">
+          {selectedIds.size > 0 && (
+            <Button
+              variant="secondary" icon={Sparkles} size="sm"
+              loading={enrichMutation.isPending}
+              onClick={() => enrichMutation.mutate([...selectedIds])}
+            >
+              Enrichir ({selectedIds.size})
+            </Button>
+          )}
           <Button variant="secondary" icon={Download} onClick={handleExport} loading={exporting} size="sm">
             Exporter
           </Button>
@@ -132,6 +166,12 @@ export default function ContactsPage() {
           </Button>
         </div>
       </div>
+
+      {enrichMsg && (
+        <div className="mb-4 rounded-lg border border-primary-100 bg-primary-50 px-4 py-2 text-sm text-primary-700">
+          {enrichMsg}
+        </div>
+      )}
 
       {/* Recherche + Filtres */}
       <div className="space-y-3 mb-5">
@@ -159,6 +199,15 @@ export default function ContactsPage() {
             <table className="w-full">
               <thead className="bg-slate-50">
                 <tr>
+                  <th className="px-6 py-3 w-10">
+                    <input
+                      type="checkbox"
+                      aria-label="Tout selectionner"
+                      checked={data.items.length > 0 && data.items.every((c: Contact) => selectedIds.has(c.id))}
+                      onChange={() => toggleSelectAll(data.items.map((c: Contact) => c.id))}
+                      className="rounded border-slate-300 text-primary-600 focus-visible:ring-primary-500"
+                    />
+                  </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wide">Nom</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wide">Titre</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wide">Email</th>
@@ -174,6 +223,15 @@ export default function ContactsPage() {
                     onClick={() => navigate(`/contacts/${contact.id}`)}
                     className="hover:bg-slate-50 cursor-pointer transition-colors"
                   >
+                    <td className="px-6 py-4" onClick={(e) => e.stopPropagation()}>
+                      <input
+                        type="checkbox"
+                        aria-label={`Selectionner ${contact.full_name}`}
+                        checked={selectedIds.has(contact.id)}
+                        onChange={() => toggleSelect(contact.id)}
+                        className="rounded border-slate-300 text-primary-600 focus-visible:ring-primary-500"
+                      />
+                    </td>
                     <td className="px-6 py-4">
                       <p className="text-sm font-medium text-slate-700">{contact.full_name}</p>
                       {contact.job_level && (

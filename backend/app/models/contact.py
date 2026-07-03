@@ -80,6 +80,10 @@ class Contact(Base, UUIDMixin, OrgScopedMixin, TimestampMixin):
     email_pattern_used: Mapped[str | None] = mapped_column(String(50), nullable=True)
     # linkedin_url_status : candidate (genere auto), verified (verifie manuellement), invalid
     linkedin_url_status: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    # True si l'email a ete trouve/verifie par Icypeas (vs saisi/importe manuellement).
+    email_verified_by_icypeas: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="false", default=False
+    )
 
     # Relationships
     company: Mapped[Optional["Company"]] = relationship(back_populates="contacts")

@@ -8,6 +8,7 @@ CRM (reutilise crm_writer/rgpd/suppression/provenance — DC8). Idempotent."""
 from __future__ import annotations
 
 import logging
+import uuid
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
@@ -22,7 +23,7 @@ from app.models.enrichment import (
 )
 from app.services.enrichment import freshness
 from app.services.enrichment.adapters.icypeas import _map_certainty, parse_bulk_callback
-from app.services.enrichment.crm_writer import upsert_contact
+from app.services.enrichment.crm_writer import update_contact_email, upsert_contact
 from app.services.enrichment.ports import Company, PersonCandidate
 from app.services.enrichment.provenance import record_provenance
 from app.services.enrichment.rgpd import classify_email
@@ -37,6 +38,13 @@ _RECONCILE_BATCH = 100
 
 def _now() -> datetime:
     return datetime.now(UTC)
+
+
+def _to_uuid(val: object) -> uuid.UUID | None:
+    try:
+        return uuid.UUID(str(val)) if val else None
+    except (ValueError, TypeError, AttributeError):
+        return None
 
 
 async def _resolve_item(
@@ -60,22 +68,32 @@ async def _resolve_item(
     ctx = item.context_json or {}
     comp = ctx.get("company") or {}
     pers = ctx.get("person") or {}
-    company = Company(
-        siren=comp.get("siren") or "", name=comp.get("name") or "", domain=comp.get("domain"),
-    )
-    person = PersonCandidate(
-        first_name=pers.get("first_name") or res.get("firstname") or "",
-        last_name=pers.get("last_name") or res.get("lastname") or "",
-        title_raw=pers.get("title_raw") or "",
-        source="icypeas",
-        linkedin_url=pers.get("linkedin_url"),
-        role=pers.get("role"),
-    )
+    first = pers.get("first_name") or res.get("firstname") or ""
+    last = pers.get("last_name") or res.get("lastname") or ""
+    existing_contact_id = _to_uuid(ctx.get("contact_id"))
 
-    contact_id = await upsert_contact(
-        db, company=company, person=person, email=email, email_status=status,
-        organization_id=org_id,
-    )
+    if existing_contact_id is not None:
+        # Feature B : met a jour un contact EXISTANT (pas de create) + backfill domaine.
+        contact_id = await update_contact_email(
+            db, contact_id=existing_contact_id, email=email, email_status=status,
+            organization_id=org_id,
+        )
+        if contact_id is None:  # contact disparu / hors org
+            item.status = "not_found"
+            return
+    else:
+        company = Company(
+            siren=comp.get("siren") or "", name=comp.get("name") or "", domain=comp.get("domain"),
+        )
+        person = PersonCandidate(
+            first_name=first, last_name=last, title_raw=pers.get("title_raw") or "",
+            source="icypeas", linkedin_url=pers.get("linkedin_url"), role=pers.get("role"),
+        )
+        contact_id = await upsert_contact(
+            db, company=company, person=person, email=email, email_status=status,
+            organization_id=org_id,
+        )
+
     db.add(EnrichmentEmailVerification(
         organization_id=org_id, contact_id=contact_id, email=email, domain_type=domain_type,
         confidence=confidence, status=status, deliverable=deliverable, source="icypeas",
@@ -91,7 +109,7 @@ async def _resolve_item(
     # Fraicheur (#5) : marque la personne enrichie (meme clef que le pipeline inline)
     # -> un re-run du meme batch ne re-soumet/re-facture pas cette personne.
     await freshness.touch(
-        freshness.person_key(org_id, comp.get("siren"), person.first_name, person.last_name),
+        freshness.person_key(org_id, comp.get("siren"), first, last),
         settings.enrichment_refresh_days,
     )
 
