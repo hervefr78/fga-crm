@@ -11,7 +11,7 @@
 
 ## Contexte rapide
 
-Le projet Startup Radar (SR) reçoit une refonte de son pipeline de veille : il agrège désormais 5 sources (LesPepitesTech, Maddyness, Eldorado, L'Usine Digitale, BODACC) et enrichit les fondateurs avec Pappers + heuristiques email/LinkedIn.
+Le projet Startup Radar (SR) reçoit une refonte de son pipeline de veille : il agrège désormais 5 sources (LesPepitesTech, Maddyness, Eldorado, L'Usine Digitale, BODACC) et enrichit les fondateurs avec des heuristiques email/LinkedIn.
 
 **Conséquence côté CRM** : les startups remontent dans le CRM via le sync existant (`services/startup_radar_sync.py`), avec des champs en plus à mapper et de nouvelles activités/tasks à créer automatiquement.
 
@@ -24,7 +24,7 @@ Côté CRM, on ne fait **aucun scraping** — on consomme uniquement l'API SR vi
 ```
 [SR] funding_ingest multi-source quotidien (06h00)
   ↓
-[SR] enrichissement fondateurs Pappers (08h30)
+[SR] enrichissement fondateurs (08h30)
   ↓
 [SR] API /api/v1/startups, /contacts (exposent les nouveaux champs)
   ↓

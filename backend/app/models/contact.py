@@ -74,7 +74,7 @@ class Contact(Base, UUIDMixin, OrgScopedMixin, TimestampMixin):
     startup_radar_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     # Enrichment metadata (synced from Startup Radar multi-source pipeline)
-    # enrichment_source : pappers, sirene, scraping, manual, etc.
+    # enrichment_source : sirene, scraping, scraped_founders, manual, etc.
     enrichment_source: Mapped[str | None] = mapped_column(String(50), nullable=True)
     # email_pattern_used : first.last, f.last, firstlast, etc. (uniquement si email genere heuristiquement)
     email_pattern_used: Mapped[str | None] = mapped_column(String(50), nullable=True)

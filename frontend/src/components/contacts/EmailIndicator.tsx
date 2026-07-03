@@ -6,14 +6,14 @@
 // email_pattern_used et enrichment_source (synced from Startup Radar).
 //
 // Flag "pas fiable" : quand l'email vient d'une heuristique non verifiee
-// (scraped_founders, pappers), un second badge orange s'affiche pour avertir
+// (scraped_founders), un second badge orange s'affiche pour avertir
 // le commercial que l'email n'a pas ete valide — risque de bounce eleve.
 // Les emails evaboot sont deja passes par un verificateur → badge seul suffit.
 
 import { Badge } from '../ui';
 
 // Sources pour lesquelles l'email n'a PAS ete verifie par un outil tiers
-const UNVERIFIED_SOURCES = new Set(['scraped_founders', 'pappers']);
+const UNVERIFIED_SOURCES = new Set(['scraped_founders']);
 
 interface EmailIndicatorProps {
   emailStatus: string | null | undefined;
@@ -31,7 +31,6 @@ export default function EmailIndicator({ emailStatus, emailPattern, enrichmentSo
   if (emailStatus === 'unknown') {
     const isHeuristic = enrichmentSource ? UNVERIFIED_SOURCES.has(enrichmentSource) : false;
     const sourceName = enrichmentSource === 'scraped_founders' ? 'scraping fondateurs'
-      : enrichmentSource === 'pappers' ? 'Pappers'
       : emailPattern ? `pattern ${emailPattern}` : 'heuristique';
 
     const tip = isHeuristic
