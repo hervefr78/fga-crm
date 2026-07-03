@@ -336,8 +336,18 @@ async def _submit_bulk_job(
                 },
             })
 
-    stats["credits_spent"] = ledger.spent_this_run()
+    await _submit_and_persist_bulk(
+        db, job, client, rows, ext_ids, contexts, org_id=org_id, stats=stats, ledger=ledger,
+    )
 
+
+async def _submit_and_persist_bulk(
+    db: AsyncSession, job: EnrichmentJob, client, rows: list[list[str]],
+    ext_ids: list[str], contexts: list[dict], *, org_id, stats: dict, ledger: CreditLedger,
+) -> None:
+    """Soumet le bulk a Icypeas + persiste EnrichmentBulk/Items. Job -> awaiting_results
+    (ou done si rien a enrichir). Partage entre le mode societes et le mode contacts."""
+    stats["credits_spent"] = ledger.spent_this_run()
     if not rows:  # rien a enrichir -> job termine directement
         job.stats_json = stats
         job.status = "done"
@@ -365,6 +375,57 @@ async def _submit_bulk_job(
     job.stats_json = stats
     job.status = "awaiting_results"  # le callback (W2) finalisera le job
     await db.commit()
+
+
+def _contacts_use_bulk(target: TargetSpec) -> bool:
+    """Mode contacts en bulk : find des emails manquants (pas reverify) + Icypeas
+    reel + URL webhook. Reverify reste inline (bulk email-verification = plus tard)."""
+    return (
+        target.kind == "contacts"
+        and not target.reverify
+        and bool(settings.icypeas_api_key)
+        and bool(settings.icypeas_webhook_url)
+    )
+
+
+async def _submit_bulk_contacts(
+    db: AsyncSession, job: EnrichmentJob, target: TargetSpec, *,
+    ledger: CreditLedger, org_id, stats: dict,
+) -> None:
+    """Mode contacts (bulk) : soumet UN bulk email-search pour les contacts sans
+    email. Le contexte porte `contact_id` -> le webhook MET A JOUR le contact (W2)."""
+    client = get_bulk_client()
+    if client is None:
+        raise RuntimeError("Bulk indisponible : client Icypeas absent")
+
+    contacts = await _resolve_contacts(db, target, org_id)
+    rows: list[list[str]] = []
+    ext_ids: list[str] = []
+    contexts: list[dict] = []
+
+    for contact in contacts:
+        if contact.email:  # reverify=False ici -> on ne re-traite pas les remplis
+            stats["skipped_has_email"] += 1
+            continue
+        company = await db.get(CrmCompany, contact.company_id) if contact.company_id else None
+        dom_or_company = (company.domain or company.name) if company else None
+        if not dom_or_company:
+            stats["skipped_no_company"] += 1
+            continue
+        if not ledger.can_spend(_BULK_CREDIT):
+            break
+        ledger.record("icypeas-bulk", _BULK_CREDIT)
+        ext_ids.append(str(len(rows)))
+        rows.append([contact.first_name, contact.last_name, dom_or_company])
+        contexts.append({
+            "contact_id": str(contact.id),  # marque le mode UPDATE cote webhook
+            "company": {"siren": "", "name": company.name if company else "", "domain": company.domain if company else None},
+            "person": {"first_name": contact.first_name, "last_name": contact.last_name},
+        })
+
+    await _submit_and_persist_bulk(
+        db, job, client, rows, ext_ids, contexts, org_id=org_id, stats=stats, ledger=ledger,
+    )
 
 
 async def _resolve_contacts(db: AsyncSession, target: TargetSpec, org_id) -> list[Contact]:
@@ -509,8 +570,14 @@ async def run_enrichment_job(db: AsyncSession, job: EnrichmentJob) -> None:
 
         target = _parse_target(job.target_json or {})
 
-        # Mode contacts (Feature B) : enrichir des contacts existants (inline).
+        # Mode contacts (Feature B) : enrichir des contacts existants.
         if target.kind == "contacts":
+            # Bulk async (find emails manquants) si Icypeas+webhook, sinon inline.
+            if _contacts_use_bulk(target):
+                await _submit_bulk_contacts(
+                    db, job, target, ledger=ledger, org_id=org_id, stats=stats,
+                )
+                return  # awaiting_results : le webhook (W2) met a jour les contacts
             await _run_contacts_inline(
                 db, target, finders=finders, verifiers=verifiers,
                 ledger=ledger, org_id=org_id, stats=stats,
