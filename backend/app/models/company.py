@@ -6,7 +6,15 @@ import uuid
 from datetime import date
 from typing import TYPE_CHECKING, Optional
 
-from sqlalchemy import BigInteger, Date, ForeignKey, String, Text, UniqueConstraint
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    Date,
+    ForeignKey,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -61,6 +69,12 @@ class Company(Base, UUIDMixin, OrgScopedMixin, TimestampMixin):
 
     # Startup Radar link — unicite SCOPEE par organisation (voir __table_args__).
     startup_radar_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
+    # True si le domaine a ete trouve/valide par Icypeas (email pro resolu sur ce
+    # domaine) — vs heuristique nom->domaine (non confirmee).
+    domain_verified_by_icypeas: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="false", default=False
+    )
 
     # Provenance du lead (plein-phare, manual, import, linkedin, etc.)
     lead_source: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
