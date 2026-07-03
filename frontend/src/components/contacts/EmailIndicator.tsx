@@ -5,14 +5,15 @@
 // confiance (Verifie / Candidat / Risque) en fonction de email_status,
 // email_pattern_used et enrichment_source (synced from Startup Radar).
 //
-// Flag "pas fiable" : quand l'email vient d'une heuristique non verifiee
-// (scraped_founders), un second badge orange s'affiche pour avertir
-// le commercial que l'email n'a pas ete valide — risque de bounce eleve.
-// Les emails evaboot sont deja passes par un verificateur → badge seul suffit.
+// Flag "pas fiable" : quand l'email a ete DEVINE (source heuristique connue OU
+// genere par un pattern), un second badge orange s'affiche pour avertir le
+// commercial que l'email n'a pas ete valide — risque de bounce eleve.
+// Le signal `email_pattern_used` couvre GENERIQUEMENT toute source (connue ou
+// inconnue) ayant devine l'email -> fallback robuste face aux sources non listees.
 
 import { Badge } from '../ui';
 
-// Sources pour lesquelles l'email n'a PAS ete verifie par un outil tiers
+// Sources connues pour lesquelles l'email n'a PAS ete verifie par un outil tiers
 const UNVERIFIED_SOURCES = new Set(['scraped_founders']);
 
 interface EmailIndicatorProps {
@@ -29,14 +30,21 @@ export default function EmailIndicator({ emailStatus, emailPattern, enrichmentSo
   }
 
   if (emailStatus === 'unknown') {
-    const isHeuristic = enrichmentSource ? UNVERIFIED_SOURCES.has(enrichmentSource) : false;
+    // Heuristique = email devine : source non verifiee connue OU genere par pattern.
+    // Le pattern rend le flag robuste pour TOUTE source (y compris inconnue).
+    const isKnownUnverified = enrichmentSource ? UNVERIFIED_SOURCES.has(enrichmentSource) : false;
+    const isHeuristic = isKnownUnverified || Boolean(emailPattern);
+
+    // Nom de source lisible, avec fallback generique pour toute source inconnue.
     const sourceName = enrichmentSource === 'scraped_founders' ? 'scraping fondateurs'
-      : emailPattern ? `pattern ${emailPattern}` : 'heuristique';
+      : emailPattern ? `pattern ${emailPattern}`
+      : enrichmentSource ? `source « ${enrichmentSource} »`
+      : 'heuristique';
 
     const tip = isHeuristic
       ? `Email généré par ${sourceName} — non vérifié. Risque de bounce élevé avant envoi.`
-      : emailPattern
-        ? `Email généré par heuristique (pattern : ${emailPattern}). À vérifier avant envoi.`
+      : enrichmentSource
+        ? `Email de ${sourceName} — non vérifié. À valider avant envoi.`
         : 'Email non vérifié. À valider avant envoi.';
 
     return (
