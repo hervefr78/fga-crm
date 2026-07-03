@@ -214,6 +214,58 @@ async def test_geo_brand_isolated_cross_org(
 
 
 @pytest.mark.asyncio
+async def test_geo_brand_same_slug_allowed_cross_org(
+    client: AsyncClient, auth_headers: dict, db_session: AsyncSession, org_b, admin_b: User
+):
+    """FIX #9 : deux orgs peuvent creer une marque GEO au meme slug ('acme').
+
+    Sans le fix (unicite GLOBALE sur slug + dedup non scopee), la creation cote
+    org B renvoyait 409 (dedup cross-org) ou levait une IntegrityError. Avec le fix
+    (unicite composite (org, slug) + dedup scopee), les deux coexistent.
+    """
+    # Org A cree slug='acme'
+    r_a = await client.post(
+        "/api/v1/geo/brands",
+        json={"slug": "acme", "name": "Acme A"},
+        headers=auth_headers,
+    )
+    assert r_a.status_code == 201, r_a.text
+
+    # Org B cree slug='acme' -> pas de collision cross-org
+    r_b = await client.post(
+        "/api/v1/geo/brands",
+        json={"slug": "acme", "name": "Acme B"},
+        headers=_headers(admin_b),
+    )
+    assert r_b.status_code == 201, r_b.text
+    assert r_a.json()["id"] != r_b.json()["id"]
+
+    # Chaque marque est bien rattachee a son org (via GET, scope tenant).
+    brands_b = (await client.get("/api/v1/geo/brands", headers=_headers(admin_b))).json()
+    assert {b["slug"] for b in brands_b} == {"acme"}
+    assert len(brands_b) == 1
+
+
+@pytest.mark.asyncio
+async def test_geo_brand_same_slug_rejected_same_org(
+    client: AsyncClient, auth_headers: dict
+):
+    """FIX #9 : dans une MEME org, un slug duplique reste refuse (409)."""
+    r1 = await client.post(
+        "/api/v1/geo/brands",
+        json={"slug": "dup", "name": "Dup 1"},
+        headers=auth_headers,
+    )
+    assert r1.status_code == 201, r1.text
+    r2 = await client.post(
+        "/api/v1/geo/brands",
+        json={"slug": "dup", "name": "Dup 2"},
+        headers=auth_headers,
+    )
+    assert r2.status_code == 409, r2.text
+
+
+@pytest.mark.asyncio
 async def test_deactivated_org_blocks_access(
     client: AsyncClient, db_session: AsyncSession, org_b, admin_b: User
 ):

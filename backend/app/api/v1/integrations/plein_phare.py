@@ -22,7 +22,7 @@ from app.schemas.integration import (
     PleinPhareRefundResponse,
 )
 
-from ._auth import _require_plein_phare_api_key
+from ._auth import require_plein_phare_key_user, resolve_integration_owner
 
 logger = logging.getLogger(__name__)
 
@@ -40,10 +40,10 @@ def _plein_phare_deal_title(audit_order_id: str) -> str:
     "/plein-phare/new-order",
     response_model=PleinPhareNewOrderResponse,
     status_code=201,
-    dependencies=[Depends(_require_plein_phare_api_key)],
 )
 async def plein_phare_new_order(
     payload: PleinPhareNewOrderRequest,
+    key_user: User | None = Depends(require_plein_phare_key_user),
     db: AsyncSession = Depends(get_db),
 ) -> PleinPhareNewOrderResponse:
     """Enregistrer une nouvelle commande Plein Phare Digital dans le CRM.
@@ -52,16 +52,10 @@ async def plein_phare_new_order(
     (stage=won). Idempotent par `audit_order_id` : un meme order ne cree
     jamais deux Deals.
     """
-    # Owner = premier admin actif (service call, pas d'utilisateur connecte)
-    admin = (await db.execute(
-        select(User).where(User.role == "admin", User.is_active.is_(True)).limit(1)
-    )).scalar_one_or_none()
-    if admin is None:
-        raise HTTPException(status_code=503, detail="No admin user found in CRM")
-
-    # Isolation multi-tenant : toutes les entites creees appartiennent a l'org
-    # de l'admin resolu (service call). Idempotence scopee a cette org.
-    org_id = admin.organization_id
+    # Isolation multi-tenant (DC18 — FIX #6) : owner + org resolus depuis la cle
+    # API authentifiee (Bearer crm_xxx), fallback legacy sur le premier admin
+    # actif. Idempotence scopee a cette org.
+    owner, org_id = await resolve_integration_owner(db, key_user)
 
     created_company = False
     created_contact = False
@@ -100,7 +94,7 @@ async def plein_phare_new_order(
             city=payload.city,
             country=payload.country or "France",
             lead_source="plein-phare",
-            owner_id=admin.id,
+            owner_id=owner.id,
             organization_id=org_id,
         )
         db.add(company)
@@ -133,7 +127,7 @@ async def plein_phare_new_order(
             source="plein-phare",
             status="qualified",
             is_decision_maker=True,
-            owner_id=admin.id,
+            owner_id=owner.id,
             organization_id=org_id,
         )
         db.add(contact)
@@ -172,7 +166,7 @@ async def plein_phare_new_order(
             company_id=company.id,
             contact_id=contact.id,
             description=description[:5000],
-            owner_id=admin.id,
+            owner_id=owner.id,
             organization_id=org_id,
         )
         db.add(deal)
@@ -207,21 +201,17 @@ async def plein_phare_new_order(
     "/plein-phare/refund",
     response_model=PleinPhareRefundResponse,
     status_code=200,
-    dependencies=[Depends(_require_plein_phare_api_key)],
 )
 async def plein_phare_refund(
     payload: PleinPhareRefundRequest,
+    key_user: User | None = Depends(require_plein_phare_key_user),
     db: AsyncSession = Depends(get_db),
 ) -> PleinPhareRefundResponse:
     """Marquer une commande Plein Phare comme remboursee (stage=lost)."""
-    # Isolation multi-tenant : scoper la recherche du deal a l'org de l'admin
-    # (service call, pas de user humain) pour ne pas rembourser un deal cross-org.
-    admin = (await db.execute(
-        select(User).where(User.role == "admin", User.is_active.is_(True)).limit(1)
-    )).scalar_one_or_none()
-    if admin is None:
-        raise HTTPException(status_code=503, detail="No admin user found in CRM")
-    org_id = admin.organization_id
+    # Isolation multi-tenant (DC18 — FIX #6) : scoper la recherche du deal a l'org
+    # de la cle API authentifiee (fallback legacy sur le premier admin actif) pour
+    # ne pas rembourser un deal cross-org.
+    _owner, org_id = await resolve_integration_owner(db, key_user)
 
     deal_title = _plein_phare_deal_title(payload.audit_order_id)
     deal = (await db.execute(

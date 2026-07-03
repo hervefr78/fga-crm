@@ -400,3 +400,99 @@ async def test_refund_unknown_order_returns_404(
     )
     assert resp.status_code == 404, resp.text
     assert resp.json()["detail"] == "deal not found"
+
+
+# ---------------------------------------------------------------------------
+# FIX #6 — isolation multi-tenant : ecriture dans l'org de la cle API Bearer
+# ---------------------------------------------------------------------------
+
+
+@pytest_asyncio.fixture
+async def org_b_pp(db_session: AsyncSession):
+    from app.models.organization import Organization
+
+    org = Organization(
+        id=uuid.uuid4(),
+        name="Org B PP",
+        slug=f"orgb-pp-{uuid.uuid4().hex[:8]}",
+        is_active=True,
+    )
+    db_session.add(org)
+    await db_session.commit()
+    await db_session.refresh(org)
+    return org
+
+
+@pytest_asyncio.fixture
+async def service_user_b_pp(db_session: AsyncSession, org_b_pp) -> User:
+    user = User(
+        id=uuid.uuid4(),
+        email="pp-b@crm.internal",
+        hashed_password="$2b$12$disabled",
+        full_name="PP Service B",
+        role="service",
+        is_active=True,
+        is_service=True,
+        organization_id=org_b_pp.id,
+    )
+    db_session.add(user)
+    await db_session.commit()
+    await db_session.refresh(user)
+    return user
+
+
+@pytest_asyncio.fixture
+async def api_key_b_pp(db_session: AsyncSession, service_user_b_pp: User) -> str:
+    from app.services.api_keys import create_api_key
+
+    _, raw_key = await create_api_key(
+        db=db_session,
+        user_id=service_user_b_pp.id,
+        name="pp-key-b",
+        scopes=["write:contacts"],
+    )
+    await db_session.commit()
+    return raw_key
+
+
+@pytest.mark.asyncio
+async def test_bearer_key_writes_into_key_org_not_first_admin_org(
+    client: AsyncClient,
+    admin_user: User,  # admin de l'org A, cree en premier
+    org_b_pp,
+    service_user_b_pp: User,
+    api_key_b_pp: str,
+    db_session: AsyncSession,
+):
+    """POST Bearer <cle de B> → Company/Contact/Deal dans l'org B (pas l'org A du 1er admin).
+
+    Sans le fix, l'endpoint taguait l'org du premier admin global (org A) : fuite cross-org.
+    """
+    payload = _new_order_payload(
+        email="alice@beta-pp.fr", company_name="Beta PP"
+    )
+    resp = await client.post(
+        NEW_ORDER_URL,
+        json=payload,
+        headers={"Authorization": f"Bearer {api_key_b_pp}"},
+    )
+    assert resp.status_code == 201, resp.text
+    data = resp.json()
+
+    company = (await db_session.execute(
+        select(Company).where(Company.id == uuid.UUID(data["company_id"]))
+    )).scalar_one()
+    contact = (await db_session.execute(
+        select(Contact).where(Contact.id == uuid.UUID(data["contact_id"]))
+    )).scalar_one()
+    deal = (await db_session.execute(
+        select(Deal).where(Deal.id == uuid.UUID(data["deal_id"]))
+    )).scalar_one()
+
+    # Cœur du FIX #6 : org de la cle (B), PAS org du premier admin (A).
+    assert company.organization_id == org_b_pp.id
+    assert contact.organization_id == org_b_pp.id
+    assert deal.organization_id == org_b_pp.id
+    assert company.organization_id != admin_user.organization_id
+    assert company.owner_id == service_user_b_pp.id
+    assert deal.owner_id == service_user_b_pp.id

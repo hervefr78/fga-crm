@@ -239,8 +239,68 @@ class TestWhoamiEndpoint:
 # ---------------------------------------------------------------------------
 
 
+async def _run_scope_check(scope: str, scopes: list[str], user: User):
+    """Execute require_service_scope(scope) avec des scopes simules sur la Request.
+
+    Retourne le user si autorise, leve HTTPException(403) sinon.
+    """
+    from app.core.deps import require_service_scope
+
+    class _State:
+        api_key_scopes = scopes
+
+    class _Req:
+        state = _State()
+
+    checker = require_service_scope(scope)
+    return await checker(request=_Req(), user=user)  # type: ignore[arg-type]
+
+
 class TestScopeChecking:
     """Tests de la dépendance require_service_scope."""
+
+    # --- FIX #5 : "read:*" ne doit JAMAIS etre un super-wildcard global ---
+
+    async def test_read_star_does_not_grant_other_resource(
+        self, service_user: User
+    ) -> None:
+        """FIX #5 : une cle read:* NE donne PAS acces a un scope geo:audit (403).
+
+        Sans le fix (3e terme `and "read:*" not in scopes`), ce cas passait a tort.
+        """
+        from fastapi import HTTPException
+
+        with pytest.raises(HTTPException) as exc_info:
+            await _run_scope_check("geo:audit", ["read:*"], service_user)
+        assert exc_info.value.status_code == 403
+
+    async def test_read_deals_does_not_grant_geo_audit(
+        self, service_user: User
+    ) -> None:
+        """Une cle read:deals ne couvre pas geo:audit (403)."""
+        from fastapi import HTTPException
+
+        with pytest.raises(HTTPException) as exc_info:
+            await _run_scope_check("geo:audit", ["read:deals"], service_user)
+        assert exc_info.value.status_code == 403
+
+    async def test_exact_scope_grants_access(self, service_user: User) -> None:
+        """La cle geo:audit est autorisee sur geo:audit."""
+        result = await _run_scope_check("geo:audit", ["geo:audit"], service_user)
+        assert result is service_user
+
+    async def test_resource_wildcard_grants_access(self, service_user: User) -> None:
+        """La cle geo:* est autorisee sur geo:audit (wildcard de la ressource)."""
+        result = await _run_scope_check("geo:audit", ["geo:*"], service_user)
+        assert result is service_user
+
+    async def test_read_star_still_grants_read_subscope(
+        self, service_user: User
+    ) -> None:
+        """FIX #5 : read:* reste valide pour read:deals (wildcard read = resource read)."""
+        result = await _run_scope_check("read:deals", ["read:*"], service_user)
+        assert result is service_user
+
 
     async def test_scope_wildcard_grants_access(
         self, db_session: AsyncSession, service_user: User

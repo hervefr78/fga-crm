@@ -64,6 +64,28 @@ HEYREACH_CSV_HEADER = [
 ]
 
 
+async def _assert_lead_in_org(
+    db: AsyncSession, user: User, lead_id_raw: object
+) -> None:
+    """404 si le lead du draft n'appartient pas a l'org du user (anti-IDOR — FIX #7).
+
+    Les drafts vivent dans compass-core (cross-org). Sans ce garde, un user pouvait
+    lire la PII / muter le statut d'un draft rattache a un Contact d'une AUTRE org.
+    On resout le `lead_id` (id du Contact CRM) et on verifie qu'il est visible dans
+    l'org du user via `apply_tenant_filter` (bypass super-admin). 404 (pas 403) :
+    on ne divulgue pas l'existence d'une ressource d'une autre organisation.
+    """
+    try:
+        lead_uuid = uuid.UUID(str(lead_id_raw))
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=404, detail="Draft introuvable")
+    stmt = apply_tenant_filter(
+        select(Contact.id).where(Contact.id == lead_uuid), Contact, user
+    )
+    if not await db.scalar(stmt):
+        raise HTTPException(status_code=404, detail="Draft introuvable")
+
+
 def _raise_for_compass_error(exc: Exception) -> NoReturn:
     """Traduit une erreur du client compass-core en HTTPException (ne retourne JAMAIS).
 
@@ -275,6 +297,7 @@ async def export_heyreach_csv(
 async def get_draft(
     draft_id: str,
     user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
     compass: CompassClient = Depends(get_compass_client),
 ) -> DraftReview:
     """Recupere un draft (proxy vers compass GET /v1/drafts/{id}). 404 si absent."""
@@ -287,6 +310,8 @@ async def get_draft(
     ) as exc:
         _raise_for_compass_error(exc)
 
+    # Anti-IDOR : le lead du draft doit appartenir a l'org du user (FIX #7).
+    await _assert_lead_in_org(db, user, row.get("lead_id"))
     return DraftReview.model_validate(row)
 
 
@@ -295,6 +320,7 @@ async def update_draft_status(
     draft_id: str,
     payload: DraftStatusUpdateIn,
     user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
     compass: CompassClient = Depends(get_compass_client),
 ) -> DraftReview:
     """Met a jour le statut d'un draft (proxy vers compass PATCH /v1/drafts/{id}/status).
@@ -302,6 +328,20 @@ async def update_draft_status(
     Le `reviewer` est impose server-side a `current_user.email` (DC18) : on ne
     fait JAMAIS confiance a un reviewer fourni par le client. 404 si absent.
     """
+    # Anti-IDOR : verifier l'appartenance du lead a l'org du user AVANT toute
+    # mutation (FIX #7). On resout d'abord le draft en lecture pour obtenir son
+    # lead_id ; sans ce garde, un attaquant cross-org aurait deja mute le statut
+    # cote compass-core avant de recevoir un 404.
+    try:
+        existing = await compass.get_draft(draft_id)
+    except (
+        CompassNotConfiguredError,
+        CompassNotFoundError,
+        CompassServiceError,
+    ) as exc:
+        _raise_for_compass_error(exc)
+    await _assert_lead_in_org(db, user, existing.get("lead_id"))
+
     try:
         row = await compass.update_draft_status(
             draft_id=draft_id,
