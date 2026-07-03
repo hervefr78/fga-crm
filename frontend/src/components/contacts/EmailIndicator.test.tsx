@@ -24,6 +24,24 @@ describe('EmailIndicator', () => {
     expect(wrapper?.getAttribute('title')).toContain('flast');
   });
 
+  it('flag "Pas vérifié" pour une source INCONNUE avec pattern (ex-pappers)', () => {
+    render(<EmailIndicator emailStatus="unknown" enrichmentSource="pappers" emailPattern="first.last" />);
+    expect(screen.getByText('Pas vérifié')).toBeInTheDocument();
+  });
+
+  it('affiche un label générique pour une source inconnue sans pattern', () => {
+    render(<EmailIndicator emailStatus="unknown" enrichmentSource="mystery_src" />);
+    expect(screen.getByText('Candidat')).toBeInTheDocument();
+    expect(screen.queryByText('Pas vérifié')).toBeNull(); // pas de warning fort sans pattern
+    const wrapper = screen.getByText('Candidat').closest('span[title]');
+    expect(wrapper?.getAttribute('title')).toContain('mystery_src'); // source affichée génériquement
+  });
+
+  it('flag "Pas vérifié" pour scraped_founders (source heuristique connue)', () => {
+    render(<EmailIndicator emailStatus="unknown" enrichmentSource="scraped_founders" />);
+    expect(screen.getByText('Pas vérifié')).toBeInTheDocument();
+  });
+
   it('affiche "Risqué" pour email_status=risky', () => {
     render(<EmailIndicator emailStatus="risky" />);
     expect(screen.getByText('Risqué')).toBeInTheDocument();
