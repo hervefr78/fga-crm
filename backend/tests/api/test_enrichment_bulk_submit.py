@@ -18,6 +18,7 @@ from app.services.enrichment import orchestrator
 from app.services.enrichment.adapters.icypeas import IcypeasClient
 from app.services.enrichment.adapters.mock import MockPeopleSource
 from app.services.enrichment.bulk_callback import reconcile_stuck_bulks
+from app.services.enrichment.modes import company as company_mode
 
 
 @pytest.mark.asyncio
@@ -39,7 +40,8 @@ async def test_batch_mode_submits_bulk_without_creating_contacts(
 
     client = IcypeasClient("k", transport=httpx.MockTransport(handler))
     # Injecte le client MockTransport + un people source mock (pas de HTTP reel)
-    monkeypatch.setattr(orchestrator, "get_bulk_client", lambda: client)
+    # C4 : _submit_bulk_job vit desormais dans modes.company -> patch a cet endroit
+    monkeypatch.setattr(company_mode, "get_bulk_client", lambda: client)
     monkeypatch.setattr(orchestrator, "get_people_sources", lambda: [MockPeopleSource()])
 
     job = EnrichmentJob(
@@ -111,7 +113,8 @@ async def test_batch_uses_company_name_when_no_domain(db_session: AsyncSession, 
         return httpx.Response(200, json={"success": True, "file": "BF2"})
 
     client = IcypeasClient("k", transport=httpx.MockTransport(handler))
-    monkeypatch.setattr(orchestrator, "get_bulk_client", lambda: client)
+    # C4 : _submit_bulk_job vit desormais dans modes.company -> patch a cet endroit
+    monkeypatch.setattr(company_mode, "get_bulk_client", lambda: client)
     monkeypatch.setattr(orchestrator, "get_people_sources", lambda: [MockPeopleSource()])
     monkeypatch.setattr(orchestrator, "get_company_source", lambda: _NoDomainCompanySource())
 

@@ -17,6 +17,7 @@ from app.models.enrichment import EnrichmentBulk, EnrichmentBulkItem, Enrichment
 from app.services.enrichment import orchestrator
 from app.services.enrichment.adapters.icypeas import IcypeasClient
 from app.services.enrichment.bulk_callback import process_bulk_callback
+from app.services.enrichment.modes import contacts as contacts_mode
 
 
 @pytest.mark.asyncio
@@ -32,7 +33,8 @@ async def test_contacts_bulk_submit_carries_contact_id(db_session: AsyncSession,
         captured["body"] = json.loads(request.content)
         return httpx.Response(200, json={"success": True, "file": "CBULK1"})
 
-    monkeypatch.setattr(orchestrator, "get_bulk_client",
+    # C4 : _submit_bulk_contacts vit desormais dans modes.contacts -> patch a cet endroit
+    monkeypatch.setattr(contacts_mode, "get_bulk_client",
                         lambda: IcypeasClient("k", transport=httpx.MockTransport(handler)))
 
     company = Company(name="Acme", domain="acme.fr", organization_id=test_org.id)
@@ -114,7 +116,8 @@ async def test_reverify_submits_search_and_verify_bulks(db_session: AsyncSession
         bodies.append(json.loads(request.content))
         return httpx.Response(200, json={"success": True, "file": next(files)})
 
-    monkeypatch.setattr(orchestrator, "get_bulk_client",
+    # C4 : _submit_bulk_contacts vit desormais dans modes.contacts -> patch a cet endroit
+    monkeypatch.setattr(contacts_mode, "get_bulk_client",
                         lambda: IcypeasClient("k", transport=httpx.MockTransport(handler)))
 
     co1 = Company(name="Acme", domain="acme.fr", organization_id=test_org.id)
