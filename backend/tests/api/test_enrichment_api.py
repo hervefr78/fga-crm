@@ -76,6 +76,12 @@ async def test_icp_without_filter_422(client: AsyncClient, auth_headers: dict):
     assert r.status_code == 422
 
 
+async def test_contacts_without_selection_422(client: AsyncClient, auth_headers: dict):
+    # mode contacts sans contact_ids ni all_missing_email -> 422 (Feature B)
+    r = await client.post("/api/v1/enrichment/jobs", headers=auth_headers, json={"mode": "contacts"})
+    assert r.status_code == 422
+
+
 # --- Flux ---
 
 async def test_create_company_job(client: AsyncClient, auth_headers: dict):
@@ -97,6 +103,21 @@ async def test_enrich_company_shortcut(client: AsyncClient, auth_headers: dict):
     )
     assert r.status_code == 200
     assert r.json()["mode"] == "company"
+
+
+async def test_create_contacts_job(client: AsyncClient, auth_headers: dict):
+    # Feature B : mode contacts avec contact_ids -> job cree, target serialise
+    import uuid
+    cid = str(uuid.uuid4())
+    r = await client.post(
+        "/api/v1/enrichment/jobs", headers=auth_headers,
+        json={"mode": "contacts", "contact_ids": [cid], "reverify": True},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["mode"] == "contacts" and body["status"] == "queued"
+    g = await client.get(f"/api/v1/enrichment/jobs/{body['id']}", headers=auth_headers)
+    assert g.status_code == 200
 
 
 async def test_icp_job_ok(client: AsyncClient, auth_headers: dict):

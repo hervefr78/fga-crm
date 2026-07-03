@@ -17,6 +17,7 @@ from app.db.session import get_db
 from app.models.enrichment import EnrichmentJob
 from app.models.user import User
 from app.schemas.enrichment import (
+    MAX_CONTACTS,
     EnrichmentJobCreateRequest,
     EnrichmentJobListResponse,
     EnrichmentJobResponse,
@@ -54,6 +55,8 @@ def _validate_target(payload: EnrichmentJobCreateRequest) -> None:
         raise HTTPException(422, "mode batch : liste de sirens requise")
     if payload.mode == EnrichmentMode.icp and payload.icp_filter is None:
         raise HTTPException(422, "mode icp : icp_filter requis")
+    if payload.mode == EnrichmentMode.contacts and not (payload.contact_ids or payload.all_missing_email):
+        raise HTTPException(422, "mode contacts : contact_ids ou all_missing_email requis")
 
 
 def _estimate_credits(payload: EnrichmentJobCreateRequest) -> int:
@@ -61,6 +64,9 @@ def _estimate_credits(payload: EnrichmentJobCreateRequest) -> int:
         return _CREDITS_PER_TARGET
     if payload.mode == EnrichmentMode.batch:
         return len(payload.sirens) * _CREDITS_PER_TARGET
+    if payload.mode == EnrichmentMode.contacts:
+        # ~1 credit / contact (email-search). all_missing_email : borne conservatrice.
+        return len(payload.contact_ids) if payload.contact_ids else MAX_CONTACTS
     limit = payload.icp_filter.limit if payload.icp_filter else 50
     return limit * _CREDITS_PER_TARGET
 
