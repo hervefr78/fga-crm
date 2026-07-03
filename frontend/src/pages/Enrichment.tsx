@@ -8,7 +8,7 @@
 
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, Building2, Filter, Play, ShieldAlert } from 'lucide-react';
+import { AlertTriangle, Building2, Filter, List, Play, ShieldAlert } from 'lucide-react';
 import clsx from 'clsx';
 
 import { useAuth } from '../contexts/useAuth';
@@ -36,6 +36,7 @@ export default function EnrichmentPage() {
 
   const [mode, setMode] = useState<EnrichmentMode>('company');
   const [siren, setSiren] = useState('');
+  const [sirensInput, setSirensInput] = useState('');
   const [nafInput, setNafInput] = useState(DEFAULT_NAF);
   const [limit, setLimit] = useState(50);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -46,16 +47,25 @@ export default function EnrichmentPage() {
     enabled: hasAccess,
     refetchInterval: (query) => {
       const items = query.state.data?.items ?? [];
-      return items.some((j) => j.status === 'queued' || j.status === 'running')
-        ? JOBS_POLL_INTERVAL : false;
+      // 'awaiting_results' : bulk soumis, en attente du webhook Icypeas -> continuer a poller.
+      const active = new Set(['queued', 'running', 'awaiting_results']);
+      return items.some((j) => active.has(j.status)) ? JOBS_POLL_INTERVAL : false;
     },
   });
+
+  // Extrait les SIREN (9 chiffres) d'une saisie libre (retours ligne, virgules, espaces).
+  const parsedSirens = sirensInput
+    .split(/[\s,;]+/)
+    .map((s) => s.replace(/\D/g, ''))
+    .filter((s) => s.length === 9);
 
   const runMutation = useMutation({
     mutationFn: () => {
       const payload: EnrichmentJobCreateInput = { mode };
       if (mode === 'company') {
         payload.siren = siren.trim();
+      } else if (mode === 'batch') {
+        payload.sirens = parsedSirens;
       } else {
         payload.icp_filter = {
           naf_codes: nafInput.split(',').map((s) => s.trim()).filter(Boolean),
@@ -87,7 +97,10 @@ export default function EnrichmentPage() {
     );
   }
 
-  const canLaunch = mode === 'company' ? siren.trim().length > 0 : nafInput.trim().length > 0;
+  const canLaunch =
+    mode === 'company' ? siren.trim().length > 0
+    : mode === 'batch' ? parsedSirens.length > 0
+    : nafInput.trim().length > 0;
 
   return (
     <div className="px-8 py-7 space-y-6">
@@ -103,7 +116,7 @@ export default function EnrichmentPage() {
       <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-4 space-y-4">
         {/* Selecteur de mode */}
         <div className="inline-flex rounded-lg border border-slate-200 p-0.5">
-          {([['company', 'A la demande', Building2], ['icp', 'Batch / ICP', Filter]] as const).map(
+          {([['company', 'A la demande', Building2], ['batch', 'Liste de SIREN', List], ['icp', 'ICP (NAF)', Filter]] as const).map(
             ([m, label, Icon]) => (
               <button
                 key={m}
@@ -133,6 +146,18 @@ export default function EnrichmentPage() {
                 className="h-9 w-48 rounded-md border border-slate-200 px-3 text-sm text-slate-700 tabular-nums focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:outline-none"
               />
             </label>
+          </div>
+        ) : mode === 'batch' ? (
+          <div className="flex flex-col gap-1">
+            <span className="text-xs font-medium text-slate-700">SIREN a enrichir (un par ligne ou separes par virgule)</span>
+            <textarea
+              value={sirensInput}
+              onChange={(e) => setSirensInput(e.target.value)}
+              rows={4}
+              placeholder={'123456789\n552081317'}
+              className="w-full max-w-md rounded-md border border-slate-200 px-3 py-2 text-sm text-slate-700 tabular-nums focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:outline-none"
+            />
+            <span className="text-xs text-slate-400">{parsedSirens.length} SIREN valides detectes</span>
           </div>
         ) : (
           <div className="flex flex-wrap items-end gap-3">
@@ -171,7 +196,9 @@ export default function EnrichmentPage() {
           <span className="text-xs text-slate-400">
             {mode === 'company'
               ? 'Enrichit les decideurs de cette societe.'
-              : 'Enrichit un lot de societes filtrees par code NAF.'}
+              : mode === 'batch'
+                ? 'Enrichit les decideurs d’un lot de societes (par SIREN).'
+                : 'Enrichit un lot de societes filtrees par code NAF.'}
           </span>
         </div>
       </div>
