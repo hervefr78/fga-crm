@@ -164,20 +164,27 @@ async def process_bulk_callback(db: AsyncSession, data: dict) -> dict:
         bulk.status = "done"
         bulk.finished_at = _now()
         if bulk.job_id:
-            # Job termine seulement quand TOUS ses bulks sont done (un job reverify
-            # a 2 bulks : email-search + email-verification). On exclut le bulk courant
-            # (deja done) pour ne pas dependre de l'autoflush de son statut.
-            other_statuses = (
+            # Verrou sur la ligne job (#1/#3) : serialise les callbacks concurrents
+            # des differents bulks d'un meme job (reverify = 2 bulks). Sans ce verrou,
+            # chacun voit l'autre encore 'awaiting_results' -> job jamais finalise.
+            job = (
                 await db.execute(
-                    select(EnrichmentBulk.status).where(
-                        EnrichmentBulk.job_id == bulk.job_id,
-                        EnrichmentBulk.id != bulk.id,
-                    )
+                    select(EnrichmentJob).where(EnrichmentJob.id == bulk.job_id).with_for_update()
                 )
-            ).scalars().all()
-            if all(s == "done" for s in other_statuses):
-                job = await db.get(EnrichmentJob, bulk.job_id)
-                if job is not None and job.status == "awaiting_results":
+            ).scalar_one_or_none()
+            if job is not None and job.status == "awaiting_results":
+                # Job done quand tous les AUTRES bulks sont done (le courant l'est
+                # deja). Le verrou job ci-dessus serialise les callbacks concurrents :
+                # le 2e voit le bulk du 1er committe -> finalisation correcte.
+                other_statuses = (
+                    await db.execute(
+                        select(EnrichmentBulk.status).where(
+                            EnrichmentBulk.job_id == bulk.job_id,
+                            EnrichmentBulk.id != bulk.id,
+                        )
+                    )
+                ).scalars().all()
+                if all(s == "done" for s in other_statuses):
                     job.status = "done"
                     job.finished_at = _now()
 

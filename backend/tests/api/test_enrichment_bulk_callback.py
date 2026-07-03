@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+from datetime import UTC, datetime
 
 import pytest
 from httpx import AsyncClient
@@ -99,8 +100,19 @@ async def test_webhook_rejects_missing_signature(client: AsyncClient):
 @pytest.mark.asyncio
 async def test_webhook_accepts_valid_signature(client: AsyncClient, monkeypatch):
     monkeypatch.setattr(settings, "icypeas_api_secret", "s3cr3t")
-    ts = "2026-07-02T13:57:19.134Z"
+    # timestamp frais (la fenetre anti-rejeu rejette un timestamp trop ancien)
+    ts = datetime.now(UTC).isoformat()
     sig = hmac.new(b"s3cr3t", f"{_WEBHOOK_PATH}{ts}".lower().encode(), hashlib.sha1).hexdigest()
     r = await client.post(_WEBHOOK_PATH, json={"signature": sig, "timestamp": ts, "data": {"file": "X", "results": []}})
     assert r.status_code == 200
     assert r.json()["received"] is True
+
+
+@pytest.mark.asyncio
+async def test_webhook_rejects_stale_timestamp(client: AsyncClient, monkeypatch):
+    # #2 : signature valide mais timestamp ancien (rejeu) -> 401
+    monkeypatch.setattr(settings, "icypeas_api_secret", "s3cr3t")
+    ts = "2020-01-01T00:00:00.000Z"
+    sig = hmac.new(b"s3cr3t", f"{_WEBHOOK_PATH}{ts}".lower().encode(), hashlib.sha1).hexdigest()
+    r = await client.post(_WEBHOOK_PATH, json={"signature": sig, "timestamp": ts, "data": {}})
+    assert r.status_code == 401
