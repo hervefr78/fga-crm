@@ -69,7 +69,7 @@ async def test_sync_enqueues_and_returns_202(
 
     monkeypatch.setattr("app.services.sync_status.try_acquire_lock", fake_acquire)
     monkeypatch.setattr("app.services.sync_status.set_status_async", fake_set)
-    monkeypatch.setattr("app.api.v1.integrations.full_sync_task", fake_task)
+    monkeypatch.setattr("app.api.v1.integrations.startup_radar.full_sync_task", fake_task)
 
     resp = await client.post(SYNC_URL, headers=auth_headers)
 
@@ -98,7 +98,7 @@ async def test_sync_conflict_returns_409_when_locked(
         return False
 
     monkeypatch.setattr("app.services.sync_status.try_acquire_lock", fake_acquire)
-    monkeypatch.setattr("app.api.v1.integrations.full_sync_task", fake_task)
+    monkeypatch.setattr("app.api.v1.integrations.startup_radar.full_sync_task", fake_task)
 
     resp = await client.post(SYNC_URL, headers=auth_headers)
 
@@ -204,7 +204,7 @@ async def test_sync_forbidden_for_sales(client: AsyncClient, sales_headers: dict
         return True
 
     monkeypatch.setattr("app.services.sync_status.try_acquire_lock", fake_acquire)
-    monkeypatch.setattr("app.api.v1.integrations.full_sync_task", fake_task)
+    monkeypatch.setattr("app.api.v1.integrations.startup_radar.full_sync_task", fake_task)
 
     resp = await client.post(SYNC_URL, headers=sales_headers)
 

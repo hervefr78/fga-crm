@@ -44,7 +44,7 @@ class _FakeSR:
 
 
 def _patch_sr(monkeypatch, fake: _FakeSR):
-    monkeypatch.setattr("app.api.v1.integrations.StartupRadarClient", lambda: fake)
+    monkeypatch.setattr("app.api.v1.integrations.startup_radar_audit.StartupRadarClient", lambda: fake)
 
 
 # ---------------------------------------------------------------------------
