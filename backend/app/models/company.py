@@ -91,9 +91,11 @@ class Company(Base, UUIDMixin, OrgScopedMixin, TimestampMixin):
 
     # Relationships
     owner: Mapped[Optional["User"]] = relationship(back_populates="owned_companies", foreign_keys=[owner_id])
-    contacts: Mapped[list["Contact"]] = relationship(back_populates="company", cascade="all, delete-orphan", lazy="selectin")
-    deals: Mapped[list["Deal"]] = relationship(back_populates="company", lazy="selectin")
-    activities: Mapped[list["Activity"]] = relationship(back_populates="company", lazy="selectin")
+    # lazy="select" (lazy-on-access) : collections jamais serialisees depuis l'objet
+    # Company (reponses via champs explicites / selectinload cible). Evite l'eager-load.
+    contacts: Mapped[list["Contact"]] = relationship(back_populates="company", cascade="all, delete-orphan", lazy="select")
+    deals: Mapped[list["Deal"]] = relationship(back_populates="company", lazy="select")
+    activities: Mapped[list["Activity"]] = relationship(back_populates="company", lazy="select")
 
     # Isolation multi-tenant : unicite domaine/startup_radar_id SCOPEE par org
     # (jamais globale — sinon deux organisations ne peuvent pas avoir le meme

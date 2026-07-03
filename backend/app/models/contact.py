@@ -87,9 +87,11 @@ class Contact(Base, UUIDMixin, OrgScopedMixin, TimestampMixin):
 
     # Relationships
     company: Mapped[Optional["Company"]] = relationship(back_populates="contacts")
-    deals: Mapped[list["Deal"]] = relationship(back_populates="contact", lazy="selectin")
-    activities: Mapped[list["Activity"]] = relationship(back_populates="contact", lazy="selectin")
-    tasks: Mapped[list["Task"]] = relationship(back_populates="contact", lazy="selectin")
+    # lazy="select" (lazy-on-access) : collections jamais serialisees depuis l'objet
+    # Contact (reponses via champs explicites / selectinload cible). Evite l'eager-load.
+    deals: Mapped[list["Deal"]] = relationship(back_populates="contact", lazy="select")
+    activities: Mapped[list["Activity"]] = relationship(back_populates="contact", lazy="select")
+    tasks: Mapped[list["Task"]] = relationship(back_populates="contact", lazy="select")
 
     # Isolation multi-tenant : unicite startup_radar_id SCOPEE par org (jamais
     # globale — sinon deux orgs ne peuvent pas importer le meme lead SR).
