@@ -52,11 +52,6 @@ async def create_user(
     return _user_response(user)
 
 
-class UserListResponse(UserResponse):
-    """Alias pour la liste."""
-    pass
-
-
 # ---------- Endpoints ----------
 
 

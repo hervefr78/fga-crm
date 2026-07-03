@@ -74,8 +74,3 @@ def classify_email(email: str) -> str:
     if is_generic_local(local):
         return "generic"
     return "pro"
-
-
-def is_pro_nominative(email: str) -> bool:
-    """True seulement si email pro nominatif (seul type eligible a l'outreach)."""
-    return classify_email(email) == "pro"

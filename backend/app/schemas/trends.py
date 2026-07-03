@@ -38,13 +38,6 @@ class TrendTimeframe(StrEnum):
     y5 = "today 5-y"
 
 
-class TrendJobStatus(StrEnum):
-    queued = "queued"
-    running = "running"
-    completed = "completed"
-    failed = "failed"
-
-
 # ---------------------------------------------------------------------------
 # Categories
 # ---------------------------------------------------------------------------
