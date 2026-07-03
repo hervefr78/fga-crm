@@ -556,6 +556,99 @@ async def test_sync_startups_dedupe_priority_radar_id_over_siren(db_session: Asy
 
 
 @pytest.mark.asyncio
+async def test_sync_startups_dedupe_intrabatch_same_name(db_session: AsyncSession):
+    """Dedup intra-batch : 2 startups (sr_id differents) du MEME nom pointant une
+    company pre-existante ne doivent PAS re-lier deux fois cette company.
+
+    Regression protegee par la maintenance des index en memoire (fix N+1) :
+    - la 1ere startup lie la company pre-existante (sr_id-A) et la RETIRE de
+      l'index by_name ;
+    - la 2eme startup ne la retrouve donc plus par nom → cree une NOUVELLE company.
+
+    Sans maj de l'index (pre-fetch naif), la 2eme startup re-linkerait la meme
+    company (sr_id ecrase en sr_id-B) et ZERO company ne serait creee → ce test
+    echouerait (companies_created==0, sr_id ecrase, total==1).
+    """
+    user = await _make_admin(db_session)
+
+    # Company pre-existante creee manuellement (sans startup_radar_id, sans siren)
+    manual = Company(
+        id=uuid.uuid4(),
+        name="DupName Co",
+        lead_source=None,
+        owner_id=user.id,
+        organization_id=user.organization_id,
+    )
+    db_session.add(manual)
+    await db_session.flush()
+
+    # 2 startups du meme nom, sr_id differents, sans siren
+    mock_client = _MockSRClient(startups=[
+        {"id": "sr-dup-A", "name": "DupName Co"},
+        {"id": "sr-dup-B", "name": "DupName Co"},
+    ])
+
+    result, sr_to_crm = await sync_startups(db_session, mock_client, user, user.organization_id)  # type: ignore[arg-type]
+
+    # Exactement 1 nouvelle company creee (la 2eme startup), 1 liee (la manuelle)
+    assert result.companies_created == 1
+    assert result.companies_updated == 1
+    assert result.errors == []
+
+    # La company pre-existante garde le sr_id de la 1ere startup (PAS ecrase)
+    refreshed_manual = (await db_session.execute(
+        select(Company).where(Company.id == manual.id)
+    )).scalar_one()
+    assert refreshed_manual.startup_radar_id == "sr-dup-A"
+
+    # Total : 2 companies pour l'org (la manuelle liee + la nouvelle)
+    all_companies = (await db_session.execute(
+        select(Company).where(Company.organization_id == user.organization_id)
+    )).scalars().all()
+    assert len(all_companies) == 2
+    sr_ids = {c.startup_radar_id for c in all_companies}
+    assert sr_ids == {"sr-dup-A", "sr-dup-B"}
+
+
+@pytest.mark.asyncio
+async def test_sync_startups_dedupe_intrabatch_same_siren(db_session: AsyncSession):
+    """Dedup intra-batch par SIREN : 2 startups (sr_id differents) du meme siren
+    pointant une company pre-existante ne re-lient pas deux fois cette company.
+
+    Meme protection que le test par nom, mais via l'index by_siren.
+    """
+    user = await _make_admin(db_session)
+
+    manual = Company(
+        id=uuid.uuid4(),
+        name="Siren Manual Co",
+        siren="555666777",
+        lead_source=None,
+        owner_id=user.id,
+        organization_id=user.organization_id,
+    )
+    db_session.add(manual)
+    await db_session.flush()
+
+    # 2 startups meme siren, sr_id + noms differents (pour ne pas matcher par nom)
+    mock_client = _MockSRClient(startups=[
+        {"id": "sr-siren-A", "name": "Alpha SAS", "siren": "555666777"},
+        {"id": "sr-siren-B", "name": "Beta SAS", "siren": "555666777"},
+    ])
+
+    result, _ = await sync_startups(db_session, mock_client, user, user.organization_id)  # type: ignore[arg-type]
+
+    assert result.companies_created == 1  # la 2eme startup cree une nouvelle company
+    assert result.companies_updated == 1  # la 1ere lie la company pre-existante
+    assert result.errors == []
+
+    refreshed_manual = (await db_session.execute(
+        select(Company).where(Company.id == manual.id)
+    )).scalar_one()
+    assert refreshed_manual.startup_radar_id == "sr-siren-A"  # 1er sr_id, pas ecrase
+
+
+@pytest.mark.asyncio
 async def test_sync_startups_invalid_funding_date_tolerated(db_session: AsyncSession):
     """Une funding_date invalide ne bloque pas l'insert (champs autres OK)."""
     user = await _make_admin(db_session)

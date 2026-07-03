@@ -89,7 +89,9 @@ class Deal(Base, UUIDMixin, OrgScopedMixin, TimestampMixin):
     company: Mapped[Optional["Company"]] = relationship(back_populates="deals")
     contact: Mapped[Optional["Contact"]] = relationship(back_populates="deals")
     owner: Mapped[Optional["User"]] = relationship(back_populates="owned_deals")
-    activities: Mapped[list["Activity"]] = relationship(back_populates="deal", lazy="selectin")
+    # lazy="select" (lazy-on-access) : collection jamais serialisee depuis l'objet
+    # Deal (reponses via champs explicites / selectinload cible). Evite l'eager-load.
+    activities: Mapped[list["Activity"]] = relationship(back_populates="deal", lazy="select")
 
     def __repr__(self) -> str:
         return f"<Deal {self.title} ({self.stage})>"

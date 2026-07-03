@@ -6,7 +6,7 @@
 import logging
 import uuid
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.company import Company
@@ -30,6 +30,13 @@ async def sync_startups(
     Toutes les entites creees sont taggees `organization_id` et les recherches
     d'idempotence sont scopees a cette org (isolation multi-tenant).
 
+    Perf (fix N+1) : au lieu de faire jusqu'a 3 SELECT d'idempotence par startup
+    (par startup_radar_id, par siren, par lower(name)), on pre-charge en UNE
+    requete toutes les companies de l'org et on construit 3 index en memoire.
+    Les index sont MAINTENUS a chaque creation/liaison dans la boucle pour
+    preserver la dedup intra-batch (deux startups pointant la meme company dans
+    le meme sync ne doivent pas creer / re-lier un doublon).
+
     Retourne (result_partiel, sr_id_to_company_id_map).
     """
     result = SyncResult()
@@ -41,47 +48,77 @@ async def sync_startups(
         result.errors.append(f"Fetch startups: {e}")
         return result, sr_to_crm
 
+    # --- Pre-fetch : toutes les companies de l'org en UNE requete (borne org) ---
+    # On charge les entites completes car la branche update mute directement les
+    # objets (name, funding_*, custom_fields, etc.).
+    existing_companies = (
+        await db.execute(
+            select(Company).where(Company.organization_id == organization_id)
+        )
+    ).scalars().all()
+
+    # 3 index d'idempotence (memes criteres que les anciens SELECT) :
+    # - by_sr_id : startup_radar_id -> Company (companies deja liees a SR)
+    # - by_siren : siren -> Company parmi celles SANS startup_radar_id
+    # - by_name  : lower(name) -> Company parmi celles SANS startup_radar_id
+    # Les fallback siren/nom ne matchaient que des companies startup_radar_id IS
+    # NULL : on reproduit ce filtre a la construction des index.
+    by_sr_id: dict[str, Company] = {
+        c.startup_radar_id: c for c in existing_companies if c.startup_radar_id
+    }
+    by_siren: dict[str, Company] = {
+        c.siren: c
+        for c in existing_companies
+        if c.siren and c.startup_radar_id is None
+    }
+    by_name: dict[str, Company] = {
+        c.name.lower(): c
+        for c in existing_companies
+        if c.startup_radar_id is None
+    }
+
     for s in startups:
         sr_id = str(s.get("id", ""))
         if not sr_id:
             continue
 
+        # Trace de ce qui a ete fait dans cet item (pour maj des index APRES
+        # commit du savepoint — jamais avant, pour ne pas polluer les lookups
+        # suivants si le savepoint rollback).
+        new_company: Company | None = None
+        linked_company: Company | None = None
+        linked_orig_siren: str | None = None
+        linked_orig_name: str | None = None
+
         try:
             async with db.begin_nested():
-                # 1. Chercher par startup_radar_id (idempotence principale, scopee org)
-                stmt = select(Company).where(
-                    Company.startup_radar_id == sr_id,
-                    Company.organization_id == organization_id,
-                )
-                existing = (await db.execute(stmt)).scalar_one_or_none()
+                # 1. Idempotence principale : startup_radar_id (scopee org)
+                existing = by_sr_id.get(sr_id)
 
-                # 2. Fallback SIREN : si SR fournit un siren, chercher une company
-                #    deja creee (manuellement) avec ce siren. Evite les doublons
-                #    quand le commercial a deja saisi la societe avec son SIREN.
-                if not existing and s.get("siren"):
+                # 2. Fallback SIREN : company deja creee (manuellement) avec ce
+                #    siren, pas encore liee a SR. Evite les doublons.
+                if existing is None and s.get("siren"):
                     siren_clean = (s["siren"] or "").strip()[:9]
                     if siren_clean:
-                        stmt_siren = select(Company).where(
-                            Company.siren == siren_clean,
-                            Company.startup_radar_id.is_(None),
-                            Company.organization_id == organization_id,
-                        )
-                        existing = (await db.execute(stmt_siren)).scalar_one_or_none()
-                        if existing:
+                        candidate = by_siren.get(siren_clean)
+                        if candidate is not None:
+                            existing = candidate
+                            linked_company = candidate
+                            linked_orig_siren = candidate.siren
+                            linked_orig_name = candidate.name.lower()
                             # Lier la company existante a SR
                             existing.startup_radar_id = sr_id
 
-                # 3. Fallback nom : chercher par nom (case-insensitive) si pas encore lie a SR
-                #    Evite les doublons quand la company existe deja cree manuellement
-                #    sans SIREN renseigne.
-                if not existing and s.get("name"):
-                    stmt2 = select(Company).where(
-                        func.lower(Company.name) == s["name"].lower(),
-                        Company.startup_radar_id.is_(None),
-                        Company.organization_id == organization_id,
-                    )
-                    existing = (await db.execute(stmt2)).scalar_one_or_none()
-                    if existing:
+                # 3. Fallback nom (case-insensitive) si pas encore lie a SR.
+                #    Evite les doublons quand la company existe deja (creee
+                #    manuellement sans SIREN renseigne).
+                if existing is None and s.get("name"):
+                    candidate = by_name.get(s["name"].lower())
+                    if candidate is not None:
+                        existing = candidate
+                        linked_company = candidate
+                        linked_orig_siren = candidate.siren
+                        linked_orig_name = candidate.name.lower()
                         # Lier la company existante a SR (pas de creation)
                         existing.startup_radar_id = sr_id
 
@@ -147,6 +184,7 @@ async def sync_startups(
                     db.add(company)
                     sr_to_crm[sr_id] = company_id
                     result.companies_created += 1
+                    new_company = company
 
                 # --- Activity 'funding_detected' + Task 'qualification' ---
                 # Appele pour insert ET update (les helpers gerent l'idempotence).
@@ -159,6 +197,23 @@ async def sync_startups(
                         result.funding_activities_created += 1
                     if await create_qualification_task(db, company_id, user.id, s, organization_id):
                         result.qualification_tasks_created += 1
+
+            # --- Savepoint commite OK : maintenir les index en memoire ---
+            # CRITIQUE (dedup intra-batch) : sans cette maj, deux startups de meme
+            # sr_id creeraient un doublon (constraint violation), et deux startups
+            # pointant une meme company pre-existante par nom/siren la re-lieraient
+            # (sr_id ecrase) → regression. On ne met a jour qu'APRES commit.
+            if new_company is not None:
+                by_sr_id[sr_id] = new_company
+            elif linked_company is not None:
+                # La company vient d'etre liee a SR : elle sort des index nom/siren
+                # (qui n'indexent que les companies sans startup_radar_id) et entre
+                # dans by_sr_id.
+                by_sr_id[sr_id] = linked_company
+                if linked_orig_siren and by_siren.get(linked_orig_siren) is linked_company:
+                    del by_siren[linked_orig_siren]
+                if linked_orig_name is not None and by_name.get(linked_orig_name) is linked_company:
+                    del by_name[linked_orig_name]
 
         except Exception as e:
             result.errors.append(f"Startup {s.get('name', sr_id)}: {e}")

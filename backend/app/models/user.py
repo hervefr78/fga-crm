@@ -44,11 +44,14 @@ class User(Base, UUIDMixin, TimestampMixin):
     avatar_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
     # Relationships
-    owned_companies: Mapped[list["Company"]] = relationship(back_populates="owner", foreign_keys="[Company.owner_id]", lazy="selectin")
-    owned_deals: Mapped[list["Deal"]] = relationship(back_populates="owner", lazy="selectin")
-    activities: Mapped[list["Activity"]] = relationship(back_populates="user", lazy="selectin")
-    tasks: Mapped[list["Task"]] = relationship(back_populates="assigned_to_user", lazy="selectin")
-    webauthn_credentials: Mapped[list["WebAuthnCredential"]] = relationship(back_populates="user", cascade="all, delete-orphan", lazy="selectin")
+    # lazy="select" (lazy-on-access) : ces collections ne sont jamais serialisees
+    # depuis l'objet User (reponses construites via champs explicites / selectinload
+    # cible). Evite un eager-load massif a chaque chargement d'un User.
+    owned_companies: Mapped[list["Company"]] = relationship(back_populates="owner", foreign_keys="[Company.owner_id]", lazy="select")
+    owned_deals: Mapped[list["Deal"]] = relationship(back_populates="owner", lazy="select")
+    activities: Mapped[list["Activity"]] = relationship(back_populates="user", lazy="select")
+    tasks: Mapped[list["Task"]] = relationship(back_populates="assigned_to_user", lazy="select")
+    webauthn_credentials: Mapped[list["WebAuthnCredential"]] = relationship(back_populates="user", cascade="all, delete-orphan", lazy="select")
 
     def __repr__(self) -> str:
         return f"<User {self.email}>"
