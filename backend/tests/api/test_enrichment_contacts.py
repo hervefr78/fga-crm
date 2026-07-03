@@ -4,11 +4,16 @@ l'email manquant + update, re-verification optionnelle, skip si deja rempli."""
 from __future__ import annotations
 
 import pytest
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.company import Company
 from app.models.contact import Contact
-from app.models.enrichment import EnrichmentJob
+from app.models.enrichment import (
+    EnrichmentEmailVerification,
+    EnrichmentJob,
+    EnrichmentSuppression,
+)
 from app.services.enrichment import orchestrator
 from app.services.enrichment.ports import EmailCandidate, VerificationResult
 
@@ -114,3 +119,33 @@ async def test_contacts_all_missing_email_scope(db_session: AsyncSession, test_o
 
     job = await _run(db_session, test_org.id, {"kind": "contacts", "all_missing_email": True})
     assert job.stats_json["updated"] == 1  # seul celui sans email
+
+
+@pytest.mark.asyncio
+async def test_contacts_reverify_respects_suppression(db_session: AsyncSession, test_org, monkeypatch):
+    """FIX #8 : un contact avec email EXISTANT en liste de suppression (opt-out)
+    ne doit PAS etre re-marque deliverable/valid lors d'un reverify inline."""
+    _wire(monkeypatch)
+    contact = await _contact(db_session, test_org.id, email="jean@acme.com")
+    db_session.add(EnrichmentSuppression(
+        organization_id=test_org.id, email="jean@acme.com", reason="opt_out",
+    ))
+    await db_session.commit()
+
+    job = await _run(
+        db_session, test_org.id,
+        {"kind": "contacts", "contact_ids": [str(contact.id)], "reverify": True},
+    )
+    assert job.stats_json.get("skipped_suppressed") == 1
+    assert job.stats_json["updated"] == 0
+
+    await db_session.refresh(contact)
+    assert contact.email_status != "valid"  # non re-marque deliverable
+
+    # Aucune verification creee pour ce contact supprime (on retourne avant).
+    rows = (await db_session.execute(
+        select(EnrichmentEmailVerification).where(
+            EnrichmentEmailVerification.contact_id == contact.id,
+        )
+    )).scalars().all()
+    assert rows == []

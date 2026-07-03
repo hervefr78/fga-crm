@@ -190,6 +190,13 @@ async def _process_contact(
         if domain_type != "pro" or await is_suppressed(db, organization_id=org_id, email=email):
             return
 
+    # Reverify sur email EXISTANT : respecter la liste de suppression RGPD
+    # (opt-out/bounce), comme pour un email nouvellement trouve. Sans ce garde,
+    # un contact en liste de suppression serait re-marque deliverable/valid. (FIX #8)
+    if has_email and reverify and await is_suppressed(db, organization_id=org_id, email=email):
+        stats["skipped_suppressed"] = stats.get("skipped_suppressed", 0) + 1
+        return
+
     # Verification (email trouve OU existant a re-verifier)
     verification = None
     for v in verifiers:
