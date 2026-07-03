@@ -116,3 +116,63 @@ async def test_webhook_rejects_stale_timestamp(client: AsyncClient, monkeypatch)
     sig = hmac.new(b"s3cr3t", f"{_WEBHOOK_PATH}{ts}".lower().encode(), hashlib.sha1).hexdigest()
     r = await client.post(_WEBHOOK_PATH, json={"signature": sig, "timestamp": ts, "data": {}})
     assert r.status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# FIX #12 — garde anti-rejeu single-use (nonce Redis) sur (timestamp, signature)
+# ---------------------------------------------------------------------------
+
+class _FakeNonceRedis:
+    """Fake client Redis async (SET NX en memoire) — le repo n'a pas de Redis en test."""
+
+    def __init__(self, *, fail: bool = False):
+        self._store: set[str] = set()
+        self._fail = fail
+
+    async def set(self, key, value, nx=False, ex=None):
+        if self._fail:
+            raise RuntimeError("redis down")
+        if nx and key in self._store:
+            return None
+        self._store.add(key)
+        return True
+
+
+@pytest.mark.asyncio
+async def test_webhook_rejects_replayed_signature(client: AsyncClient, monkeypatch):
+    """FIX #12 : un meme (timestamp, signature) valide rejoue -> 1re passe (200),
+    2e refusee (401) via le nonce Redis single-use."""
+    from app.api.v1 import enrichment_webhook
+
+    monkeypatch.setattr(settings, "icypeas_api_secret", "s3cr3t")
+    fake = _FakeNonceRedis()
+    monkeypatch.setattr(enrichment_webhook, "_get_nonce_client", lambda: fake)
+
+    ts = datetime.now(UTC).isoformat()
+    sig = hmac.new(b"s3cr3t", f"{_WEBHOOK_PATH}{ts}".lower().encode(), hashlib.sha1).hexdigest()
+    body = {"signature": sig, "timestamp": ts, "data": {"file": "X", "results": []}}
+
+    r1 = await client.post(_WEBHOOK_PATH, json=body)
+    assert r1.status_code == 200
+
+    r2 = await client.post(_WEBHOOK_PATH, json=body)
+    assert r2.status_code == 401
+    assert "ejeu" in r2.json()["detail"]  # "Rejeu détecté"
+
+
+@pytest.mark.asyncio
+async def test_webhook_replay_guard_fails_open_on_redis_error(client: AsyncClient, monkeypatch):
+    """FIX #12 : Redis indisponible -> le garde anti-rejeu fail-open (200) ;
+    signature + fraicheur du timestamp restent la defense."""
+    from app.api.v1 import enrichment_webhook
+
+    monkeypatch.setattr(settings, "icypeas_api_secret", "s3cr3t")
+    fake = _FakeNonceRedis(fail=True)
+    monkeypatch.setattr(enrichment_webhook, "_get_nonce_client", lambda: fake)
+
+    ts = datetime.now(UTC).isoformat()
+    sig = hmac.new(b"s3cr3t", f"{_WEBHOOK_PATH}{ts}".lower().encode(), hashlib.sha1).hexdigest()
+    body = {"signature": sig, "timestamp": ts, "data": {"file": "X", "results": []}}
+
+    r = await client.post(_WEBHOOK_PATH, json=body)
+    assert r.status_code == 200

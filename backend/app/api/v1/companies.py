@@ -9,6 +9,7 @@ from datetime import date
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import ValidationError
 from sqlalchemy import case, func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import get_current_user
@@ -365,7 +366,15 @@ async def import_companies(
                 **validated.model_dump(), owner_id=user.id,
                 organization_id=user.organization_id,
             )
-            db.add(company)
+            # Flush par ligne dans un savepoint (FIX #1) : une collision d'unicite
+            # (uq_companies_org_domain — domaine duplique dans le batch OU deja
+            # present dans l'org) est isolee a CETTE ligne. Sans le savepoint, un
+            # unique flush global leve IntegrityError -> HTTP 500, transaction
+            # avortee, 0 ligne importee. On n'incremente `imported` qu'apres le
+            # flush reussi.
+            async with db.begin_nested():
+                db.add(company)
+                await db.flush()
             imported += 1
         except ValidationError as e:
             for err in e.errors():
@@ -374,10 +383,12 @@ async def import_companies(
                     field=str(err["loc"][-1]) if err["loc"] else "unknown",
                     message=err["msg"],
                 ))
-        except Exception as e:
+        except IntegrityError:
+            errors.append(ImportRowError(
+                row=idx, field="domain",
+                message="Entreprise ou domaine déjà existant",
+            ))
+        except Exception as e:  # noqa: BLE001 — erreur ligne isolee, batch preserve
             errors.append(ImportRowError(row=idx, field="unknown", message=str(e)))
-
-    if imported > 0:
-        await db.flush()
 
     return ImportResult(imported=imported, errors=errors)

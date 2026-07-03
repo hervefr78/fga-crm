@@ -8,6 +8,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import ValidationError
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -310,7 +311,15 @@ async def import_contacts(
 
             # Pas de company_id dans l'import (simplification)
             contact = Contact(**contact_dict, owner_id=user.id, organization_id=user.organization_id)
-            db.add(contact)
+            # Flush par ligne dans un savepoint (FIX #1) : une erreur d'integrite
+            # DB est isolee a CETTE ligne au lieu d'avorter tout le batch (un unique
+            # flush global leve IntegrityError -> HTTP 500, 0 ligne importee).
+            # Contact n'a pas de contrainte unique sur email (seule
+            # uq_contacts_org_startup_radar_id existe, non posee par l'import) ->
+            # field="unknown" pour toute violation d'integrite residuelle.
+            async with db.begin_nested():
+                db.add(contact)
+                await db.flush()
             imported += 1
         except ValidationError as e:
             for err in e.errors():
@@ -319,10 +328,12 @@ async def import_contacts(
                     field=str(err["loc"][-1]) if err["loc"] else "unknown",
                     message=err["msg"],
                 ))
-        except Exception as e:
+        except IntegrityError:
+            errors.append(ImportRowError(
+                row=idx, field="unknown",
+                message="Violation d'intégrité (doublon ou contrainte)",
+            ))
+        except Exception as e:  # noqa: BLE001 — erreur ligne isolee, batch preserve
             errors.append(ImportRowError(row=idx, field="unknown", message=str(e)))
-
-    if imported > 0:
-        await db.flush()
 
     return ImportResult(imported=imported, errors=errors)
