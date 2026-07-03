@@ -7,6 +7,7 @@ echec -> failed borne (DC2). Providers via factory (mock-first)."""
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
 from datetime import UTC, datetime
@@ -50,6 +51,7 @@ _TARGET_ROLES = ["CTO", "CPO", "CMO"]
 _KEEP_ROLES = frozenset({"CTO", "CPO", "CMO", "FOUNDER"})
 _MAX_ERROR_LEN = 2000
 _MAX_CONTACTS = 1000  # borne DC1 sur une selection de contacts a enrichir
+_GOUV_CONCURRENCY = 5  # requetes gouv concurrentes (respecte la limite douce ~7 req/s)
 
 
 def _to_uuid(val: str) -> uuid.UUID | None:
@@ -89,15 +91,16 @@ async def _resolve_companies(company_src, target: TargetSpec) -> list[Company]:
     if target.kind == "batch":
         # Dedup des sirens (doublons CSV frequents) : evite de payer 2x le meme.
         seen: set[str] = set()
-        out: list[Company] = []
-        for s in target.sirens:
-            if not s or s in seen:
-                continue
-            seen.add(s)
-            c = await company_src.get_by_siren(s)
-            if c:
-                out.append(c)
-        return out
+        sirens = [s for s in target.sirens if s and not (s in seen or seen.add(s))]
+        # #10 : resolution concurrente bornee (au lieu de 500 GET gouv sequentiels).
+        sem = asyncio.Semaphore(_GOUV_CONCURRENCY)
+
+        async def _fetch(siren: str):
+            async with sem:
+                return await company_src.get_by_siren(siren)
+
+        results = await asyncio.gather(*(_fetch(s) for s in sirens))
+        return [c for c in results if c]
     if target.kind == "icp" and target.icp_filter:
         return await company_src.get_companies(target.icp_filter)
     return []
