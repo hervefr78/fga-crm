@@ -7,6 +7,7 @@ echec -> failed borne (DC2). Providers via factory (mock-first)."""
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
 from datetime import UTC, datetime
@@ -50,6 +51,7 @@ _TARGET_ROLES = ["CTO", "CPO", "CMO"]
 _KEEP_ROLES = frozenset({"CTO", "CPO", "CMO", "FOUNDER"})
 _MAX_ERROR_LEN = 2000
 _MAX_CONTACTS = 1000  # borne DC1 sur une selection de contacts a enrichir
+_GOUV_CONCURRENCY = 5  # requetes gouv concurrentes (respecte la limite douce ~7 req/s)
 
 
 def _to_uuid(val: str) -> uuid.UUID | None:
@@ -89,15 +91,16 @@ async def _resolve_companies(company_src, target: TargetSpec) -> list[Company]:
     if target.kind == "batch":
         # Dedup des sirens (doublons CSV frequents) : evite de payer 2x le meme.
         seen: set[str] = set()
-        out: list[Company] = []
-        for s in target.sirens:
-            if not s or s in seen:
-                continue
-            seen.add(s)
-            c = await company_src.get_by_siren(s)
-            if c:
-                out.append(c)
-        return out
+        sirens = [s for s in target.sirens if s and not (s in seen or seen.add(s))]
+        # #10 : resolution concurrente bornee (au lieu de 500 GET gouv sequentiels).
+        sem = asyncio.Semaphore(_GOUV_CONCURRENCY)
+
+        async def _fetch(siren: str):
+            async with sem:
+                return await company_src.get_by_siren(siren)
+
+        results = await asyncio.gather(*(_fetch(s) for s in sirens))
+        return [c for c in results if c]
     if target.kind == "icp" and target.icp_filter:
         return await company_src.get_companies(target.icp_filter)
     return []
@@ -401,6 +404,7 @@ async def _submit_bulk_contacts(
         raise RuntimeError("Bulk indisponible : client Icypeas absent")
 
     contacts = await _resolve_contacts(db, target, org_id)
+    companies = await _load_companies(db, contacts, org_id)  # #4/#5 : evite le N+1
     s_rows: list[list[str]] = []
     s_ext: list[str] = []
     s_ctx: list[dict] = []
@@ -417,16 +421,17 @@ async def _submit_bulk_contacts(
             if not target.reverify:
                 stats["skipped_has_email"] += 1
                 continue
-            # Reverify : bulk email-verification (row = [email])
+            # Reverify : bulk email-verification (row = [email]). L'email est mis
+            # dans le contexte -> si NOT_FOUND, le webhook marque le contact 'invalid'.
             if not ledger.can_spend(_BULK_CREDIT):
                 break
             ledger.record("icypeas-verify", _BULK_CREDIT)
             v_ext.append(str(len(v_rows)))
             v_rows.append([contact.email])
-            v_ctx.append(base_ctx)
+            v_ctx.append({**base_ctx, "email": contact.email})
             continue
         # Sans email : bulk email-search (row = [first, last, domainOrCompany])
-        company = await db.get(CrmCompany, contact.company_id) if contact.company_id else None
+        company = companies.get(contact.company_id) if contact.company_id else None
         dom_or_company = (company.domain or company.name) if company else None
         if not dom_or_company:
             stats["skipped_no_company"] += 1
@@ -469,6 +474,19 @@ async def _resolve_contacts(db: AsyncSession, target: TargetSpec, org_id) -> lis
     return list((await db.execute(stmt)).scalars().all())
 
 
+async def _load_companies(db: AsyncSession, contacts: list[Contact], org_id) -> dict:
+    """Precharge en UNE requete les societes liees (evite le N+1 db.get par contact)."""
+    ids = {c.company_id for c in contacts if c.company_id}
+    if not ids:
+        return {}
+    rows = (
+        await db.execute(select(CrmCompany).where(
+            CrmCompany.id.in_(ids), CrmCompany.organization_id == org_id,
+        ))
+    ).scalars().all()
+    return {c.id: c for c in rows}
+
+
 async def _process_contact(
     db: AsyncSession,
     contact: Contact,
@@ -479,6 +497,7 @@ async def _process_contact(
     org_id,
     stats: dict,
     reverify: bool,
+    companies: dict,
 ) -> None:
     """Enrichit UN contact existant (Feature B) : trouve l'email manquant (ou
     re-verifie l'existant si reverify), met a jour le contact + provenance."""
@@ -495,7 +514,7 @@ async def _process_contact(
 
     if not has_email:
         # Trouver l'email : domaine de la societe liee, sinon nom (domainOrCompany).
-        company = await db.get(CrmCompany, contact.company_id) if contact.company_id else None
+        company = companies.get(contact.company_id) if contact.company_id else None
         dom_or_company = (company.domain or company.name) if company else None
         if not dom_or_company:
             stats["skipped_no_company"] += 1
@@ -553,11 +572,12 @@ async def _run_contacts_inline(
 ) -> None:
     """Mode contacts (inline) : enrichit chaque contact, checkpoint par contact."""
     contacts = await _resolve_contacts(db, target, org_id)
+    companies = await _load_companies(db, contacts, org_id)  # #4/#5 : evite le N+1
     for contact in contacts:
         try:
             await _process_contact(
                 db, contact, finders=finders, verifiers=verifiers, ledger=ledger,
-                org_id=org_id, stats=stats, reverify=target.reverify,
+                org_id=org_id, stats=stats, reverify=target.reverify, companies=companies,
             )
             await db.commit()
         except Exception:  # noqa: BLE001 — echec isole au contact

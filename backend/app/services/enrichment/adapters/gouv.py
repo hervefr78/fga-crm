@@ -195,14 +195,17 @@ class GouvCompanySource(CompanySource):
         return out
 
     async def _domain_responds(self, client: httpx.AsyncClient, domain: str) -> bool:
-        for scheme in ("https", "http"):
+        # #11 : https et http testes en CONCURRENCE (un https qui pend ne bloque
+        # plus le fallback http jusqu'au timeout).
+        async def _try(scheme: str) -> bool:
             try:
                 resp = await client.get(f"{scheme}://{domain}")
-                if resp.status_code < 400:
-                    return True
+                return resp.status_code < 400
             except httpx.HTTPError:
-                continue
-        return False
+                return False
+
+        results = await asyncio.gather(_try("https"), _try("http"))
+        return any(results)
 
     async def resolve_domain(self, company: Company) -> str | None:
         """Heuristique nom->domaine (best-effort). Retourne le 1er candidat (par

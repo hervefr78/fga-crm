@@ -103,6 +103,7 @@ async def update_contact_email(
     organization_id: uuid.UUID,
     verified_by_icypeas: bool = True,
     source: str = "icypeas",
+    backfill_domain: bool = True,
 ) -> uuid.UUID | None:
     """Feature B : met a jour un contact EXISTANT (email + statut + flag Icypeas).
 
@@ -125,7 +126,7 @@ async def update_contact_email(
     # Backfill domaine societe depuis l'email valide par Icypeas (si absent),
     # en evitant la collision (organization_id, domain).
     dom = _domain_from_email(email)
-    if dom and verified_by_icypeas and contact.company_id:
+    if backfill_domain and dom and verified_by_icypeas and contact.company_id:
         company = await db.get(CrmCompany, contact.company_id)
         if company is not None and company.organization_id == organization_id and not company.domain:
             clash = (

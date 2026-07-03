@@ -48,33 +48,52 @@ def _to_uuid(val: object) -> uuid.UUID | None:
 
 
 async def _resolve_item(
-    db: AsyncSession, bulk: EnrichmentBulk, item: EnrichmentBulkItem, res: dict
+    db: AsyncSession, bulk: EnrichmentBulk, item: EnrichmentBulkItem, res: dict,
+    *, fresh_client=None,
 ) -> None:
     """Resout une ligne : RGPD -> contact CRM + verif + provenance. Modifie `item`."""
     org_id = bulk.organization_id
+    ctx = item.context_json or {}
+    comp = ctx.get("company") or {}
+    pers = ctx.get("person") or {}
+    existing_contact_id = _to_uuid(ctx.get("contact_id"))
+    is_verify = bulk.task == "email-verification"
     email = res.get("email")
+
     if not email or res.get("status") not in _FOUND_STATUSES:
+        # Reverify d'un email injoignable (#7/#8) : mailbox morte -> contact 'invalid'
+        # (au lieu de garder son ancien statut). L'email d'origine est dans le contexte.
+        ctx_email = ctx.get("email")
+        if is_verify and existing_contact_id is not None and ctx_email:
+            cid = await update_contact_email(
+                db, contact_id=existing_contact_id, email=ctx_email, email_status="invalid",
+                organization_id=org_id, backfill_domain=False,
+            )
+            if cid is not None:
+                item.status = "found"
+                item.email = ctx_email
+                item.certainty = res.get("certainty")
+                item.contact_id = cid
+                return
         item.status = "not_found"
         return
 
     domain_type = classify_email(email)
-    # Reverify (email-verification) : l'email existe deja dans le CRM -> on ne
-    # re-applique PAS le filtre RGPD (on rafraichit juste sa deliverabilite).
-    if bulk.task != "email-verification" and (
-        domain_type != "pro" or await is_suppressed(db, organization_id=org_id, email=email)
-    ):
-        item.status = "not_found"  # rejete RGPD/suppression
+    # Suppression RGPD : TOUJOURS verifiee, meme en reverify (#12 : ne pas re-marquer
+    # deliverable un contact opt-out/bounce). Seule la classification pro/perso est
+    # sautee pour un email deja en base (reverify).
+    if await is_suppressed(db, organization_id=org_id, email=email):
+        item.status = "not_found"
+        return
+    if not is_verify and domain_type != "pro":
+        item.status = "not_found"  # rejete RGPD (email nouvellement trouve non pro)
         return
 
     status, confidence = _map_certainty(res.get("certainty"))
     deliverable = status == "valid"
 
-    ctx = item.context_json or {}
-    comp = ctx.get("company") or {}
-    pers = ctx.get("person") or {}
     first = pers.get("first_name") or res.get("firstname") or ""
     last = pers.get("last_name") or res.get("lastname") or ""
-    existing_contact_id = _to_uuid(ctx.get("contact_id"))
 
     if existing_contact_id is not None:
         # Feature B : met a jour un contact EXISTANT (pas de create) + backfill domaine.
@@ -114,7 +133,7 @@ async def _resolve_item(
     # -> un re-run du meme batch ne re-soumet/re-facture pas cette personne.
     await freshness.touch(
         freshness.person_key(org_id, comp.get("siren"), first, last),
-        settings.enrichment_refresh_days,
+        settings.enrichment_refresh_days, client=fresh_client,
     )
 
 
@@ -135,7 +154,9 @@ async def process_bulk_callback(db: AsyncSession, data: dict) -> dict:
     if bulk is None:
         logger.warning("[Icypeas webhook] bulk inconnu file=%s", file_id)
         return {"matched": False}
-    if bulk.status == "done":
+    if bulk.status in ("done", "error"):
+        # #9 : etat terminal (error = timeout reconcile). Un callback tardif ne
+        # doit pas re-traiter et recreer des contacts sur un job deja failed.
         return {"matched": True, "already_done": True}
 
     items = (
@@ -143,20 +164,22 @@ async def process_bulk_callback(db: AsyncSession, data: dict) -> dict:
     ).scalars().all()
     by_ext = {i.external_id: i for i in items}
 
-    for res in parse_bulk_callback(data):
-        item = by_ext.get(res.get("external_id"))
-        if item is None or item.status != "pending":
-            continue  # inconnu ou deja resolu (idempotence)
-        try:
-            # Savepoint par item (#1/DC4) : une erreur (collision, ecriture) sur une
-            # ligne n'annule pas tout le bulk (sinon perte des contacts Icypeas payes).
-            async with db.begin_nested():
-                await _resolve_item(db, bulk, item, res)
-        except Exception:  # noqa: BLE001 — echec isole a l'item, on continue
-            logger.exception(
-                "[Icypeas webhook] item %s echoue, marque error", res.get("external_id")
-            )
-            item.status = "error"
+    # #6 : un seul client Redis pour toute la boucle (au lieu d'un par item via touch).
+    async with freshness.client_scope() as fresh_client:
+        for res in parse_bulk_callback(data):
+            item = by_ext.get(res.get("external_id"))
+            if item is None or item.status != "pending":
+                continue  # inconnu ou deja resolu (idempotence)
+            try:
+                # Savepoint par item (#1/DC4) : une erreur (collision, ecriture) sur une
+                # ligne n'annule pas tout le bulk (sinon perte des contacts Icypeas payes).
+                async with db.begin_nested():
+                    await _resolve_item(db, bulk, item, res, fresh_client=fresh_client)
+            except Exception:  # noqa: BLE001 — echec isole a l'item, on continue
+                logger.exception(
+                    "[Icypeas webhook] item %s echoue, marque error", res.get("external_id")
+                )
+                item.status = "error"
 
     bulk.done = sum(1 for i in items if i.status != "pending")
     bulk.found = sum(1 for i in items if i.status == "found")
@@ -164,20 +187,27 @@ async def process_bulk_callback(db: AsyncSession, data: dict) -> dict:
         bulk.status = "done"
         bulk.finished_at = _now()
         if bulk.job_id:
-            # Job termine seulement quand TOUS ses bulks sont done (un job reverify
-            # a 2 bulks : email-search + email-verification). On exclut le bulk courant
-            # (deja done) pour ne pas dependre de l'autoflush de son statut.
-            other_statuses = (
+            # Verrou sur la ligne job (#1/#3) : serialise les callbacks concurrents
+            # des differents bulks d'un meme job (reverify = 2 bulks). Sans ce verrou,
+            # chacun voit l'autre encore 'awaiting_results' -> job jamais finalise.
+            job = (
                 await db.execute(
-                    select(EnrichmentBulk.status).where(
-                        EnrichmentBulk.job_id == bulk.job_id,
-                        EnrichmentBulk.id != bulk.id,
-                    )
+                    select(EnrichmentJob).where(EnrichmentJob.id == bulk.job_id).with_for_update()
                 )
-            ).scalars().all()
-            if all(s == "done" for s in other_statuses):
-                job = await db.get(EnrichmentJob, bulk.job_id)
-                if job is not None and job.status == "awaiting_results":
+            ).scalar_one_or_none()
+            if job is not None and job.status == "awaiting_results":
+                # Job done quand tous les AUTRES bulks sont done (le courant l'est
+                # deja). Le verrou job ci-dessus serialise les callbacks concurrents :
+                # le 2e voit le bulk du 1er committe -> finalisation correcte.
+                other_statuses = (
+                    await db.execute(
+                        select(EnrichmentBulk.status).where(
+                            EnrichmentBulk.job_id == bulk.job_id,
+                            EnrichmentBulk.id != bulk.id,
+                        )
+                    )
+                ).scalars().all()
+                if all(s == "done" for s in other_statuses):
                     job.status = "done"
                     job.finished_at = _now()
 
