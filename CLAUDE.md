@@ -151,6 +151,12 @@ Si une etape manque, la faire AVANT de repondre. Ne JAMAIS dire "c'est termine" 
 - Stack : React 18 + TS + Tailwind 3.4 + Lucide + TanStack Query v5
 - Anti-patterns critiques : pas de `font-bold` (700+), pas de `shadow-md+`, pas de gradient, pas d'emoji, pas de stat inventee (afficher `—` si absente)
 
+#### Architecture modulaire (OBLIGATOIRE — voir DC21 global)
+**Tout fichier applicatif reste sous ~400 lignes.** 500 = refacto obligatoire. Ne jamais laisser naître un fichier > 400 lignes.
+- **Frontend** : extraire vers `components/<feature>/` → `<feature>Utils.ts`, `<Feature>Atoms.tsx`, `<Feature>XxxPanel.tsx`, `<Feature>Modal.tsx`. La page = hooks + layout + assemblage.
+- **Backend** : routes → 1 router/sous-ressource agrégés dans `__init__.py` ; services → couches (client/mapper/orchestrator) ou handlers par mode dans `modes/`.
+- Iso-comportement strict, 1 refacto = 1 PR (≤ 5 fichiers, DC15). Plan de refacto en cours : [`docs/CODE_HEALTH_REPORT.md`](docs/CODE_HEALTH_REPORT.md) (C1→C5). Pattern validé : Trends.tsx 547→209, GEO.tsx 1031→633.
+
 ---
 
 ## Regles specifiques a ce projet
