@@ -17,12 +17,12 @@ Maddyness, Eldorado et BODACC (Usine Digitale skippé V1, anti-bot DataDome).
 Les startups sont dédupliquées sur `(normalized_name, year_quarter, amount_bucket)`,
 puis upsert dans la table `startups` enrichies avec :
 - **Multi-source** : `source_names[]`, `source_urls{}`
-- **Identité légale** : `siren` (récupéré via BODACC ou Pappers)
+- **Identité légale** : `siren` (récupéré via BODACC)
 - **Date opération** : `funding_date` (DATE)
 - **Identité unique** : `normalized_name` (clé de dédup)
 
 L'enrichissement fondateurs crée des `contacts` avec :
-- **Provenance** : `enrichment_source` (`pappers` / `scraped_founders` / `evaboot`)
+- **Provenance** : `enrichment_source` (`scraped_founders` / `evaboot`)
 - **Email candidat** : `email` (status `unknown`) + `email_pattern_used`
 - **LinkedIn candidat** : `linkedin_url` + `linkedin_url_status` (`candidate` / `verified`)
 
@@ -91,7 +91,7 @@ Champs **nouveaux** ajoutés en migration 030 (en plus de l'existant) :
   "contact_status": "string (to_contact|contacted)",
 
   // === NOUVEAUX CHAMPS PHASE 5 ===
-  "enrichment_source": "string|null (pappers|scraped_founders|evaboot)",
+  "enrichment_source": "string|null (scraped_founders|evaboot)",
   "email_pattern_used": "string|null (firstname.lastname|firstname|f.lastname|...)",
   "linkedin_url_status": "string|null (candidate|verified)"
 }
@@ -657,9 +657,9 @@ async def list_startups(
 | Composant | SR (livré) | CRM (à faire) |
 |-----------|-----------|---------------|
 | Migration DB | ✅ `030_funding_multi_source.py` | ⏳ `XXX_funding_multi_source_sync.py` |
-| Modèles ORM | ✅ Startup, Contact, +PappersCache, +BodaccAnnouncementSeen | ⏳ Company, Contact |
+| Modèles ORM | ✅ Startup, Contact, +BodaccAnnouncementSeen | ⏳ Company, Contact |
 | Schemas Pydantic | ✅ `StartupResponse`, `ContactResponse` étendus | ⏳ `CompanyResponse`, `ContactResponse` |
-| Services | ✅ funding_ingest, funding_dedupe, funding_normalizer, pappers, founder_enrichment | ⏳ `startup_radar_sync.py` étendu |
+| Services | ✅ funding_ingest, funding_dedupe, funding_normalizer, founder_enrichment | ⏳ `startup_radar_sync.py` étendu |
 | API endpoints | ✅ `/scraping/multi-source`, `/scraping/enrich-founders/{id}` | ⏳ `/integrations/startup-radar/sync-recent-funding` |
 | Scheduler | ✅ `daily_funding_ingest` cron | Optionnel : cron CRM 08h00 (après SR 06h00) |
 | UI | ✅ (existant) + badges multi-sources Phase 6.B SR | ⏳ Bloc Funding CompanyDetail, badges Contact, KPI Dashboard, filtres Companies |

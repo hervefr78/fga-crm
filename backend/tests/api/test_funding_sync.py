@@ -600,7 +600,7 @@ async def test_sync_contacts_maps_enrichment_fields(db_session: AsyncSession):
         "linkedin_url": "https://linkedin.com/in/alicemartin",
         "is_decision_maker": True,
         "startup_id": "sr-startup-1",
-        "enrichment_source": "pappers",
+        "enrichment_source": "scraped_founders",
         "email_pattern_used": "first.last",
         "linkedin_url_status": "candidate",
     }])
@@ -611,7 +611,7 @@ async def test_sync_contacts_maps_enrichment_fields(db_session: AsyncSession):
     contact = (await db_session.execute(
         select(Contact).where(Contact.startup_radar_id == "sr-contact-1")
     )).scalar_one()
-    assert contact.enrichment_source == "pappers"
+    assert contact.enrichment_source == "scraped_founders"
     assert contact.email_pattern_used == "first.last"
     assert contact.linkedin_url_status == "candidate"
     assert contact.company_id == company.id

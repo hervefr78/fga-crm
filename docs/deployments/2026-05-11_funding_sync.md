@@ -9,7 +9,7 @@
 
 ## 1. Résumé
 
-Étend le sync Startup Radar pour absorber le nouveau pipeline funding multi-source (LesPepitesTech, Maddyness, Eldorado, L'Usine Digitale, BODACC) avec enrichissement Pappers (SIREN, fondateurs, emails heuristiques).
+Étend le sync Startup Radar pour absorber le nouveau pipeline funding multi-source (LesPepitesTech, Maddyness, Eldorado, L'Usine Digitale, BODACC) avec enrichissement des fondateurs (SIREN via BODACC, emails heuristiques).
 
 **Côté CRM, aucun scraping** — on consomme uniquement l'API SR via le sync existant qu'on étend.
 
