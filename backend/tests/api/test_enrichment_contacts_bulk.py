@@ -209,3 +209,79 @@ async def test_multi_bulk_job_done_only_when_all_bulks_done(db_session: AsyncSes
         {"results": {}, "status": "NOT_FOUND", "userData": {"externalId": "0"}}]})
     refreshed = await db_session.get(EnrichmentJob, job.id)
     assert refreshed.status == "done"
+
+
+async def _seed_verify_item(db, org_id, file_id, contact, ctx_extra=None):
+    job = EnrichmentJob(mode="contacts", status="awaiting_results", target_json={}, organization_id=org_id)
+    db.add(job)
+    await db.flush()
+    bulk = EnrichmentBulk(file=file_id, task="email-verification", status="awaiting_results",
+                          total=1, organization_id=org_id, job_id=job.id)
+    db.add(bulk)
+    await db.flush()
+    ctx = {"contact_id": str(contact.id), "email": contact.email,
+           "person": {"first_name": contact.first_name, "last_name": contact.last_name}}
+    if ctx_extra:
+        ctx.update(ctx_extra)
+    db.add(EnrichmentBulkItem(bulk_id=bulk.id, external_id="0", organization_id=org_id,
+                              status="pending", context_json=ctx))
+    await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_reverify_notfound_marks_contact_invalid(db_session: AsyncSession, test_org):
+    # #7/#8 : un email 'valid' devenu injoignable (NOT_FOUND) -> contact 'invalid'
+    contact = Contact(first_name="J", last_name="M", email="dead@old.com", email_status="valid",
+                      organization_id=test_org.id)
+    db_session.add(contact)
+    await db_session.flush()
+    await _seed_verify_item(db_session, test_org.id, "VN", contact)
+
+    await process_bulk_callback(db_session, {"file": "VN", "results": [
+        {"results": {"emails": []}, "status": "NOT_FOUND", "userData": {"externalId": "0"}}]})
+
+    await db_session.refresh(contact)
+    assert contact.email == "dead@old.com"  # email inchange
+    assert contact.email_status == "invalid"  # etait valid -> maintenant invalid
+    assert contact.email_verified_by_icypeas is True
+
+
+@pytest.mark.asyncio
+async def test_reverify_suppressed_email_not_marked_deliverable(db_session: AsyncSession, test_org):
+    # #12 : la suppression RGPD est verifiee meme en reverify
+    from app.models.enrichment import EnrichmentSuppression
+    contact = Contact(first_name="J", last_name="M", email="opt@out.com", email_status="valid",
+                      organization_id=test_org.id)
+    db_session.add(contact)
+    db_session.add(EnrichmentSuppression(organization_id=test_org.id, email="opt@out.com", reason="opt-out"))
+    await db_session.flush()
+    await _seed_verify_item(db_session, test_org.id, "VS", contact)
+
+    await process_bulk_callback(db_session, {"file": "VS", "results": [
+        {"results": {"emails": [{"email": "opt@out.com", "certainty": "ultra_sure"}]},
+         "status": "DEBITED", "userData": {"externalId": "0"}}]})
+
+    await db_session.refresh(contact)
+    assert contact.email_verified_by_icypeas is False  # supprime -> pas de MAJ deliverable
+
+
+@pytest.mark.asyncio
+async def test_callback_on_error_bulk_is_noop(db_session: AsyncSession, test_org):
+    # #9 : callback tardif sur un bulk 'error' (timeout reconcile) -> no-op
+    job = EnrichmentJob(mode="batch", status="failed", target_json={}, organization_id=test_org.id)
+    db_session.add(job)
+    await db_session.flush()
+    bulk = EnrichmentBulk(file="ERR", task="email-search", status="error", total=1,
+                          organization_id=test_org.id, job_id=job.id)
+    db_session.add(bulk)
+    await db_session.flush()
+    db_session.add(EnrichmentBulkItem(bulk_id=bulk.id, external_id="0", organization_id=test_org.id,
+                                      status="pending", context_json={"company": {"name": "X"}, "person": {}}))
+    await db_session.commit()
+
+    res = await process_bulk_callback(db_session, {"file": "ERR", "results": [
+        {"results": {"emails": [{"email": "a@acme.fr", "certainty": "ultra_sure"}]},
+         "status": "DEBITED", "userData": {"externalId": "0"}}]})
+    assert res.get("already_done") is True
+    contacts = (await db_session.execute(select(Contact).where(Contact.source == "enrichment"))).scalars().all()
+    assert contacts == []  # aucun contact recree

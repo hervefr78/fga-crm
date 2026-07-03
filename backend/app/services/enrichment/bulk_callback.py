@@ -52,29 +52,47 @@ async def _resolve_item(
 ) -> None:
     """Resout une ligne : RGPD -> contact CRM + verif + provenance. Modifie `item`."""
     org_id = bulk.organization_id
+    ctx = item.context_json or {}
+    comp = ctx.get("company") or {}
+    pers = ctx.get("person") or {}
+    existing_contact_id = _to_uuid(ctx.get("contact_id"))
+    is_verify = bulk.task == "email-verification"
     email = res.get("email")
+
     if not email or res.get("status") not in _FOUND_STATUSES:
+        # Reverify d'un email injoignable (#7/#8) : mailbox morte -> contact 'invalid'
+        # (au lieu de garder son ancien statut). L'email d'origine est dans le contexte.
+        ctx_email = ctx.get("email")
+        if is_verify and existing_contact_id is not None and ctx_email:
+            cid = await update_contact_email(
+                db, contact_id=existing_contact_id, email=ctx_email, email_status="invalid",
+                organization_id=org_id, backfill_domain=False,
+            )
+            if cid is not None:
+                item.status = "found"
+                item.email = ctx_email
+                item.certainty = res.get("certainty")
+                item.contact_id = cid
+                return
         item.status = "not_found"
         return
 
     domain_type = classify_email(email)
-    # Reverify (email-verification) : l'email existe deja dans le CRM -> on ne
-    # re-applique PAS le filtre RGPD (on rafraichit juste sa deliverabilite).
-    if bulk.task != "email-verification" and (
-        domain_type != "pro" or await is_suppressed(db, organization_id=org_id, email=email)
-    ):
-        item.status = "not_found"  # rejete RGPD/suppression
+    # Suppression RGPD : TOUJOURS verifiee, meme en reverify (#12 : ne pas re-marquer
+    # deliverable un contact opt-out/bounce). Seule la classification pro/perso est
+    # sautee pour un email deja en base (reverify).
+    if await is_suppressed(db, organization_id=org_id, email=email):
+        item.status = "not_found"
+        return
+    if not is_verify and domain_type != "pro":
+        item.status = "not_found"  # rejete RGPD (email nouvellement trouve non pro)
         return
 
     status, confidence = _map_certainty(res.get("certainty"))
     deliverable = status == "valid"
 
-    ctx = item.context_json or {}
-    comp = ctx.get("company") or {}
-    pers = ctx.get("person") or {}
     first = pers.get("first_name") or res.get("firstname") or ""
     last = pers.get("last_name") or res.get("lastname") or ""
-    existing_contact_id = _to_uuid(ctx.get("contact_id"))
 
     if existing_contact_id is not None:
         # Feature B : met a jour un contact EXISTANT (pas de create) + backfill domaine.
@@ -135,7 +153,9 @@ async def process_bulk_callback(db: AsyncSession, data: dict) -> dict:
     if bulk is None:
         logger.warning("[Icypeas webhook] bulk inconnu file=%s", file_id)
         return {"matched": False}
-    if bulk.status == "done":
+    if bulk.status in ("done", "error"):
+        # #9 : etat terminal (error = timeout reconcile). Un callback tardif ne
+        # doit pas re-traiter et recreer des contacts sur un job deja failed.
         return {"matched": True, "already_done": True}
 
     items = (

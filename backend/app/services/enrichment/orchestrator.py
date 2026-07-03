@@ -417,13 +417,14 @@ async def _submit_bulk_contacts(
             if not target.reverify:
                 stats["skipped_has_email"] += 1
                 continue
-            # Reverify : bulk email-verification (row = [email])
+            # Reverify : bulk email-verification (row = [email]). L'email est mis
+            # dans le contexte -> si NOT_FOUND, le webhook marque le contact 'invalid'.
             if not ledger.can_spend(_BULK_CREDIT):
                 break
             ledger.record("icypeas-verify", _BULK_CREDIT)
             v_ext.append(str(len(v_rows)))
             v_rows.append([contact.email])
-            v_ctx.append(base_ctx)
+            v_ctx.append({**base_ctx, "email": contact.email})
             continue
         # Sans email : bulk email-search (row = [first, last, domainOrCompany])
         company = await db.get(CrmCompany, contact.company_id) if contact.company_id else None
