@@ -43,6 +43,9 @@ frontend/dist/
 .claude/
 SKILL.md
 backend/test.db
+backend/test.db-wal
+backend/test.db-shm
+backend/test.db-journal
 *.chous
 
 # Local references / data dumps (not source)

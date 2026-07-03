@@ -9,6 +9,7 @@ import os
 # (cas des tests unauthenticated), l'app renvoie 500 au lieu de 403.
 os.environ["AUTH_BYPASS"] = "false"
 
+import contextlib
 import uuid
 from collections.abc import AsyncGenerator
 
@@ -27,11 +28,33 @@ from app.models.organization import Organization
 from app.models.user import User
 
 # ---------------------------------------------------------------------------
-# BDD de test — SQLite async en memoire
-# Mapper JSONB → JSON pour compatibilite SQLite
+# BDD de test — SQLite async sur FICHIER (./test.db)
+# ---------------------------------------------------------------------------
+# On utilise un SQLite FICHIER (et NON :memory:) pour que toutes les connexions
+# async (session de test + override get_db de l'app) partagent la meme base.
+# Contrepartie : si un teardown est saute (test en erreur, process interrompu),
+# des lignes persistent et cassent le run suivant par collision UNIQUE
+# (ex: users.email). On purge donc le fichier + ses sidecars AVANT que l'engine
+# ne l'ouvre, et en fin de session (fixture _cleanup_test_db_file plus bas).
+# JSONB → JSON pour compatibilite SQLite : voir la boucle plus bas.
 # ---------------------------------------------------------------------------
 
 TEST_DATABASE_URL = "sqlite+aiosqlite:///./test.db"
+_TEST_DB_PATH = "./test.db"
+
+
+def _purge_test_db() -> None:
+    """Supprime le fichier SQLite de test residuel + ses sidecars WAL/SHM/journal.
+
+    Idempotent : ignore silencieusement l'absence de fichier.
+    """
+    for suffix in ("", "-wal", "-shm", "-journal"):
+        with contextlib.suppress(FileNotFoundError):
+            os.remove(_TEST_DB_PATH + suffix)
+
+
+# Purge a l'import du conftest, AVANT que test_engine n'ouvre le fichier.
+_purge_test_db()
 
 test_engine = create_async_engine(TEST_DATABASE_URL, echo=False)
 test_session_maker = async_sessionmaker(
@@ -54,6 +77,17 @@ for table in Base.metadata.tables.values():
 # ---------------------------------------------------------------------------
 # BDD — creer/detruire les tables autour de chaque test
 # ---------------------------------------------------------------------------
+
+@pytest.fixture(scope="session", autouse=True)
+def _cleanup_test_db_file():
+    """Nettoie le fichier test.db en fin de session (defense en profondeur).
+
+    La purge a l'import du conftest couvre le DEBUT de session ; celle-ci couvre
+    la SORTIE propre, pour ne pas laisser d'artefact entre deux runs.
+    """
+    yield
+    _purge_test_db()
+
 
 @pytest_asyncio.fixture(autouse=True)
 async def setup_database():
