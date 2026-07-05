@@ -23,8 +23,10 @@ import { formatAmountMillions, formatDateFR } from '../../utils/format';
 import { Card, Tab, EmptyTab } from './CompanyAtoms';
 import ActivityFeed from './CompanyActivityFeed';
 import { DealsList, ContactsList } from './CompanyLists';
+import { CompanyContactsEmpty } from './CompanyContactsEmpty';
 import AuditTab from './CompanyAuditTab';
 import CompanyAuditBanner from './CompanyAuditBanner';
+import type { EnrichmentJobStatus } from '../../types/enrichment';
 
 // Onglets de la colonne principale (partages avec la page pour typer l'etat,
 // evite la duplication de l'union — DC8).
@@ -64,6 +66,14 @@ interface CompanyMainColumnProps {
   onNewDeal: () => void;
   onOpenComposer: (channel: ComposerChannel) => void;
   onLaunchAudit: () => void;
+  // Recherche des decideurs (enrichissement Icypeas) — CTA de l'onglet Contacts vide.
+  onEnrichContacts: () => void;
+  contactEnrich: {
+    isEnriching: boolean;
+    lastStatus: EnrichmentJobStatus | null;
+    quotaExceeded: boolean;
+    isError: boolean;
+  };
 }
 
 export default function CompanyMainColumn({
@@ -95,6 +105,8 @@ export default function CompanyMainColumn({
   onNewDeal,
   onOpenComposer,
   onLaunchAudit,
+  onEnrichContacts,
+  contactEnrich,
 }: CompanyMainColumnProps) {
   return (
     <div className="min-w-0 flex flex-col gap-4">
@@ -206,7 +218,19 @@ export default function CompanyMainColumn({
           />
         )}
         {activeTab === 'deals' && <DealsList deals={deals} />}
-        {activeTab === 'contacts' && <ContactsList contacts={contacts} />}
+        {activeTab === 'contacts' &&
+          (contacts.length === 0 ? (
+            <CompanyContactsEmpty
+              hasSiren={!!company.siren}
+              isEnriching={contactEnrich.isEnriching}
+              lastStatus={contactEnrich.lastStatus}
+              quotaExceeded={contactEnrich.quotaExceeded}
+              isError={contactEnrich.isError}
+              onEnrich={onEnrichContacts}
+            />
+          ) : (
+            <ContactsList contacts={contacts} />
+          ))}
         {activeTab === 'tasks' && <EmptyTab icon={ListTodo} text="Pas de tache pour cette fiche" />}
         {activeTab === 'audit' && (
           <AuditTab

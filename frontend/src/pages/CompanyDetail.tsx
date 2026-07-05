@@ -28,6 +28,7 @@ import DealForm from '../components/pipeline/DealForm';
 import ComposerModal, { ComposerChannel } from '../components/activities/ComposerModal';
 import { Card, SideLink, Row } from '../components/company/CompanyAtoms';
 import { useCompanyAuditGeneration } from '../components/company/useCompanyAuditGeneration';
+import { useCompanyContactEnrichment } from '../components/company/useCompanyContactEnrichment';
 import {
   SPLIT_VIEW_SIZE, cleanUrl, formatDate,
 } from '../components/company/companyUtils';
@@ -123,6 +124,16 @@ export default function CompanyDetailPage() {
       importPending: auditMutation.isPending,
       onGenerateStart: () => setActiveTab('audit'),
     });
+
+  // --- Recherche des decideurs (CEO/CTO/CMO/CPO) via enrichissement Icypeas ---
+  // CTA affiche dans l'onglet Contacts quand la societe n'a aucun contact.
+  const {
+    enrich: enrichContacts,
+    isEnriching: isEnrichingContacts,
+    lastStatus: enrichLastStatus,
+    quotaExceeded: enrichQuotaExceeded,
+    isError: enrichIsError,
+  } = useCompanyContactEnrichment({ companyId: id, siren: company?.siren });
 
   // Memoize les arrays derives pour stabiliser les references (evite les
   // re-render inutiles des sous-composants et stabilise les deps de useMemo).
@@ -303,6 +314,13 @@ export default function CompanyDetailPage() {
                 onNewDeal={() => setDealFormOpen(true)}
                 onOpenComposer={(c) => { setComposerChannel(c); setComposerOpen(true); }}
                 onLaunchAudit={() => generateAudit()}
+                onEnrichContacts={enrichContacts}
+                contactEnrich={{
+                  isEnriching: isEnrichingContacts,
+                  lastStatus: enrichLastStatus,
+                  quotaExceeded: enrichQuotaExceeded,
+                  isError: enrichIsError,
+                }}
               />
 
               {/* COL SIDE */}
