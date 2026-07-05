@@ -54,6 +54,9 @@ class PersonCandidate:
     linkedin_url: str | None = None
     role: str | None = None  # rempli par normalize_title
     email: str | None = None  # email deja connu (CRM/Radar) -> passe direct en verif
+    # Domaine de la societe vu par la source (ex: LinkedIn via Icypeas) -> permet
+    # de trouver l'email meme si la societe CRM n'a pas de domaine renseigne.
+    company_domain: str | None = None
 
 
 @dataclass

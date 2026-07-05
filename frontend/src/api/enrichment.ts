@@ -43,3 +43,9 @@ export const enrichCompanyById = async (companyId: string): Promise<EnrichmentJo
   const r = await api.post(`/enrichment/companies/by-id/${encodeURIComponent(companyId)}/enrich`);
   return r.data as EnrichmentJob;
 };
+
+// Feature B : trouver l'email de contacts existants (mode contacts).
+export const enrichContactEmails = async (contactIds: string[]): Promise<EnrichmentJob> => {
+  const r = await api.post('/enrichment/jobs', { mode: 'contacts', contact_ids: contactIds });
+  return r.data as EnrichmentJob;
+};

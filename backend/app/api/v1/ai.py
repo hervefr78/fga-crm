@@ -199,10 +199,10 @@ async def contact_next_action(
         return NextActionResponse(
             title="Trouver l'email de ce contact",
             body=(
-                f"Aucun email connu pour {contact.full_name}. Utilise les outils"
-                " de recherche (LinkedIn, Hunter, Email Finder) pour le trouver."
+                f"Aucun email connu pour {contact.full_name}. Lance la recherche"
+                " automatique (Icypeas) pour tenter de le trouver."
             ),
-            primary_action=NextActionAction(label="Trouver l'email", type="view"),
+            primary_action=NextActionAction(label="Trouver l'email", type="find_email"),
         )
 
     # Stale : pas d'activite depuis plus de 30 jours.

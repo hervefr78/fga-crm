@@ -18,6 +18,7 @@ from app.services.enrichment.adapters.icypeas import (
     IcypeasEmailFinder,
     IcypeasEmailVerifier,
     IcypeasPeopleSource,
+    _domain_from_url,
     _map_certainty,
     parse_bulk_callback,
     verify_webhook_signature,
@@ -133,6 +134,33 @@ async def test_find_people_gives_up_after_two_timeouts():
         raise httpx.ReadTimeout("timeout", request=request)
 
     assert await _client(handler).find_people(company_name="X", job_titles=["CTO"]) == []
+
+
+def test_domain_from_url():
+    assert _domain_from_url("http://www.upsun.com") == "upsun.com"
+    assert _domain_from_url("https://acme.fr/careers?x=1") == "acme.fr"
+    assert _domain_from_url("WWW.Example.COM") == "example.com"
+    assert _domain_from_url(None) is None
+    assert _domain_from_url("") is None
+
+
+async def test_find_people_extracts_company_domain():
+    """Le domaine societe (lastCompanyWebsite) est extrait du lead -> company_domain,
+    ce qui permet de trouver l'email meme si la societe CRM n'a pas de domaine."""
+    def handler(request):
+        return _resp({"success": True, "leads": [{
+            "firstname": "Jean", "lastname": "Dupont", "lastJobTitle": "CTO",
+            "profileUrl": "https://linkedin.com/in/jd",
+            "lastCompanyWebsite": "http://www.acme.com",
+        }]})
+
+    people = await IcypeasPeopleSource(_client(handler)).find_people(
+        Company(siren="123456789", name="Acme"),  # societe SANS domaine
+        ["CTO"],
+    )
+    assert len(people) == 1
+    assert people[0].company_domain == "acme.com"
+    assert people[0].first_name == "Jean"
 
 
 async def test_verifier_valid():

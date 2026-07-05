@@ -71,6 +71,16 @@ async def upsert_contact(
                 Contact.organization_id == organization_id,
             ))
         ).scalars().first()
+    # Dedup par LinkedIn : meme personne deja enregistree (typiquement un decideur
+    # ecrit SANS email lors d'un enrichissement precedent) -> on la MET A JOUR au
+    # lieu de creer un doublon (idempotence de la re-enrichissement).
+    if contact is None and person.linkedin_url:
+        contact = (
+            await db.execute(select(Contact).where(
+                Contact.linkedin_url == person.linkedin_url,
+                Contact.organization_id == organization_id,
+            ))
+        ).scalars().first()
     if contact is None:
         contact = Contact(
             first_name=person.first_name, last_name=person.last_name,
