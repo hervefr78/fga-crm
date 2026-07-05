@@ -33,6 +33,9 @@ _BASE_URL = "https://app.icypeas.com/api"
 _HTTP_TIMEOUT_S = 15.0
 _POLL_INTERVAL_S = 2.0
 _MAX_WAIT_S = 30.0
+# find-people (leads DB) : la recherche par NOM de societe (a defaut de domaine)
+# est lente/variable cote Icypeas -> timeout dedie plus long + 1 retry sur timeout.
+_FIND_PEOPLE_TIMEOUT_S = 45.0
 
 # Statuts d'item : on continue a poller tant qu'on n'est pas terminal.
 _TERMINAL_STATUSES = frozenset({
@@ -190,18 +193,30 @@ class IcypeasClient:
             query["currentJobTitle"] = {"include": list(job_titles)}
         if not query:
             return []
-        try:
-            async with self._client() as client:
-                resp = await client.post(
-                    f"{self._base}/find-people",
-                    headers=self._headers(),
-                    json={"query": query, "pagination": {"size": size}},
-                )
-                resp.raise_for_status()
-                data = resp.json()
-        except (httpx.HTTPError, ValueError) as exc:
-            logger.warning("[Icypeas] find-people KO : %s", exc)
-            return []
+
+        body = {"query": query, "pagination": {"size": size}}
+        data: dict | None = None
+        # Timeout dedie plus long + 1 retry sur timeout (fiabilite : evite les faux
+        # "0 trouve" dus a un ReadTimeout transitoire sur la recherche par nom).
+        for attempt in (1, 2):
+            try:
+                async with httpx.AsyncClient(
+                    timeout=_FIND_PEOPLE_TIMEOUT_S, transport=self._transport
+                ) as client:
+                    resp = await client.post(
+                        f"{self._base}/find-people", headers=self._headers(), json=body,
+                    )
+                    resp.raise_for_status()
+                    data = resp.json()
+                break
+            except httpx.TimeoutException as exc:
+                logger.warning("[Icypeas] find-people timeout (essai %d/2) : %r", attempt, exc)
+                continue  # retry (transitoire)
+            except (httpx.HTTPError, ValueError) as exc:
+                logger.warning("[Icypeas] find-people KO : %r", exc)
+                return []
+        if data is None:
+            return []  # timeout sur les 2 essais
         if not data.get("success"):
             logger.warning("[Icypeas] find-people refuse : %s", data.get("validationErrors"))
             return []
