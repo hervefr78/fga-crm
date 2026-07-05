@@ -9,7 +9,7 @@
 import { useState, useEffect } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
-import { enrichCompany, getEnrichmentJob } from '../../api/enrichment';
+import { enrichCompanyById, getEnrichmentJob } from '../../api/enrichment';
 import type { EnrichmentJob, EnrichmentJobStatus } from '../../types/enrichment';
 
 const POLL_INTERVAL_MS = 2000;
@@ -19,11 +19,10 @@ const isTerminal = (s?: EnrichmentJobStatus): boolean => s === 'done' || s === '
 
 interface UseCompanyContactEnrichmentParams {
   companyId?: string;
-  siren?: string | null;
 }
 
 interface UseCompanyContactEnrichmentResult {
-  // Declenche la recherche (no-op si pas de SIREN).
+  // Declenche la recherche.
   enrich: () => void;
   // true tant que le job est en cours (mutation + polling).
   isEnriching: boolean;
@@ -31,20 +30,21 @@ interface UseCompanyContactEnrichmentResult {
   lastStatus: EnrichmentJobStatus | null;
   // Quota journalier d'enrichissement depasse (429).
   quotaExceeded: boolean;
-  // Erreur au declenchement (hors quota).
+  // SIREN introuvable automatiquement (422) : a renseigner sur la fiche.
+  sirenNotFound: boolean;
+  // Erreur au declenchement (hors quota / siren introuvable).
   isError: boolean;
 }
 
 export function useCompanyContactEnrichment({
   companyId,
-  siren,
 }: UseCompanyContactEnrichmentParams): UseCompanyContactEnrichmentResult {
   const queryClient = useQueryClient();
   const [jobId, setJobId] = useState<string | null>(null);
   const [lastStatus, setLastStatus] = useState<EnrichmentJobStatus | null>(null);
 
   const startMutation = useMutation({
-    mutationFn: () => enrichCompany(siren as string),
+    mutationFn: () => enrichCompanyById(companyId as string),
     onSuccess: (job: EnrichmentJob) => {
       setLastStatus(null);
       setJobId(job.id);
@@ -72,16 +72,19 @@ export function useCompanyContactEnrichment({
   }, [job, jobId, companyId, queryClient]);
 
   const isEnriching = startMutation.isPending || (!!jobId && !isTerminal(job?.status));
-  const quotaExceeded =
-    (startMutation.error as { response?: { status?: number } } | null)?.response?.status === 429;
+  const errStatus =
+    (startMutation.error as { response?: { status?: number } } | null)?.response?.status;
+  const quotaExceeded = errStatus === 429;
+  const sirenNotFound = errStatus === 422;
 
   return {
     enrich: () => {
-      if (siren) startMutation.mutate();
+      if (companyId) startMutation.mutate();
     },
     isEnriching,
     lastStatus,
     quotaExceeded,
-    isError: startMutation.isError && !quotaExceeded,
+    sirenNotFound,
+    isError: startMutation.isError && !quotaExceeded && !sirenNotFound,
   };
 }

@@ -66,6 +66,50 @@ async def test_run_enrichment_job_company_mode(db_session: AsyncSession, test_or
     assert n_prov >= 2   # name + email par contact
 
 
+async def test_company_saves_decision_makers_without_email(
+    db_session: AsyncSession, test_org, monkeypatch
+):
+    """Decideurs trouves mais SANS email (domaine manquant) : on les enregistre
+    quand meme (nom + role + LinkedIn), avec email=None / status not_found."""
+    from app.services.enrichment import factory
+
+    class _NoEmailFinder:
+        name = "noemail"
+        cost_per_hit = 1
+
+        async def find(self, person, domain_or_company):
+            return None  # aucun email trouve (ex: pas de domaine)
+
+    monkeypatch.setattr(factory, "get_email_finders", lambda: [_NoEmailFinder()])
+    monkeypatch.setattr(orchestrator, "get_email_finders", lambda: [_NoEmailFinder()])
+
+    job = EnrichmentJob(
+        mode="company", status="queued",
+        target_json={"kind": "company", "siren": "123456789"},
+        organization_id=test_org.id,
+    )
+    db_session.add(job)
+    await db_session.commit()
+
+    await run_enrichment_job(db_session, job)
+
+    refreshed = await db_session.get(EnrichmentJob, job.id)
+    assert refreshed.status == "done"
+    stats = refreshed.stats_json
+    assert stats["people_found"] == 3          # CTO/CPO/CMO (mock)
+    assert stats["emails_found"] == 0          # aucun email
+    assert stats["contacts_no_email"] == 3     # les 3 decideurs ecrits sans email
+    assert stats["valid"] == 0
+
+    contacts = (
+        await db_session.execute(select(Contact).where(Contact.source == "enrichment"))
+    ).scalars().all()
+    assert len(contacts) == 3
+    assert all(c.is_decision_maker for c in contacts)
+    assert all(c.email is None for c in contacts)
+    assert all(c.email_status == "not_found" for c in contacts)
+
+
 async def test_run_enrichment_job_idempotent(db_session: AsyncSession, monkeypatch):
     called = {"n": 0}
     orig = orchestrator._resolve_companies

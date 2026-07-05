@@ -160,6 +160,20 @@ class GouvCompanySource(CompanySource):
         # Garde-fou : le resultat doit correspondre au siren demande.
         return company if company and company.siren == siren else None
 
+    async def search_by_name(self, name: str) -> Company | None:
+        """Recherche best-effort une societe FR par nom -> Company (avec SIREN).
+
+        Retourne la 1re correspondance ACTIVE de l'API gouv. Best-effort : un nom
+        ambigu peut renvoyer une autre societe (le SIREN reste indicatif)."""
+        q = (name or "").strip()
+        if not q:
+            return None
+        data = await self._search(
+            {"q": q, "page": 1, "per_page": 1, "etat_administratif": "A"}
+        )
+        results = (data or {}).get("results") or []
+        return _map_result(results[0]) if results else None
+
     async def get_companies(self, icp: IcpFilter) -> list[Company]:
         limit = icp.limit or _DEFAULT_ICP_LIMIT
         per_page = min(_MAX_PER_PAGE, limit)

@@ -52,11 +52,15 @@ async def upsert_contact(
     *,
     company: Company,
     person: PersonCandidate,
-    email: str,
+    email: str | None,
     email_status: str,
     organization_id: uuid.UUID,
 ) -> uuid.UUID:
-    """Cree/maj la societe + le contact (dedup par email DANS l'org). Retourne contact_id."""
+    """Cree/maj la societe + le contact. Retourne contact_id.
+
+    email peut etre None : on enregistre alors un decideur SANS email (nom + role
+    + LinkedIn), a completer plus tard. Le dedup par email n'a lieu que si un email
+    est fourni ; sinon on cree un nouveau contact (email nullable, non-unique)."""
     crm_company = await _find_or_create_company(db, company, organization_id)
 
     contact: Contact | None = None

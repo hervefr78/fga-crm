@@ -132,8 +132,9 @@ export default function CompanyDetailPage() {
     isEnriching: isEnrichingContacts,
     lastStatus: enrichLastStatus,
     quotaExceeded: enrichQuotaExceeded,
+    sirenNotFound: enrichSirenNotFound,
     isError: enrichIsError,
-  } = useCompanyContactEnrichment({ companyId: id, siren: company?.siren });
+  } = useCompanyContactEnrichment({ companyId: id });
 
   // Memoize les arrays derives pour stabiliser les references (evite les
   // re-render inutiles des sous-composants et stabilise les deps de useMemo).
@@ -319,6 +320,7 @@ export default function CompanyDetailPage() {
                   isEnriching: isEnrichingContacts,
                   lastStatus: enrichLastStatus,
                   quotaExceeded: enrichQuotaExceeded,
+                  sirenNotFound: enrichSirenNotFound,
                   isError: enrichIsError,
                 }}
               />

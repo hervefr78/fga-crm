@@ -72,6 +72,7 @@ interface CompanyMainColumnProps {
     isEnriching: boolean;
     lastStatus: EnrichmentJobStatus | null;
     quotaExceeded: boolean;
+    sirenNotFound: boolean;
     isError: boolean;
   };
 }
@@ -221,10 +222,10 @@ export default function CompanyMainColumn({
         {activeTab === 'contacts' &&
           (contacts.length === 0 ? (
             <CompanyContactsEmpty
-              hasSiren={!!company.siren}
               isEnriching={contactEnrich.isEnriching}
               lastStatus={contactEnrich.lastStatus}
               quotaExceeded={contactEnrich.quotaExceeded}
+              sirenNotFound={contactEnrich.sirenNotFound}
               isError={contactEnrich.isError}
               onEnrich={onEnrichContacts}
             />

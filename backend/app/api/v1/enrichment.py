@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.deps import get_current_user
 from app.core.rbac import apply_tenant_filter, check_tenant_access
 from app.db.session import get_db
+from app.models.company import Company
 from app.models.enrichment import EnrichmentJob
 from app.models.user import User
 from app.schemas.enrichment import (
@@ -24,6 +25,7 @@ from app.schemas.enrichment import (
     EnrichmentMode,
 )
 from app.services.enrichment.credit_ledger import reserve_daily_credits
+from app.services.enrichment.factory import get_company_source
 
 logger = logging.getLogger(__name__)
 
@@ -149,6 +151,46 @@ async def enrich_company(
     user: User = Depends(_require_enrichment_access),
 ) -> EnrichmentJobResponse:
     """Raccourci Mode A : enrichir les decideurs d'une societe (depuis sa fiche)."""
+    payload = EnrichmentJobCreateRequest(mode=EnrichmentMode.company, siren=siren[:9])
+    _validate_target(payload)
+    job = await _create_and_enqueue(db, user, payload)
+    return EnrichmentJobResponse.model_validate(job)
+
+
+@router.post("/companies/by-id/{company_id}/enrich", response_model=EnrichmentJobResponse)
+async def enrich_company_by_id(
+    company_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(_require_enrichment_access),
+) -> EnrichmentJobResponse:
+    """Enrichir les decideurs d'une societe par son ID CRM (depuis sa fiche).
+
+    Si la societe n'a pas de SIREN, on tente de le resoudre via l'annuaire officiel
+    (recherche-entreprises.api.gouv.fr, par le nom) et on le persiste sur la fiche
+    (necessaire pour que les contacts trouves s'attachent a CETTE societe). 422 si
+    aucun SIREN ne peut etre determine.
+    """
+    cid = _parse_uuid(company_id)
+    stmt = apply_tenant_filter(select(Company).where(Company.id == cid), Company, user)
+    company = (await db.execute(stmt)).scalar_one_or_none()
+    if company is None:
+        raise HTTPException(status_code=404, detail="Societe introuvable")
+    check_tenant_access(company, user)  # 404 si autre org (garde super-admin)
+
+    siren = (company.siren or "").strip()
+    if not siren:
+        # Best-effort : retrouver le SIREN depuis le nom via l'annuaire officiel.
+        resolved = await get_company_source().search_by_name(company.name)
+        if resolved and resolved.siren:
+            siren = resolved.siren
+            company.siren = siren  # persiste : les contacts s'attacheront a cette fiche
+            await db.flush()
+    if not siren:
+        raise HTTPException(
+            status_code=422,
+            detail=f"SIREN introuvable pour « {company.name} » — renseignez-le sur la fiche.",
+        )
+
     payload = EnrichmentJobCreateRequest(mode=EnrichmentMode.company, siren=siren[:9])
     _validate_target(payload)
     job = await _create_and_enqueue(db, user, payload)

@@ -64,6 +64,8 @@ async def run_enrichment_job(db: AsyncSession, job: EnrichmentJob) -> None:
         "skipped_no_domain": 0, "skipped_pre_emailed": 0, "bulk_submitted": 0,
         "updated": 0, "skipped_has_email": 0, "skipped_no_company": 0,
         "skipped_suppressed": 0, "errors": 0, "credits_spent": 0.0,
+        # Decideurs enregistres SANS email (nom + role + LinkedIn) — domaine manquant.
+        "contacts_no_email": 0,
     }
     ledger = CreditLedger(max_per_run=settings.enrichment_max_credits_per_run)
 

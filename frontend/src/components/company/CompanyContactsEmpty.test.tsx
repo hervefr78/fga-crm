@@ -8,16 +8,16 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import { CompanyContactsEmpty } from './CompanyContactsEmpty';
 
 const baseProps = {
-  hasSiren: true,
   isEnriching: false,
   lastStatus: null,
   quotaExceeded: false,
+  sirenNotFound: false,
   isError: false,
   onEnrich: vi.fn(),
 };
 
 describe('CompanyContactsEmpty', () => {
-  it('affiche le bouton de recherche quand la societe a un SIREN', () => {
+  it('affiche toujours le bouton de recherche', () => {
     render(<CompanyContactsEmpty {...baseProps} />);
     expect(screen.getByText(/Chercher les decideurs/i)).toBeInTheDocument();
   });
@@ -29,10 +29,10 @@ describe('CompanyContactsEmpty', () => {
     expect(onEnrich).toHaveBeenCalledTimes(1);
   });
 
-  it('sans SIREN : pas de bouton, message d\'explication', () => {
-    render(<CompanyContactsEmpty {...baseProps} hasSiren={false} />);
-    expect(screen.queryByText(/Chercher les decideurs/i)).not.toBeInTheDocument();
-    expect(screen.getByText(/Renseignez le SIREN/i)).toBeInTheDocument();
+  it('SIREN introuvable : message d\'explication, bouton toujours la (retry)', () => {
+    render(<CompanyContactsEmpty {...baseProps} sirenNotFound />);
+    expect(screen.getByText(/SIREN introuvable/i)).toBeInTheDocument();
+    expect(screen.getByRole('button')).toBeInTheDocument();
   });
 
   it('en cours : label "Recherche..." et bouton desactive', () => {
