@@ -109,6 +109,32 @@ async def test_finder_submit_refused_returns_none():
     assert await IcypeasEmailFinder(_client(handler)).find(_PERSON, "x.fr") is None
 
 
+async def test_find_people_retries_on_timeout():
+    """Timeout Icypeas sur find-people -> 1 retry -> succes au 2e essai (durcissement)."""
+    calls = {"n": 0}
+
+    def handler(request):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise httpx.ReadTimeout("timeout", request=request)
+        return _resp({"success": True, "leads": [
+            {"firstname": "Jean", "lastname": "Dupont", "lastJobTitle": "CTO"},
+        ]})
+
+    leads = await _client(handler).find_people(company_name="SHERWOOD", job_titles=["CTO"])
+    assert calls["n"] == 2  # a bien retry apres le timeout
+    assert len(leads) == 1 and leads[0]["firstname"] == "Jean"
+
+
+async def test_find_people_gives_up_after_two_timeouts():
+    """2 timeouts consecutifs -> [] (pas de faux resultat, pas de crash)."""
+
+    def handler(request):
+        raise httpx.ReadTimeout("timeout", request=request)
+
+    assert await _client(handler).find_people(company_name="X", job_titles=["CTO"]) == []
+
+
 async def test_verifier_valid():
     def handler(request):
         if request.url.path.endswith("/email-verification"):
