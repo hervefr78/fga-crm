@@ -82,6 +82,91 @@ async def test_contacts_without_selection_422(client: AsyncClient, auth_headers:
     assert r.status_code == 422
 
 
+# --- Enrichissement par ID de societe (resolution SIREN) ---
+
+async def test_enrich_by_id_uses_existing_siren(
+    client: AsyncClient, auth_headers: dict, db_session, test_org
+):
+    from app.models.company import Company
+
+    c = Company(name="Acme", siren="123456789", organization_id=test_org.id)
+    db_session.add(c)
+    await db_session.commit()
+
+    r = await client.post(
+        f"/api/v1/enrichment/companies/by-id/{c.id}/enrich", headers=auth_headers
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["mode"] == "company"
+
+
+async def test_enrich_by_id_resolves_and_persists_siren(
+    client: AsyncClient, auth_headers: dict, db_session, test_org, monkeypatch
+):
+    """Societe SANS siren : resolu via gouv (mock) + persiste sur la fiche."""
+    from app.api.v1 import enrichment
+    from app.models.company import Company
+    from app.services.enrichment.ports import Company as PortCompany
+
+    class _FakeSource:
+        async def search_by_name(self, name):
+            return PortCompany(siren="987654321", name=name)
+
+    monkeypatch.setattr(enrichment, "get_company_source", lambda: _FakeSource())
+
+    c = Company(name="NoSiren SAS", organization_id=test_org.id)
+    db_session.add(c)
+    await db_session.commit()
+
+    r = await client.post(
+        f"/api/v1/enrichment/companies/by-id/{c.id}/enrich", headers=auth_headers
+    )
+    assert r.status_code == 200, r.text
+    await db_session.refresh(c)
+    assert c.siren == "987654321"  # persiste -> les contacts s'attacheront a cette fiche
+
+
+async def test_enrich_by_id_422_when_siren_unresolvable(
+    client: AsyncClient, auth_headers: dict, db_session, test_org, monkeypatch
+):
+    from app.api.v1 import enrichment
+    from app.models.company import Company
+
+    class _FakeSource:
+        async def search_by_name(self, name):
+            return None
+
+    monkeypatch.setattr(enrichment, "get_company_source", lambda: _FakeSource())
+
+    c = Company(name="Inconnue au registre", organization_id=test_org.id)
+    db_session.add(c)
+    await db_session.commit()
+
+    r = await client.post(
+        f"/api/v1/enrichment/companies/by-id/{c.id}/enrich", headers=auth_headers
+    )
+    assert r.status_code == 422
+
+
+async def test_enrich_by_id_cross_org_404(client: AsyncClient, auth_headers: dict, db_session):
+    import uuid
+
+    from app.models.company import Company
+    from app.models.organization import Organization
+
+    org_b = Organization(id=uuid.uuid4(), name="Org B3", slug=f"ob-{uuid.uuid4().hex[:8]}")
+    db_session.add(org_b)
+    await db_session.flush()
+    c = Company(name="Autre org", siren="111222333", organization_id=org_b.id)
+    db_session.add(c)
+    await db_session.commit()
+
+    r = await client.post(
+        f"/api/v1/enrichment/companies/by-id/{c.id}/enrich", headers=auth_headers
+    )
+    assert r.status_code == 404
+
+
 # --- Flux ---
 
 async def test_create_company_job(client: AsyncClient, auth_headers: dict):

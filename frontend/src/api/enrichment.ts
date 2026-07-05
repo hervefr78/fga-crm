@@ -36,3 +36,10 @@ export const enrichCompany = async (siren: string): Promise<EnrichmentJob> => {
   const r = await api.post(`/enrichment/companies/${encodeURIComponent(siren)}/enrich`);
   return r.data as EnrichmentJob;
 };
+
+// Variante par ID CRM : marche meme sans SIREN (le serveur le resout via l'annuaire
+// officiel a partir du nom, ou renvoie 422 s'il n'y arrive pas).
+export const enrichCompanyById = async (companyId: string): Promise<EnrichmentJob> => {
+  const r = await api.post(`/enrichment/companies/by-id/${encodeURIComponent(companyId)}/enrich`);
+  return r.data as EnrichmentJob;
+};

@@ -13,28 +13,28 @@ import { Button } from '../ui';
 import type { EnrichmentJobStatus } from '../../types/enrichment';
 
 interface CompanyContactsEmptyProps {
-  hasSiren: boolean;
   isEnriching: boolean;
   lastStatus: EnrichmentJobStatus | null;
   quotaExceeded: boolean;
+  sirenNotFound: boolean;
   isError: boolean;
   onEnrich: () => void;
 }
 
 export function CompanyContactsEmpty({
-  hasSiren,
   isEnriching,
   lastStatus,
   quotaExceeded,
+  sirenNotFound,
   isError,
   onEnrich,
 }: CompanyContactsEmptyProps) {
   // Message secondaire selon l'etat courant.
   let hint: string | null = null;
-  if (!hasSiren) {
-    hint = 'Renseignez le SIREN de la societe pour rechercher automatiquement ses decideurs.';
-  } else if (quotaExceeded) {
+  if (quotaExceeded) {
     hint = "Quota journalier d'enrichissement depasse. Reessayez plus tard.";
+  } else if (sirenNotFound) {
+    hint = 'SIREN introuvable automatiquement — renseignez-le sur la fiche pour lancer la recherche.';
   } else if (isError) {
     hint = "La recherche n'a pas pu demarrer. Reessayez.";
   } else if (lastStatus === 'failed') {
@@ -54,18 +54,16 @@ export function CompanyContactsEmpty({
       </div>
       <p className="text-sm text-slate-400">Aucun contact attache</p>
 
-      {hasSiren && (
-        <Button
-          variant="secondary"
-          size="sm"
-          icon={Sparkles}
-          loading={isEnriching}
-          disabled={isEnriching}
-          onClick={onEnrich}
-        >
-          {label}
-        </Button>
-      )}
+      <Button
+        variant="secondary"
+        size="sm"
+        icon={Sparkles}
+        loading={isEnriching}
+        disabled={isEnriching}
+        onClick={onEnrich}
+      >
+        {label}
+      </Button>
 
       {hint && <p className="text-xs text-slate-400 max-w-xs">{hint}</p>}
     </div>

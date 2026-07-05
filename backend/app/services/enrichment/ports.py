@@ -86,6 +86,13 @@ class CompanySource(ABC):
     @abstractmethod
     async def resolve_domain(self, company: Company) -> str | None: ...
 
+    async def search_by_name(self, name: str) -> Company | None:
+        """Recherche best-effort d'une societe par nom -> Company (avec SIREN).
+
+        Defaut : non supporte (None). Surcharge par les sources qui savent le
+        faire (ex: GouvCompanySource via recherche-entreprises.api.gouv.fr)."""
+        return None
+
 
 class PeopleSource(ABC):
     name: str = ""

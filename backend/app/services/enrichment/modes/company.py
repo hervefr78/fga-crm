@@ -12,7 +12,7 @@ from app.config import settings
 from app.models.enrichment import EnrichmentEmailVerification, EnrichmentJob
 from app.services.enrichment import freshness
 from app.services.enrichment.credit_ledger import CreditLedger
-from app.services.enrichment.crm_writer import upsert_contact
+from app.services.enrichment.crm_writer import _DECISION_ROLES, upsert_contact
 from app.services.enrichment.factory import get_bulk_client
 from app.services.enrichment.ports import Company, TargetSpec
 from app.services.enrichment.provenance import record_provenance
@@ -75,6 +75,23 @@ async def _process_company(
                     email = cand.email
                     break
         if not email:
+            # Aucun email trouve (typiquement : domaine manquant). On enregistre
+            # quand meme le DECIDEUR (nom + role + LinkedIn) pour ne pas perdre
+            # l'info -> l'email pourra etre complete plus tard. Restreint aux roles
+            # cibles (CTO/CPO/CMO/FOUNDER) pour eviter le bruit.
+            if person.role in _DECISION_ROLES:
+                contact_id = await upsert_contact(
+                    db, company=company, person=person, email=None,
+                    email_status="not_found", organization_id=org_id,
+                )
+                await record_provenance(
+                    db, entity_type="person", field="name", source=person.source,
+                    contact_id=contact_id, organization_id=org_id,
+                )
+                stats["contacts_no_email"] = stats.get("contacts_no_email", 0) + 1
+                await freshness.touch(
+                    fresh_key, settings.enrichment_refresh_days, client=fresh_client,
+                )
             continue
         stats["emails_found"] += 1
 
