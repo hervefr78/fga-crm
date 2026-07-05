@@ -126,11 +126,13 @@ export default function CompanyDetailPage() {
     });
 
   // --- Recherche des decideurs (CEO/CTO/CMO/CPO) via enrichissement Icypeas ---
-  // CTA affiche dans l'onglet Contacts quand la societe n'a aucun contact.
+  // CTA affiche dans l'onglet Contacts : etat vide (aucun contact) OU barre
+  // d'enrichissement (contacts existants, ex. decideurs encore sans email).
   const {
     enrich: enrichContacts,
     isEnriching: isEnrichingContacts,
     lastStatus: enrichLastStatus,
+    lastEmailsFound: enrichLastEmailsFound,
     quotaExceeded: enrichQuotaExceeded,
     sirenNotFound: enrichSirenNotFound,
     isError: enrichIsError,
@@ -319,6 +321,7 @@ export default function CompanyDetailPage() {
                 contactEnrich={{
                   isEnriching: isEnrichingContacts,
                   lastStatus: enrichLastStatus,
+                  lastEmailsFound: enrichLastEmailsFound,
                   quotaExceeded: enrichQuotaExceeded,
                   sirenNotFound: enrichSirenNotFound,
                   isError: enrichIsError,

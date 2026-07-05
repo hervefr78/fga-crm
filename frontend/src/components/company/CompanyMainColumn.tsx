@@ -24,6 +24,7 @@ import { Card, Tab, EmptyTab } from './CompanyAtoms';
 import ActivityFeed from './CompanyActivityFeed';
 import { DealsList, ContactsList } from './CompanyLists';
 import { CompanyContactsEmpty } from './CompanyContactsEmpty';
+import { CompanyContactsEnrichBar } from './CompanyContactsEnrichBar';
 import AuditTab from './CompanyAuditTab';
 import CompanyAuditBanner from './CompanyAuditBanner';
 import type { EnrichmentJobStatus } from '../../types/enrichment';
@@ -66,11 +67,13 @@ interface CompanyMainColumnProps {
   onNewDeal: () => void;
   onOpenComposer: (channel: ComposerChannel) => void;
   onLaunchAudit: () => void;
-  // Recherche des decideurs (enrichissement Icypeas) — CTA de l'onglet Contacts vide.
+  // Recherche des decideurs (enrichissement Icypeas) — CTA de l'onglet Contacts,
+  // affiche a la fois dans l'etat vide et dans la barre (contacts existants).
   onEnrichContacts: () => void;
   contactEnrich: {
     isEnriching: boolean;
     lastStatus: EnrichmentJobStatus | null;
+    lastEmailsFound: number | null;
     quotaExceeded: boolean;
     sirenNotFound: boolean;
     isError: boolean;
@@ -230,7 +233,21 @@ export default function CompanyMainColumn({
               onEnrich={onEnrichContacts}
             />
           ) : (
-            <ContactsList contacts={contacts} />
+            <>
+              {/* Contacts existants : point d'entree permanent pour (re)lancer la
+                  recherche des decideurs/emails (complete l'etat vide). */}
+              <CompanyContactsEnrichBar
+                noEmailCount={contacts.filter((c) => !c.email).length}
+                isEnriching={contactEnrich.isEnriching}
+                lastStatus={contactEnrich.lastStatus}
+                lastEmailsFound={contactEnrich.lastEmailsFound}
+                quotaExceeded={contactEnrich.quotaExceeded}
+                sirenNotFound={contactEnrich.sirenNotFound}
+                isError={contactEnrich.isError}
+                onEnrich={onEnrichContacts}
+              />
+              <ContactsList contacts={contacts} />
+            </>
           ))}
         {activeTab === 'tasks' && <EmptyTab icon={ListTodo} text="Pas de tache pour cette fiche" />}
         {activeTab === 'audit' && (

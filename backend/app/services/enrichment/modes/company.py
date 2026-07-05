@@ -91,9 +91,11 @@ async def _process_company(
                     contact_id=contact_id, organization_id=org_id,
                 )
                 stats["contacts_no_email"] = stats.get("contacts_no_email", 0) + 1
-                await freshness.touch(
-                    fresh_key, settings.enrichment_refresh_days, client=fresh_client,
-                )
+                # On ne marque PAS la personne "fraiche" ici : un decideur SANS email
+                # n'est pas "enrichi", il doit rester retentable pour qu'un run
+                # ulterieur complete son email (ex: via le domaine du lead, #31).
+                # Marquer frais le gelerait enrichment_refresh_days (60j) et
+                # contredirait l'intention "l'email pourra etre complete plus tard".
             continue
         stats["emails_found"] += 1
 

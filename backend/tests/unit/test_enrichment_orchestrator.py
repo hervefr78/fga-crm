@@ -110,6 +110,50 @@ async def test_company_saves_decision_makers_without_email(
     assert all(c.email_status == "not_found" for c in contacts)
 
 
+async def test_no_email_decision_makers_stay_retryable(
+    db_session: AsyncSession, test_org, monkeypatch
+):
+    """Regression : un decideur ecrit SANS email ne doit PAS etre marque 'frais'.
+    Sinon il serait gele enrichment_refresh_days (60j) et son email ne pourrait
+    jamais etre complete par un run ulterieur (ex: via le domaine du lead, #31).
+    -> freshness.touch ne doit PAS etre appele quand aucun email n'est trouve."""
+    from app.services.enrichment import factory
+
+    class _NoEmailFinder:
+        name = "noemail"
+        cost_per_hit = 1
+
+        async def find(self, person, domain_or_company):
+            return None  # aucun email (ex: domaine manquant)
+
+    monkeypatch.setattr(factory, "get_email_finders", lambda: [_NoEmailFinder()])
+    monkeypatch.setattr(orchestrator, "get_email_finders", lambda: [_NoEmailFinder()])
+
+    touch_calls = {"n": 0}
+
+    async def _spy_touch(*a, **k):
+        touch_calls["n"] += 1
+
+    # Remplace le noop du fixture _no_redis par un spy (applique apres le fixture).
+    monkeypatch.setattr(freshness, "touch", _spy_touch)
+
+    job = EnrichmentJob(
+        mode="company", status="queued",
+        target_json={"kind": "company", "siren": "123456789"},
+        organization_id=test_org.id,
+    )
+    db_session.add(job)
+    await db_session.commit()
+    await run_enrichment_job(db_session, job)
+
+    refreshed = await db_session.get(EnrichmentJob, job.id)
+    assert refreshed.status == "done"
+    assert refreshed.stats_json["contacts_no_email"] == 3
+    assert refreshed.stats_json["emails_found"] == 0
+    # Aucun touch : les 3 decideurs sans email restent retentables (pas geles).
+    assert touch_calls["n"] == 0
+
+
 async def test_upsert_contact_dedup_by_linkedin(db_session: AsyncSession, test_org):
     """Re-enrichissement idempotent : un contact sans email (matche par LinkedIn)
     est MIS A JOUR avec l'email trouve, pas duplique."""

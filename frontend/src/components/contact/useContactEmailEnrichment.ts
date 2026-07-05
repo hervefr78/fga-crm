@@ -43,6 +43,18 @@ export function useContactEmailEnrichment({
     },
   });
 
+  // La page ContactDetail ne remonte pas forcement en navigation (meme route
+  // /contacts/:id) : reset de l'etat quand contactId change, sinon le statut/erreur
+  // d'un contact fuirait sur le suivant.
+  useEffect(() => {
+    setJobId(null);
+    setLastStatus(null);
+    startMutation.reset();
+    // startMutation hors deps volontairement (sa ref change a chaque transition
+    // d'etat : l'inclure re-declencherait le reset en plein job).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [contactId]);
+
   const { data: job } = useQuery({
     queryKey: ['enrichment-job', jobId],
     queryFn: () => getEnrichmentJob(jobId as string),
