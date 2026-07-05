@@ -3,41 +3,38 @@
 // Split-view + KPI strip + AI suggestions + timeline activite + Audit SR
 // =============================================================================
 
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowLeft, Globe, Phone, Linkedin, MapPin,
-  Edit2, Trash2, Copy, ExternalLink, MoreHorizontal,
-  Target, Users, ListTodo, Activity as ActivityIcon,
-  Zap, Star, TrendingUp, Plus, Filter, Search,
-  FileText, AlertCircle,
+  Copy, ExternalLink, MoreHorizontal,
+  Plus, Filter, Search,
 } from 'lucide-react';
 import clsx from 'clsx';
 
 import {
   getCompany, getCompanies, getContacts, getDeals, getActivities,
   deleteCompany, triggerCompanyAudit, getCompanyNextAction,
-  generateCompanyAudit, getCompanyAuditGenerateStatus,
 } from '../api/client';
 import type {
   Company, Contact, Deal, Activity, CompanyAuditResponse,
-  NextActionAction, AuditGenerateStatus,
+  NextActionAction,
 } from '../types';
-import { Badge, Button, ConfirmDialog, LoadingSpinner, Modal } from '../components/ui';
+import { ConfirmDialog, LoadingSpinner, Modal } from '../components/ui';
 import CompanyForm from '../components/companies/CompanyForm';
 import ContactForm from '../components/contacts/ContactForm';
 import DealForm from '../components/pipeline/DealForm';
-import AiCard from '../components/ai/AiCard';
 import ComposerModal, { ComposerChannel } from '../components/activities/ComposerModal';
-import { formatAmountMillions, formatDateFR } from '../utils/format';
-import { Kpi, Card, Tab, SideLink, Row, EmptyTab } from '../components/company/CompanyAtoms';
-import ActivityFeed from '../components/company/CompanyActivityFeed';
-import { DealsList, ContactsList } from '../components/company/CompanyLists';
-import AuditTab from '../components/company/CompanyAuditTab';
+import { Card, SideLink, Row } from '../components/company/CompanyAtoms';
+import { useCompanyAuditGeneration } from '../components/company/useCompanyAuditGeneration';
 import {
-  SPLIT_VIEW_SIZE, cleanUrl, formatDate, formatRelative,
+  SPLIT_VIEW_SIZE, cleanUrl, formatDate,
 } from '../components/company/companyUtils';
+import CompanyHeader from '../components/company/CompanyHeader';
+import CompanyMainColumn, {
+  CompanyTab, AuditSubTab,
+} from '../components/company/CompanyMainColumn';
 
 // -----------------------------------------------------------------------------
 // Page
@@ -49,8 +46,8 @@ export default function CompanyDetailPage() {
   const queryClient = useQueryClient();
 
   const [listSearch, setListSearch] = useState('');
-  const [activeTab, setActiveTab] = useState<'activity' | 'deals' | 'contacts' | 'tasks' | 'audit'>('activity');
-  const [auditSubTab, setAuditSubTab] = useState<'messaging' | 'detailed' | 'geo'>('messaging');
+  const [activeTab, setActiveTab] = useState<CompanyTab>('activity');
+  const [auditSubTab, setAuditSubTab] = useState<AuditSubTab>('messaging');
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [contactFormOpen, setContactFormOpen] = useState(false);
@@ -116,47 +113,16 @@ export default function CompanyDetailPage() {
   });
 
   // --- Generation d'audit a la demande : trigger SR -> poll -> import auto ---
-  const [isGeneratingAudit, setIsGeneratingAudit] = useState(false);
+  // Logique portee par le hook useCompanyAuditGeneration. La mutation d'import
+  // (auditMutation ci-dessus) est injectee via importAudit / importPending.
   const { mutate: importAudit } = auditMutation;
-
-  const generateAuditMutation = useMutation({
-    mutationFn: () => generateCompanyAudit(id!),
-    onSuccess: () => {
-      setIsGeneratingAudit(true);
-      setActiveTab('audit');
-    },
-    onError: (err) => {
-      // 409 = un audit tourne deja cote SR -> on poll quand meme
-      if ((err as { response?: { status?: number } })?.response?.status === 409) {
-        setIsGeneratingAudit(true);
-        setActiveTab('audit');
-      }
-    },
-  });
-
-  const { data: auditGenStatus } = useQuery<AuditGenerateStatus>({
-    queryKey: ['audit-generate-status', id],
-    queryFn: () => getCompanyAuditGenerateStatus(id!),
-    enabled: isGeneratingAudit && !!id,
-    refetchInterval: (q) => {
-      const s = q.state.data?.status;
-      return s === 'completed' || s === 'failed' ? false : 5000;
-    },
-  });
-
-  // Transitions du pipeline SR : completed -> importer le resultat ; failed -> stop
-  useEffect(() => {
-    if (!isGeneratingAudit) return;
-    if (auditGenStatus?.status === 'completed') {
-      setIsGeneratingAudit(false);
-      importAudit();
-    } else if (auditGenStatus?.status === 'failed') {
-      setIsGeneratingAudit(false);
-    }
-  }, [auditGenStatus?.status, isGeneratingAudit, importAudit]);
-
-  const auditBusy =
-    generateAuditMutation.isPending || isGeneratingAudit || auditMutation.isPending;
+  const { isGeneratingAudit, auditGenStatus, generateAudit, isAuditBusy } =
+    useCompanyAuditGeneration({
+      companyId: id,
+      importAudit,
+      importPending: auditMutation.isPending,
+      onGenerateStart: () => setActiveTab('audit'),
+    });
 
   // Memoize les arrays derives pour stabiliser les references (evite les
   // re-render inutiles des sous-composants et stabilise les deps de useMemo).
@@ -292,264 +258,52 @@ export default function CompanyDetailPage() {
           <div className="max-w-[1100px] mx-auto px-7 py-5 pb-16">
 
             {/* ===== HEADER ===== */}
-            <div className="space-y-5 pb-6 border-b border-slate-200">
-              <div className="flex items-start gap-4">
-                <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-slate-100 to-slate-200 border border-slate-200 flex items-center justify-center text-2xl font-semibold text-slate-600">
-                  {company.name.slice(0, 2)}
-                </div>
-                <div className="flex-1 min-w-0 space-y-1.5">
-                  <div className="text-[11px] uppercase tracking-wider font-medium text-slate-400">
-                    Entreprise · {company.startup_radar_id ? 'Startup Radar' : 'Manuel'}
-                  </div>
-                  <h1 className="text-2xl font-semibold text-slate-900 tracking-tight flex items-center gap-3 flex-wrap">
-                    {company.name}
-                    {company.startup_radar_id && (
-                      <Badge variant="success">
-                        <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500 mr-1" />
-                        Active
-                      </Badge>
-                    )}
-                  </h1>
-                  <div className="flex items-center gap-2 flex-wrap text-sm text-slate-500">
-                    {company.industry && (
-                      <span className="inline-flex items-center px-2 py-0.5 rounded-md border border-slate-200 text-xs">
-                        {company.industry}
-                      </span>
-                    )}
-                    {(company.city || company.country) && (
-                      <>
-                        <span className="text-slate-300">·</span>
-                        <span className="inline-flex items-center gap-1">
-                          <MapPin className="w-3 h-3" />
-                          {[company.city, company.country].filter(Boolean).join(', ')}
-                        </span>
-                      </>
-                    )}
-                    {company.size_range && (
-                      <>
-                        <span className="text-slate-300">·</span>
-                        <span>{company.size_range}</span>
-                      </>
-                    )}
-                  </div>
-                </div>
-                <div className="flex items-center gap-1.5 flex-shrink-0">
-                  <Button variant="secondary" size="sm" icon={Edit2} onClick={() => setEditOpen(true)}>
-                    Modifier
-                  </Button>
-                  {canAudit && (
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      icon={Zap}
-                      onClick={() => generateAuditMutation.mutate()}
-                      loading={auditBusy}
-                    >
-                      Audit Startup Radar
-                    </Button>
-                  )}
-                  <Button variant="primary" size="sm" icon={Plus} onClick={() => setDealFormOpen(true)}>
-                    Opportunite
-                  </Button>
-                  <button
-                    onClick={() => setDeleteOpen(true)}
-                    className="p-1.5 rounded text-slate-400 hover:bg-red-50 hover:text-red-600"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </div>
-              </div>
-
-              {/* KPI strip */}
-              <div className="grid grid-cols-4 gap-px bg-slate-200 rounded-xl overflow-hidden border border-slate-200">
-                <Kpi
-                  icon={Star}
-                  label="Score"
-                  value={String(company.audit_score ?? '—')}
-                  suffix={company.audit_score ? '/ 100' : ''}
-                  trend={company.audit_score ? 'Auditee' : 'Non auditee'}
-                />
-                <Kpi
-                  icon={TrendingUp}
-                  label="Gagne"
-                  value={`${(kpi.wonAmount / 1000).toFixed(1)}`}
-                  suffix="k EUR"
-                  trend={kpi.wonAmount > 0 ? 'Cumul' : '—'}
-                />
-                <Kpi
-                  icon={Target}
-                  label="Pipeline"
-                  value={`${(kpi.pipeline / 1000).toFixed(1)}`}
-                  suffix="k EUR"
-                  trend={`${kpi.dealsCount} deal${kpi.dealsCount > 1 ? 's' : ''}`}
-                />
-                <Kpi
-                  icon={ActivityIcon}
-                  label="Activite 30j"
-                  value={String(nonAuditActivities.length)}
-                  trend={kpi.lastActivity ? formatRelative(kpi.lastActivity) : 'Aucune'}
-                />
-              </div>
-            </div>
+            <CompanyHeader
+              company={company}
+              kpi={kpi}
+              activityCount={nonAuditActivities.length}
+              canAudit={canAudit}
+              isAuditBusy={isAuditBusy}
+              onEdit={() => setEditOpen(true)}
+              onGenerateAudit={() => generateAudit()}
+              onNewDeal={() => setDealFormOpen(true)}
+              onDelete={() => setDeleteOpen(true)}
+            />
 
             {/* ===== GRID 2 COLONNES ===== */}
             <div className="grid grid-cols-[1fr_320px] gap-6 pt-5">
 
               {/* COL MAIN */}
-              <div className="min-w-0 flex flex-col gap-4">
-
-                {/* AI suggestion (branchee sur l'API reelle) */}
-                <AiCard
-                  data={nextAction}
-                  loading={nextActionLoading}
-                  onAction={handleAiAction}
-                />
-
-                {/* Generation d'audit en cours (pipeline SR) */}
-                {isGeneratingAudit && (
-                  <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-3 text-sm text-indigo-700 flex items-center gap-2">
-                    <Zap className="w-4 h-4 flex-shrink-0 animate-pulse" />
-                    <span>
-                      Generation de l'audit en cours cote Startup Radar
-                      {auditGenStatus?.step ? ` — ${auditGenStatus.step}` : '...'}
-                    </span>
-                  </div>
-                )}
-                {/* Echec de generation */}
-                {!isGeneratingAudit && auditGenStatus?.status === 'failed' && (
-                  <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-700 flex items-center gap-2">
-                    <AlertCircle className="w-4 h-4 flex-shrink-0" />
-                    <span>{auditGenStatus.error || 'La generation de l\'audit a echoue.'}</span>
-                  </div>
-                )}
-
-                {/* Audit feedback (import result) */}
-                {!isGeneratingAudit && auditMutation.isSuccess && auditMutation.data && (
-                  <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 text-sm text-emerald-700">
-                    {auditMutation.data.audits_created > 0 && (
-                      <span>{auditMutation.data.audits_created} audit{auditMutation.data.audits_created > 1 ? 's' : ''} cree{auditMutation.data.audits_created > 1 ? 's' : ''}</span>
-                    )}
-                    {auditMutation.data.audits_skipped > 0 && (
-                      <span>{auditMutation.data.audits_created > 0 ? ' — ' : ''}{auditMutation.data.audits_skipped} deja existant{auditMutation.data.audits_skipped > 1 ? 's' : ''}</span>
-                    )}
-                    {auditMutation.data.audits_created === 0 && auditMutation.data.audits_skipped === 0 && (
-                      <span>Aucun audit disponible pour cette entreprise</span>
-                    )}
-                  </div>
-                )}
-                {auditMutation.isError && (
-                  <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-700 flex items-center gap-2">
-                    <AlertCircle className="w-4 h-4 flex-shrink-0" />
-                    <span>{auditMutation.error?.message || 'Erreur lors du lancement de l\'audit'}</span>
-                  </div>
-                )}
-
-                {/* Description */}
-                {company.description && (
-                  <Card title="A propos" icon={FileText} action={
-                    <button
-                      onClick={() => setEditOpen(true)}
-                      className="p-1 rounded hover:bg-slate-100"
-                      aria-label="Modifier la description"
-                    >
-                      <Edit2 className="w-3.5 h-3.5 text-slate-400" />
-                    </button>
-                  }>
-                    <p className="text-sm text-slate-700 leading-relaxed text-pretty">
-                      {company.description}
-                    </p>
-                  </Card>
-                )}
-
-                {/* Funding (synced from Startup Radar multi-source pipeline) */}
-                {(company.funding_date || company.funding_amount) && (
-                  <Card title="Derniere levee detectee" icon={TrendingUp}>
-                    <div className="flex flex-wrap items-center gap-2 mb-2">
-                      {company.funding_amount && (
-                        <Badge variant="success">
-                          {formatAmountMillions(company.funding_amount)}
-                        </Badge>
-                      )}
-                      {company.funding_series && (
-                        <Badge variant="info">{company.funding_series}</Badge>
-                      )}
-                      {company.funding_date && (
-                        <span className="text-xs text-slate-500">
-                          {formatDateFR(company.funding_date)}
-                        </span>
-                      )}
-                    </div>
-                    {company.funding_sources && company.funding_sources.length > 0 && (
-                      <div className="flex flex-wrap items-center gap-1.5 mt-2">
-                        <span className="text-[11px] uppercase tracking-wider font-medium text-slate-400 mr-1">
-                          Sources
-                        </span>
-                        {company.funding_sources.map((src: string) => (
-                          <Badge key={src} variant="default" className="text-[10px] py-0.5">
-                            {src}
-                          </Badge>
-                        ))}
-                      </div>
-                    )}
-                    {company.siren && (
-                      <p className="text-[11px] text-slate-400 mt-2 font-mono">
-                        SIREN : {company.siren}
-                      </p>
-                    )}
-                  </Card>
-                )}
-
-                {/* Tabs */}
-                <div className="flex items-center gap-0.5 border-b border-slate-200 px-1 mt-2">
-                  <Tab active={activeTab === 'activity'} onClick={() => setActiveTab('activity')} icon={ActivityIcon} label="Activite" count={nonAuditActivities.length} />
-                  <Tab active={activeTab === 'deals'} onClick={() => setActiveTab('deals')} icon={Target} label="Deals" count={deals.length} />
-                  <Tab active={activeTab === 'contacts'} onClick={() => setActiveTab('contacts')} icon={Users} label="Contacts" count={contacts.length} />
-                  <Tab active={activeTab === 'tasks'} onClick={() => setActiveTab('tasks')} icon={ListTodo} label="Taches" />
-                  {(canAudit || auditActivities.length > 0) && (
-                    <Tab active={activeTab === 'audit'} onClick={() => setActiveTab('audit')} icon={Zap} label="Audit SR" count={auditActivities.length} />
-                  )}
-                  <div className="flex-1" />
-                  {activeTab === 'contacts' && (
-                    <Button variant="secondary" size="sm" icon={Plus} className="mb-1" onClick={() => setContactFormOpen(true)}>
-                      Ajouter
-                    </Button>
-                  )}
-                  {activeTab === 'deals' && (
-                    <Button variant="secondary" size="sm" icon={Plus} className="mb-1" onClick={() => setDealFormOpen(true)}>
-                      Ajouter
-                    </Button>
-                  )}
-                  {activeTab === 'activity' && (
-                    <Button variant="secondary" size="sm" icon={Plus} className="mb-1" onClick={() => { setComposerChannel('note'); setComposerOpen(true); }}>
-                      Ajouter
-                    </Button>
-                  )}
-                </div>
-
-                <div className="bg-white border border-slate-200 border-t-0 rounded-b-xl rounded-t-none -mt-4 overflow-hidden">
-                  {activeTab === 'activity' && (
-                    <ActivityFeed
-                      activities={nonAuditActivities}
-                      onChannelClick={(c) => { setComposerChannel(c); setComposerOpen(true); }}
-                    />
-                  )}
-                  {activeTab === 'deals' && <DealsList deals={deals} />}
-                  {activeTab === 'contacts' && <ContactsList contacts={contacts} />}
-                  {activeTab === 'tasks' && <EmptyTab icon={ListTodo} text="Pas de tache pour cette fiche" />}
-                  {activeTab === 'audit' && (
-                    <AuditTab
-                      subTab={auditSubTab}
-                      onSubTabChange={setAuditSubTab}
-                      messaging={messagingAudits}
-                      detailed={detailedAudits}
-                      geo={geoAudits}
-                      canAudit={canAudit}
-                      auditPending={auditBusy}
-                      onLaunchAudit={() => generateAuditMutation.mutate()}
-                    />
-                  )}
-                </div>
-              </div>
+              <CompanyMainColumn
+                nextAction={nextAction}
+                nextActionLoading={nextActionLoading}
+                onAiAction={handleAiAction}
+                isGeneratingAudit={isGeneratingAudit}
+                auditGenStatus={auditGenStatus}
+                importSuccess={auditMutation.isSuccess}
+                importResult={auditMutation.data}
+                importError={auditMutation.isError}
+                importErrorMessage={auditMutation.error?.message}
+                company={company}
+                onEditDescription={() => setEditOpen(true)}
+                activeTab={activeTab}
+                onTabChange={setActiveTab}
+                auditSubTab={auditSubTab}
+                onAuditSubTabChange={setAuditSubTab}
+                contacts={contacts}
+                deals={deals}
+                nonAuditActivities={nonAuditActivities}
+                auditActivities={auditActivities}
+                messagingAudits={messagingAudits}
+                detailedAudits={detailedAudits}
+                geoAudits={geoAudits}
+                canAudit={canAudit}
+                isAuditBusy={isAuditBusy}
+                onNewContact={() => setContactFormOpen(true)}
+                onNewDeal={() => setDealFormOpen(true)}
+                onOpenComposer={(c) => { setComposerChannel(c); setComposerOpen(true); }}
+                onLaunchAudit={() => generateAudit()}
+              />
 
               {/* COL SIDE */}
               <div className="flex flex-col gap-4">
