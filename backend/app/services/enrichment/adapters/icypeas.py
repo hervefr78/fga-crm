@@ -14,6 +14,7 @@ import asyncio
 import hashlib
 import hmac
 import logging
+import re
 
 import httpx
 
@@ -55,6 +56,17 @@ _CERTAINTY_MAP: dict[str, tuple[str, float]] = {
 
 def _map_certainty(certainty: str | None) -> tuple[str, float]:
     return _CERTAINTY_MAP.get(certainty or "", ("risky", 0.5))
+
+
+def _domain_from_url(url: str | None) -> str | None:
+    """Extrait le domaine d'une URL de site (http://www.acme.com/x -> acme.com)."""
+    if not url:
+        return None
+    u = url.strip().lower()
+    u = re.sub(r"^https?://", "", u)
+    u = re.sub(r"^www\.", "", u)
+    u = u.split("/")[0].split("?")[0].strip()
+    return u or None
 
 
 # Plafond de lignes traitees par callback (DC1) = max d'un bulk Icypeas. Borne
@@ -296,6 +308,11 @@ class IcypeasPeopleSource(PeopleSource):
                 title_raw=lead.get("lastJobTitle") or "",
                 source="icypeas",
                 linkedin_url=lead.get("profileUrl") or None,
+                # Domaine societe vu par LinkedIn -> permet de trouver l'email
+                # meme si la societe CRM n'a pas de domaine renseigne.
+                company_domain=_domain_from_url(
+                    lead.get("currentCompanyWebsite") or lead.get("lastCompanyWebsite")
+                ),
             ))
         return out
 

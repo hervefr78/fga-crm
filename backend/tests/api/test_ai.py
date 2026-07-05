@@ -83,6 +83,8 @@ async def test_contact_next_action_no_email(
     assert resp.status_code == 200, resp.text
     body = resp.json()
     assert "email" in body["title"].lower()
+    # L'action doit etre 'find_email' (branchee sur l'enrichissement), pas 'view'.
+    assert body["primary_action"]["type"] == "find_email"
 
 
 @pytest.mark.asyncio

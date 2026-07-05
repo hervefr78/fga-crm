@@ -5,7 +5,7 @@
 from pydantic import BaseModel, Field
 
 # Types d'action autorises (DC1 — borne pour l'UI)
-NEXT_ACTION_TYPES = {"compose_email", "create_task", "snooze", "view"}
+NEXT_ACTION_TYPES = {"compose_email", "create_task", "snooze", "view", "find_email"}
 
 
 class NextActionAction(BaseModel):

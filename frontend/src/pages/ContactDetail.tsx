@@ -28,6 +28,7 @@ import ComposerModal, { ComposerChannel } from '../components/activities/Compose
 import EmailIndicator from '../components/contacts/EmailIndicator';
 import LinkedinIndicator from '../components/contacts/LinkedinIndicator';
 import { Kpi, Card, Tab, SideLink, Row } from '../components/contact/ContactAtoms';
+import { useContactEmailEnrichment } from '../components/contact/useContactEmailEnrichment';
 import { ActivityFeed } from '../components/contact/ContactActivityFeed';
 import { DealsList, TasksList } from '../components/contact/ContactLists';
 import {
@@ -89,6 +90,14 @@ export default function ContactDetailPage() {
     retry: false,
   });
 
+  // Recherche de l'email (action IA "Trouver l'email" -> enrichissement Icypeas).
+  const {
+    enrich: findEmail,
+    isEnriching: findingEmail,
+    lastStatus: findEmailStatus,
+    quotaExceeded: findEmailQuota,
+  } = useContactEmailEnrichment({ contactId: id });
+
   const deleteMutation = useMutation({
     mutationFn: () => deleteContact(id!),
     onSuccess: () => {
@@ -127,6 +136,10 @@ export default function ContactDetailPage() {
       // mais elle est integree directement dans la timeline.
       setComposerChannel('note');
       setComposerOpen(true);
+    } else if (action.type === 'find_email') {
+      // Lance la recherche d'email (Icypeas) pour ce contact ; le contact est
+      // rafraichi a la fin (l'email apparait s'il est trouve).
+      findEmail();
     }
     // snooze/view : no-op pour l'instant (DC17)
   };
@@ -297,6 +310,19 @@ export default function ContactDetailPage() {
                   loading={nextActionLoading}
                   onAction={handleAiAction}
                 />
+                {(findingEmail || findEmailStatus) && (
+                  <div className="text-xs px-3 py-2 rounded-lg bg-slate-50 text-slate-500">
+                    {findingEmail
+                      ? "Recherche de l'email en cours..."
+                      : findEmailQuota
+                        ? "Quota d'enrichissement depasse, reessayez plus tard."
+                        : findEmailStatus === 'done'
+                          ? contact.email
+                            ? 'Email trouve !'
+                            : 'Aucun email trouve pour ce contact.'
+                          : 'La recherche a echoue.'}
+                  </div>
+                )}
 
                 {/* Tabs */}
                 <div className="flex items-center gap-0.5 border-b border-slate-200 px-1 mt-2">

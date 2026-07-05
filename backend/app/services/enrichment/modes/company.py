@@ -62,9 +62,11 @@ async def _process_company(
             continue
 
         email = person.email
-        # Icypeas accepte `domainOrCompany` : a defaut de domaine resolu (~40% seulement),
-        # on passe le nom de societe -> la personne reste enrichissable.
-        dom_or_company = domain or company.name
+        # Domaine prioritaire : celui vu par la source (LinkedIn via Icypeas), sinon
+        # le domaine resolu de la societe, sinon le nom (Icypeas accepte
+        # `domainOrCompany`). Le domaine du lead permet de trouver l'email meme
+        # quand la societe CRM n'a pas de domaine renseigne (ex: SHERWOOD).
+        dom_or_company = person.company_domain or domain or company.name
         if not email and dom_or_company:
             for finder in finders:
                 if not ledger.can_spend(finder.cost_per_hit):

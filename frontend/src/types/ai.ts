@@ -5,7 +5,7 @@
 // Cas particulier : sur un deal stage='lost', le backend retourne 204 No Content
 // — le client (api/client.ts) doit alors retourner null.
 
-export type NextActionType = 'compose_email' | 'create_task' | 'snooze' | 'view';
+export type NextActionType = 'compose_email' | 'create_task' | 'snooze' | 'view' | 'find_email';
 
 export interface NextActionAction {
   label: string;

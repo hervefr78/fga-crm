@@ -110,6 +110,35 @@ async def test_company_saves_decision_makers_without_email(
     assert all(c.email_status == "not_found" for c in contacts)
 
 
+async def test_upsert_contact_dedup_by_linkedin(db_session: AsyncSession, test_org):
+    """Re-enrichissement idempotent : un contact sans email (matche par LinkedIn)
+    est MIS A JOUR avec l'email trouve, pas duplique."""
+    from app.services.enrichment.crm_writer import upsert_contact
+    from app.services.enrichment.ports import Company as PortCompany
+    from app.services.enrichment.ports import PersonCandidate
+
+    company = PortCompany(siren="123456789", name="Acme")
+    person = PersonCandidate(
+        first_name="Jean", last_name="Dupont", title_raw="CTO", source="icypeas",
+        linkedin_url="https://linkedin.com/in/jeandupont", role="CTO",
+    )
+    # 1er passage : sans email (domaine manquant).
+    cid1 = await upsert_contact(
+        db_session, company=company, person=person, email=None,
+        email_status="not_found", organization_id=test_org.id,
+    )
+    # 2e passage : email trouve, MEME personne (matchee par LinkedIn).
+    cid2 = await upsert_contact(
+        db_session, company=company, person=person, email="jean@acme.com",
+        email_status="valid", organization_id=test_org.id,
+    )
+    assert cid1 == cid2  # meme contact, pas de doublon
+    refreshed = await db_session.get(Contact, cid1)
+    assert refreshed.email == "jean@acme.com"
+    n = (await db_session.execute(select(func.count()).select_from(Contact))).scalar()
+    assert n == 1
+
+
 async def test_run_enrichment_job_idempotent(db_session: AsyncSession, monkeypatch):
     called = {"n": 0}
     orig = orchestrator._resolve_companies
