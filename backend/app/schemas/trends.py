@@ -39,6 +39,15 @@ class TrendTimeframe(StrEnum):
     y5 = "today 5-y"
 
 
+class TrendObjective(StrEnum):
+    """Objectif d'exploitation : oriente les recommandations LLM (mode Profond)."""
+
+    seo = "seo"
+    ads = "ads"
+    content = "content"
+    prospection = "prospection"
+
+
 # ---------------------------------------------------------------------------
 # Categories
 # ---------------------------------------------------------------------------
@@ -71,6 +80,8 @@ class TrendReportCreateRequest(BaseModel):
     language: str = Field("fr", max_length=MAX_LANG_LEN)
     timeframe: TrendTimeframe = TrendTimeframe.m12
     seed_terms: list[str] = Field(default_factory=list, max_length=MAX_SEED_TERMS)
+    # Objectif d'exploitation (mode Profond) : oriente les recommandations LLM.
+    objective: TrendObjective | None = None
     # refresh=True force un recalcul meme si un rapport en cache existe
     refresh: bool = False
 
@@ -172,6 +183,31 @@ class TrendReportMeta(BaseModel):
     timeframe: str
 
 
+# ---------------------------------------------------------------------------
+# Recommandations LLM (mode Profond)
+# ---------------------------------------------------------------------------
+
+class TrendKeywordRec(BaseModel):
+    keyword: str
+    cluster: str        # theme de regroupement
+    rationale: str      # pourquoi cibler ce mot-cle (croissance, intention...)
+
+
+class TrendWatchQuery(BaseModel):
+    query: str
+    reason: str         # pourquoi surveiller (emergent, breakout...)
+
+
+class TrendRecommendations(BaseModel):
+    """Synthese + recommandations actionnables produites par le LLM (mode Profond)."""
+
+    strategy: str = ""                                          # synthese strategique courte
+    objective: str | None = None                               # objectif ayant oriente la reco
+    target_keywords: list[TrendKeywordRec] = Field(default_factory=list)
+    watch_queries: list[TrendWatchQuery] = Field(default_factory=list)
+    content_angles: list[str] = Field(default_factory=list)
+
+
 class TrendReportResponse(BaseModel):
     job_id: UUID
     status: str
@@ -179,6 +215,7 @@ class TrendReportResponse(BaseModel):
     opportunity_score: float | None
     signals: TrendSignals | None
     meta: TrendReportMeta | None
+    recommendations: TrendRecommendations | None = None
 
 
 # ---------------------------------------------------------------------------

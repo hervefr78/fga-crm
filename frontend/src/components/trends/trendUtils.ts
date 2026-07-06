@@ -5,7 +5,7 @@
 import type { ElementType } from 'react';
 import { Minus, TrendingDown, TrendingUp } from 'lucide-react';
 
-import type { MarketPulse, TrendMode, TrendTimeframe } from '../../types/trends';
+import type { MarketPulse, TrendMode, TrendObjective, TrendTimeframe } from '../../types/trends';
 
 export const JOB_POLL_INTERVAL = 2000; // ms — polling d'un job deep en cours
 
@@ -20,6 +20,14 @@ export const TIMEFRAMES: { value: TrendTimeframe; label: string }[] = [
 export const MODES: { value: TrendMode; label: string }[] = [
   { value: 'quick', label: 'Rapide' },
   { value: 'deep', label: 'Profonde' },
+];
+
+// Objectif d'exploitation (mode Profond) : oriente les recommandations LLM.
+export const OBJECTIVES: { value: TrendObjective; label: string }[] = [
+  { value: 'content', label: 'Contenu' },
+  { value: 'seo', label: 'SEO' },
+  { value: 'ads', label: 'Ads' },
+  { value: 'prospection', label: 'Prospection' },
 ];
 
 export const COUNTRIES: { value: string; label: string }[] = [

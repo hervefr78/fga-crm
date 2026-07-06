@@ -69,6 +69,18 @@ const report: TrendReport = {
     provider_effective: 'mock', generated_at: '2026-06-01T00:00:00Z', cached: false,
     category_slug: 'marketing-digital', country: 'FR', language: 'fr', timeframe: 'today 12-m',
   },
+  recommendations: null,
+};
+
+const reportWithReco: TrendReport = {
+  ...report,
+  recommendations: {
+    strategy: 'Fenetre favorable sur la prospection IA',
+    objective: 'seo',
+    target_keywords: [{ keyword: 'lead scoring ia', cluster: 'IA', rationale: 'forte croissance' }],
+    watch_queries: [{ query: 'agent ia sdr', reason: 'emergent' }],
+    content_angles: ['Guide du scoring de leads par IA'],
+  },
 };
 
 const completedJob: TrendJob = {
@@ -210,5 +222,43 @@ describe('TrendsPage', () => {
     await screen.findByText('Marketing Digital');
     fireEvent.click(screen.getByText('Sujet libre'));
     expect(screen.getByRole('button', { name: /Lancer l'analyse/ })).toBeDisabled();
+  });
+
+  it('mode Profond : affiche le selecteur d objectif et l envoie', async () => {
+    vi.mocked(createTrendReport).mockResolvedValue({ ...completedJob, mode: 'deep' });
+    renderPage();
+    await screen.findByText('Marketing Digital');
+    // Passer en mode Profond -> le selecteur d'objectif apparait.
+    fireEvent.change(screen.getByLabelText('Mode'), { target: { value: 'deep' } });
+    fireEvent.change(screen.getByLabelText('Objectif (recommandations)'), {
+      target: { value: 'ads' },
+    });
+    fireEvent.click(screen.getByText("Lancer l'analyse"));
+
+    await waitFor(() => {
+      expect(createTrendReport).toHaveBeenCalledWith(
+        expect.objectContaining({ mode: 'deep', objective: 'ads' }),
+      );
+    });
+  });
+
+  it("n'envoie pas d'objectif en mode Rapide", async () => {
+    vi.mocked(createTrendReport).mockResolvedValue(completedJob);
+    renderPage();
+    await screen.findByText('Marketing Digital');
+    // Le selecteur d'objectif n'est pas rendu en mode Rapide.
+    expect(screen.queryByLabelText('Objectif (recommandations)')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText("Lancer l'analyse"));
+    await waitFor(() => expect(createTrendReport).toHaveBeenCalled());
+    expect(vi.mocked(createTrendReport).mock.calls[0][0].objective).toBeUndefined();
+  });
+
+  it('affiche la carte de recommandations IA quand le rapport en porte', async () => {
+    vi.mocked(getLatestTrendReport).mockResolvedValue(reportWithReco);
+    renderPage();
+    expect(await screen.findByText('Recommandations IA')).toBeInTheDocument();
+    expect(screen.getByText('Fenetre favorable sur la prospection IA')).toBeInTheDocument();
+    expect(screen.getByText('lead scoring ia')).toBeInTheDocument();
+    expect(screen.getByText('agent ia sdr')).toBeInTheDocument();
   });
 });

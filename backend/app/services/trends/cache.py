@@ -42,6 +42,7 @@ def compute_request_hash(
     language: str,
     timeframe: str,
     seed_terms: list[str],
+    objective: str | None = None,
 ) -> str:
     """Empreinte deterministe des parametres d'un rapport.
 
@@ -49,6 +50,9 @@ def compute_request_hash(
     (mock -> seeds[0] comme terme d'habillage ; DataForSEO -> ordre des keywords).
     On ne trie donc PAS les seeds dans le hash — sinon deux ordres differents
     partageraient la meme cle de dedup/cache tout en produisant des rapports differents.
+
+    `objective` fait partie de l'empreinte : deux objectifs differents produisent des
+    recommandations differentes et ne doivent donc pas partager le cache.
     """
     canonical = json.dumps(
         {
@@ -58,6 +62,7 @@ def compute_request_hash(
             "language": language,
             "timeframe": timeframe,
             "seed_terms": seed_terms,
+            "objective": objective,
         },
         sort_keys=True,
         separators=(",", ":"),
