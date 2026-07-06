@@ -184,4 +184,31 @@ describe('TrendsPage', () => {
     expect(screen.queryByText(/Analyse en cours/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Le rapport s.affichera automatiquement/)).not.toBeInTheDocument();
   });
+
+  it('mode sujet libre : envoie query au lieu de category_id', async () => {
+    vi.mocked(createTrendReport).mockResolvedValue(completedJob);
+    renderPage();
+    await screen.findByText('Marketing Digital');
+    // Basculer en sujet libre, saisir un sujet, lancer.
+    fireEvent.click(screen.getByText('Sujet libre'));
+    fireEvent.change(screen.getByLabelText('Sujet libre a analyser'), {
+      target: { value: 'prospection IA' },
+    });
+    fireEvent.click(screen.getByText("Lancer l'analyse"));
+
+    await waitFor(() => {
+      expect(createTrendReport).toHaveBeenCalledWith(
+        expect.objectContaining({ query: 'prospection IA' }),
+      );
+    });
+    // Le payload sujet libre ne porte pas de category_id.
+    expect(vi.mocked(createTrendReport).mock.calls[0][0].category_id).toBeUndefined();
+  });
+
+  it('mode sujet libre : bouton desactive tant que le champ est vide', async () => {
+    renderPage();
+    await screen.findByText('Marketing Digital');
+    fireEvent.click(screen.getByText('Sujet libre'));
+    expect(screen.getByRole('button', { name: /Lancer l'analyse/ })).toBeDisabled();
+  });
 });

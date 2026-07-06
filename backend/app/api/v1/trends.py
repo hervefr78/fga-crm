@@ -14,6 +14,7 @@ Modes :
 """
 
 import logging
+import re
 import uuid
 from datetime import UTC, datetime, timedelta
 
@@ -28,6 +29,7 @@ from app.db.session import get_db
 from app.models.trends import TrendCategory, TrendJob, TrendReport
 from app.models.user import User
 from app.schemas.trends import (
+    MAX_SEED_TERMS,
     TrendCategoryResponse,
     TrendHealthResponse,
     TrendJobProgress,
@@ -76,6 +78,12 @@ def _parse_uuid(value: str, field_name: str) -> uuid.UUID:
         return uuid.UUID(value)
     except (ValueError, AttributeError):
         raise HTTPException(status_code=422, detail=f"{field_name} invalide")
+
+
+def _slugify(value: str) -> str:
+    """Slug ASCII d'un sujet libre : sert de category_slug + clef de cache. Borne (DC1)."""
+    slug = re.sub(r"[^a-z0-9]+", "-", value.lower().strip()).strip("-")
+    return slug[:60] or "sujet"
 
 
 def _job_to_response(job: TrendJob, *, cache_hit: bool = False) -> TrendJobResponse:
@@ -170,15 +178,29 @@ async def create_report(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(_require_trends_access),
 ) -> TrendJobResponse:
-    # 1. Categorie existe ?
-    category = await db.get(TrendCategory, payload.category_id)
-    if category is None:
-        raise HTTPException(status_code=404, detail="Categorie introuvable")
+    # 1. Cible : categorie du referentiel OU sujet libre (XOR garanti par le schema).
+    free_query = payload.normalized_query()
+    if free_query is not None:
+        # Sujet libre (one-shot, non persiste) : pas de category_id. Le provider
+        # utilise seed_terms[0] comme requete -> le sujet passe en tete des seeds.
+        category_id_param: str | None = None
+        category_slug = _slugify(free_query)
+        category_label = free_query
+        category_key = f"q:{category_slug}"
+        seeds = [free_query, *payload.normalized_seeds()][:MAX_SEED_TERMS]
+    else:
+        category = await db.get(TrendCategory, payload.category_id)
+        if category is None:
+            raise HTTPException(status_code=404, detail="Categorie introuvable")
+        category_id_param = str(payload.category_id)
+        category_slug = category.slug
+        category_label = category.label
+        category_key = category_id_param
+        seeds = payload.normalized_seeds()
 
-    seeds = payload.normalized_seeds()
     request_hash = cache.compute_request_hash(
         mode=payload.mode.value,
-        category_id=str(payload.category_id),
+        category_id=category_key,  # id de categorie, ou "q:<slug>" pour un sujet libre
         country=payload.country,
         language=payload.language,
         timeframe=payload.timeframe.value,
@@ -215,9 +237,9 @@ async def create_report(
         request_hash=request_hash,
         params_json={
             "request_hash": request_hash,
-            "category_id": str(payload.category_id),
-            "category_slug": category.slug,
-            "category_label": category.label,
+            "category_id": category_id_param,  # None pour un sujet libre
+            "category_slug": category_slug,
+            "category_label": category_label,
             "country": payload.country,
             "language": payload.language,
             "timeframe": payload.timeframe.value,

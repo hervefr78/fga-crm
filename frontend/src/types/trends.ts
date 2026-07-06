@@ -28,9 +28,12 @@ export interface TrendCategory {
 }
 
 // TrendReportCreateRequest
+// Ciblage : `category_id` (categorie du referentiel) OU `query` (sujet libre,
+// analyse one-shot). Exactement un des deux — valide cote backend.
 export interface TrendReportCreateInput {
   mode: TrendMode;
-  category_id: string;
+  category_id?: string;
+  query?: string;
   country?: string;
   language?: string;
   timeframe?: TrendTimeframe;

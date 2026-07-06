@@ -83,6 +83,50 @@ async def test_create_quick_report_completes(client: AsyncClient, auth_headers: 
     assert len(data["signals"]["rising_queries"]) > 0
 
 
+# ---------------------------------------------------------------------------
+# Sujet libre (categorie hors referentiel)
+# ---------------------------------------------------------------------------
+
+async def test_free_text_report_completes(client: AsyncClient, auth_headers: dict):
+    """Sujet libre (query, sans category_id) : job complete, sujet slugifie porte
+    comme category_slug du rapport."""
+    r = await client.post(
+        "/api/v1/trends/reports",
+        headers=auth_headers,
+        json={"mode": "quick", "query": "Prospection IA"},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["status"] == "completed"
+    job_id = body["job_id"]
+
+    rep = (await client.get(f"/api/v1/trends/reports/{job_id}", headers=auth_headers)).json()
+    assert rep["opportunity_score"] is not None
+    assert rep["signals"] is not None
+    assert rep["meta"]["category_slug"] == "prospection-ia"
+
+
+async def test_reject_both_category_and_query(client: AsyncClient, auth_headers: dict):
+    """category_id ET query fournis -> 422 (exactement un ciblage attendu)."""
+    cat_id = await _first_category_id(client, auth_headers)
+    r = await client.post(
+        "/api/v1/trends/reports",
+        headers=auth_headers,
+        json={"mode": "quick", "category_id": cat_id, "query": "prospection"},
+    )
+    assert r.status_code == 422
+
+
+async def test_reject_neither_category_nor_query(client: AsyncClient, auth_headers: dict):
+    """Ni category_id ni query -> 422."""
+    r = await client.post(
+        "/api/v1/trends/reports",
+        headers=auth_headers,
+        json={"mode": "quick"},
+    )
+    assert r.status_code == 422
+
+
 async def test_get_job_status(client: AsyncClient, auth_headers: dict):
     cat_id = await _first_category_id(client, auth_headers)
     body = (await client.post(
