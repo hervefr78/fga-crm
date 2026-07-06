@@ -33,9 +33,10 @@ import {
   SPLIT_VIEW_SIZE, cleanUrl, formatDate,
 } from '../components/company/companyUtils';
 import CompanyHeader from '../components/company/CompanyHeader';
-import CompanyMainColumn, {
+import CompanyMainColumn from '../components/company/CompanyMainColumn';
+import CompanyTabsSection, {
   CompanyTab, AuditSubTab,
-} from '../components/company/CompanyMainColumn';
+} from '../components/company/CompanyTabsSection';
 
 // -----------------------------------------------------------------------------
 // Page
@@ -300,6 +301,36 @@ export default function CompanyDetailPage() {
                 importErrorMessage={auditMutation.error?.message}
                 company={company}
                 onEditDescription={() => setEditOpen(true)}
+              />
+
+              {/* COL SIDE */}
+              <div className="flex flex-col gap-4">
+
+                <Card title="Liens & contact">
+                  <div className="-mx-4 -my-4">
+                    <SideLink icon={Globe} label="Site web" value={company.website ? cleanUrl(company.website) : null} href={company.website} />
+                    <SideLink icon={Linkedin} label="LinkedIn" value={company.linkedin_url ? 'Voir profil' : null} href={company.linkedin_url} />
+                    <SideLink icon={Phone} label="Telephone" value={company.phone} href={company.phone ? `tel:${company.phone}` : null} />
+                    <SideLink icon={MapPin} label="Adresse" value={[company.city, company.country].filter(Boolean).join(', ') || null} />
+                  </div>
+                </Card>
+
+                <Card title="Meta">
+                  <div className="space-y-2 text-xs">
+                    <Row label="Source"><span className="text-slate-700">{company.startup_radar_id ? 'Startup Radar' : 'Manuel'}</span></Row>
+                    <Row label="Creee"><span className="text-slate-700">{formatDate(company.created_at)}</span></Row>
+                    <Row label="Modifiee"><span className="text-slate-700">{formatDate(company.updated_at)}</span></Row>
+                    {company.audit_score != null && (
+                      <Row label="Score audit"><span className="text-slate-700 font-medium">{company.audit_score}/100</span></Row>
+                    )}
+                  </div>
+                </Card>
+              </div>
+            </div>
+
+            {/* ===== ONGLETS (pleine largeur, sous la grille cartes | side) ===== */}
+            <div className="pt-6">
+              <CompanyTabsSection
                 activeTab={activeTab}
                 onTabChange={setActiveTab}
                 auditSubTab={auditSubTab}
@@ -327,30 +358,6 @@ export default function CompanyDetailPage() {
                   isError: enrichIsError,
                 }}
               />
-
-              {/* COL SIDE */}
-              <div className="flex flex-col gap-4">
-
-                <Card title="Liens & contact">
-                  <div className="-mx-4 -my-4">
-                    <SideLink icon={Globe} label="Site web" value={company.website ? cleanUrl(company.website) : null} href={company.website} />
-                    <SideLink icon={Linkedin} label="LinkedIn" value={company.linkedin_url ? 'Voir profil' : null} href={company.linkedin_url} />
-                    <SideLink icon={Phone} label="Telephone" value={company.phone} href={company.phone ? `tel:${company.phone}` : null} />
-                    <SideLink icon={MapPin} label="Adresse" value={[company.city, company.country].filter(Boolean).join(', ') || null} />
-                  </div>
-                </Card>
-
-                <Card title="Meta">
-                  <div className="space-y-2 text-xs">
-                    <Row label="Source"><span className="text-slate-700">{company.startup_radar_id ? 'Startup Radar' : 'Manuel'}</span></Row>
-                    <Row label="Creee"><span className="text-slate-700">{formatDate(company.created_at)}</span></Row>
-                    <Row label="Modifiee"><span className="text-slate-700">{formatDate(company.updated_at)}</span></Row>
-                    {company.audit_score != null && (
-                      <Row label="Score audit"><span className="text-slate-700 font-medium">{company.audit_score}/100</span></Row>
-                    )}
-                  </div>
-                </Card>
-              </div>
             </div>
           </div>
         </div>
