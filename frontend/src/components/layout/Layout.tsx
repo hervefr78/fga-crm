@@ -28,6 +28,8 @@ import {
 import clsx from 'clsx';
 import { useAuth } from '../../contexts/useAuth';
 import { isAdmin, isManagerOrAbove, USER_ROLES } from '../../types';
+import { ResizeHandle } from '../ui';
+import { useResizableWidth } from '../../hooks/useResizableWidth';
 import GlobalSearch from './GlobalSearch';
 
 const baseNavigation = [
@@ -51,6 +53,10 @@ const ROLE_LABELS: Record<string, string> = Object.fromEntries(
 export default function Layout() {
   const location = useLocation();
   const { user, logout } = useAuth();
+
+  // Sidebar de navigation redimensionnable (largeur persistee).
+  const { width: navWidth, startResize: startNavResize, isResizing: navResizing } =
+    useResizableWidth({ storageKey: 'fga.nav.width', defaultWidth: 256, min: 200, max: 400 });
 
   // GEO : module reserve aux managers/admins — masque pour les sales
   // (cf garde RBAC dans GEOPage). Insere juste avant 'Email'.
@@ -93,8 +99,11 @@ export default function Layout() {
 
   return (
     <div className="flex h-screen bg-slate-50">
-      {/* Sidebar — white, clean, light */}
-      <aside className="w-64 bg-white border-r border-slate-200 flex flex-col shadow-sm">
+      {/* Sidebar — white, clean, light, redimensionnable */}
+      <aside
+        style={{ width: navWidth }}
+        className="relative shrink-0 bg-white border-r border-slate-200 flex flex-col shadow-sm"
+      >
         {/* Logo */}
         <div className="flex items-center gap-2.5 px-6 py-5 border-b border-slate-100">
           <div className="w-8 h-8 bg-primary-600 rounded-lg flex items-center justify-center">
@@ -151,6 +160,12 @@ export default function Layout() {
             </button>
           </div>
         </div>
+
+        <ResizeHandle
+          onMouseDown={startNavResize}
+          isResizing={navResizing}
+          label="Redimensionner la navigation"
+        />
       </aside>
 
       {/* Main content */}
