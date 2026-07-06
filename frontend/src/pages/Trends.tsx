@@ -10,7 +10,7 @@
 
 import { useState } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
-import { AlertTriangle, Loader2, Play, ShieldAlert } from 'lucide-react';
+import { AlertTriangle, Play, ShieldAlert } from 'lucide-react';
 
 import { useAuth } from '../contexts/useAuth';
 import { isManagerOrAbove } from '../types';
@@ -74,7 +74,7 @@ export default function TrendsPage() {
   });
 
   // Rapport du job actif (une fois complete).
-  const { data: jobReport } = useQuery({
+  const { data: jobReport, isError: jobReportError } = useQuery({
     queryKey: ['trend-report', activeJobId],
     queryFn: () => getTrendReport(activeJobId as string),
     enabled: !!activeJobId && job?.status === 'completed',
@@ -117,7 +117,17 @@ export default function TrendsPage() {
     );
   }
 
-  const isRunning = job?.status === 'queued' || job?.status === 'running';
+  // Etat "occupe" : couvre la fenetre du POST de creation (runMutation.isPending)
+  // ET la vie du job. Sans ca, l'utilisateur ne voyait qu'un bouton grise pendant
+  // le POST (mode rapide = inline, plusieurs sec).
+  const isSubmitting = runMutation.isPending;
+  // Le job est "regle" quand il a echoue, ou qu'il est complete ET que son rapport
+  // est charge (ou son chargement en erreur). Rester occupe jusque-la evite un
+  // flash d'etat vide entre 'completed' et l'affichage effectif du rapport.
+  const jobSettled =
+    job?.status === 'failed' ||
+    (job?.status === 'completed' && (!!jobReport || jobReportError));
+  const isBusy = isSubmitting || (!!activeJobId && !jobSettled);
   const isFailed = job?.status === 'failed';
   // Rapport a afficher : job actif complete, sinon dernier rapport connu.
   const report: TrendReport | null = jobReport ?? (activeJobId ? null : latestReport) ?? null;
@@ -174,11 +184,12 @@ export default function TrendsPage() {
           <Button
             variant="primary"
             size="sm"
-            icon={isRunning || runMutation.isPending ? Loader2 : Play}
+            loading={isBusy}
+            icon={Play}
             onClick={() => runMutation.mutate()}
-            disabled={!effectiveCategoryId || isRunning || runMutation.isPending}
+            disabled={!effectiveCategoryId || isBusy}
           >
-            {isRunning ? 'Analyse en cours…' : "Lancer l'analyse"}
+            {isBusy ? 'Analyse en cours…' : "Lancer l'analyse"}
           </Button>
         </div>
       </div>
@@ -192,15 +203,15 @@ export default function TrendsPage() {
       )}
 
       {/* ===== Etats ===== */}
-      {isRunning && <RunningState mode={job?.mode ?? mode} />}
+      {isBusy && <RunningState mode={job?.mode ?? mode} />}
       {isFailed && <FailedState error={job?.error ?? null} />}
 
-      {!isRunning && !isFailed && !report && (
+      {!isBusy && !isFailed && !report && (
         <EmptyState categories={categories.length} />
       )}
 
       {/* ===== Rapport ===== */}
-      {!isRunning && !isFailed && report && report.signals && (
+      {!isBusy && !isFailed && report && report.signals && (
         <ReportView report={report} />
       )}
     </div>
