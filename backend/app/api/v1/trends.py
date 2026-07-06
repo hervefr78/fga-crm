@@ -36,6 +36,7 @@ from app.schemas.trends import (
     TrendJobResponse,
     TrendRecommendations,
     TrendReportCreateRequest,
+    TrendReportListItem,
     TrendReportMeta,
     TrendReportResponse,
     TrendSignals,
@@ -291,6 +292,54 @@ async def get_job(
 # ---------------------------------------------------------------------------
 # Rapport
 # ---------------------------------------------------------------------------
+
+# Fenetre de scan avant deduplication (on garde le plus recent par request_hash).
+_HISTORY_SCAN_LIMIT = 100
+
+
+@router.get("/reports", response_model=list[TrendReportListItem])
+async def list_reports(
+    limit: int = Query(30, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(_require_trends_access),
+) -> list[TrendReportListItem]:
+    """Analyses recentes de l'organisation (historique), dedupliquees par requete.
+
+    Deux runs identiques (meme request_hash) sont fusionnes : on garde le plus
+    recent. Permet de rouvrir un rapport (par job_id) sans le relancer.
+    """
+    query = (
+        apply_tenant_filter(
+            select(TrendJob, TrendReport.opportunity_score), TrendJob, user
+        )
+        .join(TrendReport, TrendReport.job_id == TrendJob.id)
+        .where(TrendJob.status == "completed")
+        .order_by(TrendJob.created_at.desc())
+        .limit(_HISTORY_SCAN_LIMIT)
+    )
+    rows = (await db.execute(query)).all()
+
+    seen: set[str] = set()
+    items: list[TrendReportListItem] = []
+    for job, score in rows:
+        if job.request_hash in seen:
+            continue
+        seen.add(job.request_hash)
+        params = job.params_json or {}
+        items.append(TrendReportListItem(
+            job_id=job.id,
+            mode=job.mode,
+            category_label=params.get("category_label") or "—",
+            objective=params.get("objective"),
+            country=params.get("country", ""),
+            timeframe=params.get("timeframe", ""),
+            opportunity_score=float(score) if score is not None else None,
+            created_at=job.created_at,
+        ))
+        if len(items) >= limit:
+            break
+    return items
+
 
 @router.get("/reports/latest", response_model=TrendReportResponse)
 async def get_latest_report(

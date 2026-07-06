@@ -6,7 +6,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { User } from '../types';
-import type { TrendCategory, TrendJob, TrendReport } from '../types/trends';
+import type {
+  TrendCategory, TrendJob, TrendReport, TrendReportListItem,
+} from '../types/trends';
 
 // Mock du module API.
 vi.mock('../api/trends', () => ({
@@ -15,6 +17,7 @@ vi.mock('../api/trends', () => ({
   getTrendJob: vi.fn(),
   getTrendReport: vi.fn(),
   getLatestTrendReport: vi.fn(),
+  listTrendReports: vi.fn(),
   getTrendHealth: vi.fn(),
 }));
 
@@ -33,7 +36,7 @@ vi.mock('../contexts/useAuth', () => ({
 
 import {
   listTrendCategories, createTrendReport, getLatestTrendReport,
-  getTrendJob, getTrendReport,
+  getTrendJob, getTrendReport, listTrendReports,
 } from '../api/trends';
 import TrendsPage from './Trends';
 
@@ -104,7 +107,14 @@ describe('TrendsPage', () => {
     mockUser.current = adminUser;
     vi.mocked(listTrendCategories).mockResolvedValue([category]);
     vi.mocked(getLatestTrendReport).mockRejectedValue(new Error('404'));
+    vi.mocked(listTrendReports).mockResolvedValue([]);
   });
+
+  const historyItem: TrendReportListItem = {
+    job_id: 'hist-job-1', mode: 'deep', category_label: 'Analyse historique IA',
+    objective: 'seo', country: 'FR', timeframe: 'today 12-m',
+    opportunity_score: 68, created_at: '2026-06-01T00:00:00Z',
+  };
 
   it('bloque l\'acces pour un sales', async () => {
     mockUser.current = salesUser;
@@ -260,5 +270,24 @@ describe('TrendsPage', () => {
     expect(screen.getByText('Fenetre favorable sur la prospection IA')).toBeInTheDocument();
     expect(screen.getByText('lead scoring ia')).toBeInTheDocument();
     expect(screen.getByText('agent ia sdr')).toBeInTheDocument();
+  });
+
+  it('historique vide : message dedie', async () => {
+    renderPage();
+    expect(await screen.findByText(/Aucune analyse enregistree/)).toBeInTheDocument();
+  });
+
+  it('historique : rouvre un rapport au clic (sans relance)', async () => {
+    vi.mocked(listTrendReports).mockResolvedValue([historyItem]);
+    vi.mocked(getTrendJob).mockResolvedValue({ ...completedJob, job_id: 'hist-job-1' });
+    vi.mocked(getTrendReport).mockResolvedValue(report);
+    renderPage();
+
+    // L'entree d'historique s'affiche, puis un clic charge son rapport.
+    fireEvent.click(await screen.findByText('Analyse historique IA'));
+    expect(await screen.findByText('74.3')).toBeInTheDocument();
+    expect(getTrendReport).toHaveBeenCalledWith('hist-job-1');
+    // Aucune nouvelle analyse lancee (rouverture, pas relance).
+    expect(createTrendReport).not.toHaveBeenCalled();
   });
 });
