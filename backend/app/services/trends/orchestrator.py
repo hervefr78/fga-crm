@@ -22,7 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.models.trends import TrendJob, TrendKeyword, TrendReport, TrendSnapshot
-from app.services.trends import cache
+from app.services.trends import cache, recommender
 from app.services.trends.provider import (
     QueryItem,
     RelatedQueries,
@@ -210,6 +210,7 @@ def _keyword_rows(snapshot_id, signals: dict) -> list[TrendKeyword]:
 
 async def _persist(
     db: AsyncSession, job: TrendJob, signals: dict, meta: dict, summary: str, score: float,
+    recommendations: dict | None = None,
 ) -> None:
     """Enregistre snapshot + keywords + report dans la transaction courante."""
     # category_id : depuis les params (string JSONB -> UUID), None si categorie libre
@@ -229,10 +230,13 @@ async def _persist(
     for kw in _keyword_rows(snapshot.id, signals):
         db.add(kw)
 
+    insights: dict = {"signals": signals, "meta": meta}
+    if recommendations is not None:
+        insights["recommendations"] = recommendations
     report = TrendReport(
         job_id=job.id,
         summary_md=summary,
-        insights_json={"signals": signals, "meta": meta},
+        insights_json=insights,
         opportunity_score=score,
     )
     db.add(report)
@@ -277,6 +281,7 @@ async def run_job(db: AsyncSession, job: TrendJob) -> None:
             meta["cached"] = True
             summary = cached["summary_md"]
             score = cached["opportunity_score"]
+            recommendations = cached.get("recommendations")
         else:
             signals, provider_name = await _collect_signals(
                 mode=job.mode,
@@ -297,8 +302,20 @@ async def run_job(db: AsyncSession, job: TrendJob) -> None:
                 "language": params.get("language", settings.trends_default_language),
                 "timeframe": params.get("timeframe", "today 12-m"),
             }
+            # Recommandations LLM : mode Profond uniquement (cout/latence maitrises).
+            # Best-effort (DC7) : None si LLM indisponible/echec -> rapport reste valide.
+            recommendations = None
+            if job.mode == "deep":
+                rec = await recommender.generate_recommendations(
+                    category_label=params.get("category_label", "categorie"),
+                    signals=signals,
+                    score=score,
+                    objective=params.get("objective"),
+                    language=params.get("language", settings.trends_default_language),
+                )
+                recommendations = rec.model_dump() if rec is not None else None
 
-        await _persist(db, job, signals, meta, summary, score)
+        await _persist(db, job, signals, meta, summary, score, recommendations)
 
         job.status = "completed"
         job.provider_effective = provider_name
@@ -311,7 +328,7 @@ async def run_job(db: AsyncSession, job: TrendJob) -> None:
             await cache.set_cached_report(
                 request_hash,
                 {"signals": signals, "meta": meta, "summary_md": summary,
-                 "opportunity_score": score},
+                 "opportunity_score": score, "recommendations": recommendations},
                 settings.trends_cache_ttl_quick_seconds,
             )
 

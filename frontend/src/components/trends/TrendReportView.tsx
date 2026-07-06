@@ -11,6 +11,7 @@ import clsx from 'clsx';
 
 import type { TrendReport } from '../../types/trends';
 import { DIRECTION_META, formatGrowth, formatScore } from './trendUtils';
+import { TrendRecommendationsCard } from './TrendRecommendationsCard';
 
 export function ReportView({ report }: { report: TrendReport }) {
   const s = report.signals!;
@@ -23,6 +24,11 @@ export function ReportView({ report }: { report: TrendReport }) {
 
   return (
     <div className="space-y-6">
+      {/* Recommandations IA (mode Profond) — en tete si presentes */}
+      {report.recommendations && (
+        <TrendRecommendationsCard reco={report.recommendations} />
+      )}
+
       {/* KPI strip */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <KpiTile

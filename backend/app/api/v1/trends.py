@@ -34,6 +34,7 @@ from app.schemas.trends import (
     TrendHealthResponse,
     TrendJobProgress,
     TrendJobResponse,
+    TrendRecommendations,
     TrendReportCreateRequest,
     TrendReportMeta,
     TrendReportResponse,
@@ -111,6 +112,7 @@ def _report_to_response(job: TrendJob, report: TrendReport | None) -> TrendRepor
     insights = report.insights_json or {}
     signals = insights.get("signals")
     meta = insights.get("meta")
+    recommendations = insights.get("recommendations")
     return TrendReportResponse(
         job_id=job.id,
         status=job.status,
@@ -118,6 +120,9 @@ def _report_to_response(job: TrendJob, report: TrendReport | None) -> TrendRepor
         opportunity_score=float(report.opportunity_score) if report.opportunity_score is not None else None,
         signals=TrendSignals.model_validate(signals) if signals else None,
         meta=TrendReportMeta.model_validate(meta) if meta else None,
+        recommendations=(
+            TrendRecommendations.model_validate(recommendations) if recommendations else None
+        ),
     )
 
 
@@ -198,6 +203,8 @@ async def create_report(
         category_key = category_id_param
         seeds = payload.normalized_seeds()
 
+    # Objectif : oriente les recommandations LLM (mode Profond) -> entre dans le hash.
+    objective_val = payload.objective.value if payload.objective else None
     request_hash = cache.compute_request_hash(
         mode=payload.mode.value,
         category_id=category_key,  # id de categorie, ou "q:<slug>" pour un sujet libre
@@ -205,6 +212,7 @@ async def create_report(
         language=payload.language,
         timeframe=payload.timeframe.value,
         seed_terms=seeds,
+        objective=objective_val,
     )
 
     # 2. Dedup : un job identique recemment complete -> on le retourne (cache_hit)
@@ -244,6 +252,7 @@ async def create_report(
             "language": payload.language,
             "timeframe": payload.timeframe.value,
             "seed_terms": seeds,
+            "objective": objective_val,
             "refresh": payload.refresh,
         },
     )

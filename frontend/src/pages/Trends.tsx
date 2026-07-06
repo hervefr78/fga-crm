@@ -19,14 +19,14 @@ import {
   listTrendCategories, createTrendReport, getTrendJob, getTrendReport,
   getLatestTrendReport,
 } from '../api/trends';
-import type { TrendMode, TrendTimeframe, TrendReport } from '../types/trends';
+import type { TrendMode, TrendObjective, TrendTimeframe, TrendReport } from '../types/trends';
 import { Button } from '../components/ui';
 import { ReportView } from '../components/trends/TrendReportView';
 import {
   EmptyState, FailedState, Field, PageHeader, RunningState, SelectMini,
 } from '../components/trends/TrendStates';
 import {
-  COUNTRIES, JOB_POLL_INTERVAL, MODES, TIMEFRAMES, extractError,
+  COUNTRIES, JOB_POLL_INTERVAL, MODES, OBJECTIVES, TIMEFRAMES, extractError,
 } from '../components/trends/trendUtils';
 
 // =============================================================================
@@ -45,6 +45,8 @@ export default function TrendsPage() {
   const [country, setCountry] = useState('FR');
   const [timeframe, setTimeframe] = useState<TrendTimeframe>('today 12-m');
   const [mode, setMode] = useState<TrendMode>('quick');
+  // Objectif d'exploitation : oriente les recommandations LLM (mode Profond).
+  const [objective, setObjective] = useState<TrendObjective>('content');
   const [seedsInput, setSeedsInput] = useState('');
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -101,6 +103,8 @@ export default function TrendsPage() {
         language: 'fr',
         timeframe,
         seed_terms: seedsInput.split(',').map((s) => s.trim()).filter(Boolean),
+        // Objectif : seulement en mode Profond (recommandations LLM).
+        ...(mode === 'deep' ? { objective } : {}),
       };
       // Sujet libre -> `query` ; sinon categorie du referentiel -> `category_id`.
       return createTrendReport(
@@ -225,6 +229,17 @@ export default function TrendsPage() {
               options={MODES}
             />
           </Field>
+
+          {/* Objectif : uniquement en mode Profond (oriente les recommandations IA). */}
+          {mode === 'deep' && (
+            <Field label="Objectif (recommandations)">
+              <SelectMini
+                value={objective}
+                onChange={(v) => setObjective(v as TrendObjective)}
+                options={OBJECTIVES}
+              />
+            </Field>
+          )}
 
           <Field label="Seeds (optionnel, separes par des virgules)">
             <input

@@ -6,6 +6,8 @@
 
 export type TrendMode = 'quick' | 'deep';
 
+export type TrendObjective = 'seo' | 'ads' | 'content' | 'prospection';
+
 export type TrendTimeframe =
   | 'now 7-d'
   | 'today 1-m'
@@ -38,6 +40,7 @@ export interface TrendReportCreateInput {
   language?: string;
   timeframe?: TrendTimeframe;
   seed_terms?: string[];
+  objective?: TrendObjective;
   refresh?: boolean;
 }
 
@@ -109,6 +112,26 @@ export interface TrendReportMeta {
   timeframe: string;
 }
 
+// Recommandations LLM (mode Profond)
+export interface TrendKeywordRec {
+  keyword: string;
+  cluster: string;
+  rationale: string;
+}
+
+export interface TrendWatchQuery {
+  query: string;
+  reason: string;
+}
+
+export interface TrendRecommendations {
+  strategy: string;
+  objective: string | null;
+  target_keywords: TrendKeywordRec[];
+  watch_queries: TrendWatchQuery[];
+  content_angles: string[];
+}
+
 // TrendReportResponse
 export interface TrendReport {
   job_id: string;
@@ -117,6 +140,7 @@ export interface TrendReport {
   opportunity_score: number | null;
   signals: TrendSignals | null;
   meta: TrendReportMeta | null;
+  recommendations: TrendRecommendations | null;
 }
 
 // TrendHealthResponse

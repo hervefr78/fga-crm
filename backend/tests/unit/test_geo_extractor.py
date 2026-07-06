@@ -8,7 +8,13 @@ from __future__ import annotations
 
 import json
 
-from app.services.geo.extractor import _build_response_format, _to_openai_strict
+from app.schemas.geo import ExtractionResult
+from app.services.openai_strict import build_response_format, to_openai_strict
+
+
+def _build_response_format() -> dict:
+    """Helper de test : response_format strict pour le schema d'extraction GEO."""
+    return build_response_format(ExtractionResult, name="extraction")
 
 
 def _iter_objects(node):
@@ -53,7 +59,7 @@ def test_to_openai_strict_is_recursive():
             "b": {"type": "object", "properties": {"c": {"type": "integer", "minimum": 1}}},
         },
     }
-    _to_openai_strict(node)
+    to_openai_strict(node)
     assert node["additionalProperties"] is False
     assert node["required"] == ["a", "b"]
     assert "maxLength" not in node["properties"]["a"]

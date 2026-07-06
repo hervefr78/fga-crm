@@ -116,6 +116,8 @@ class Settings(BaseSettings):
     trends_default_country: str = "FR"
     trends_default_language: str = "fr"
     trends_max_seed_terms: int = 20                 # garde-fou sous-requetes / job
+    # Recommandations LLM (mode Profond) : reutilise openai_api_key. None -> desactive.
+    trends_llm_model: str = "gpt-4o-mini"
 
     # Enrichissement emails B2B (feature Compass). Icypeas = moteur principal ;
     # si cle absente -> provider mock (deployable/testable sans cle).

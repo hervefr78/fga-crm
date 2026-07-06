@@ -113,6 +113,58 @@ async def test_deep_mode_has_topics(db_session: AsyncSession):
     assert len(report.insights_json["signals"]["related_topics"]) > 0
 
 
+async def test_deep_mode_generates_recommendations(
+    db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+):
+    """Mode Profond : les recommandations LLM sont persistees dans insights_json."""
+    from app.schemas.trends import TrendKeywordRec, TrendRecommendations
+    from app.services.trends import recommender
+
+    async def _fake_reco(**kwargs):
+        return TrendRecommendations(
+            strategy="Accelerer la prospection",
+            objective=kwargs.get("objective"),
+            target_keywords=[
+                TrendKeywordRec(keyword="prospection ia", cluster="IA", rationale="croissance"),
+            ],
+        )
+
+    monkeypatch.setattr(recommender, "generate_recommendations", _fake_reco)
+    job = await _make_job(db_session, mode="deep")
+    await orchestrator.run_job(db_session, job)
+
+    report = (
+        await db_session.execute(select(TrendReport).where(TrendReport.job_id == job.id))
+    ).scalar_one()
+    rec = report.insights_json.get("recommendations")
+    assert rec is not None
+    assert rec["strategy"] == "Accelerer la prospection"
+    assert rec["target_keywords"][0]["keyword"] == "prospection ia"
+
+
+async def test_quick_mode_skips_recommendations(
+    db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+):
+    """Mode Rapide : aucun appel LLM, pas de recommandations (cout/latence maitrises)."""
+    from app.services.trends import recommender
+
+    called = {"n": 0}
+
+    async def _spy(**_kwargs):
+        called["n"] += 1
+        return None
+
+    monkeypatch.setattr(recommender, "generate_recommendations", _spy)
+    job = await _make_job(db_session, mode="quick")
+    await orchestrator.run_job(db_session, job)
+
+    report = (
+        await db_session.execute(select(TrendReport).where(TrendReport.job_id == job.id))
+    ).scalar_one()
+    assert called["n"] == 0
+    assert report.insights_json.get("recommendations") is None
+
+
 async def test_run_job_failure_sets_failed_status(
     db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
 ):
