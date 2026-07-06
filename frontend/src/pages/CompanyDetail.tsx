@@ -205,19 +205,21 @@ export default function CompanyDetailPage() {
         className="relative border-r border-slate-200 bg-white flex flex-col flex-shrink-0"
       >
         <div className="p-4 border-b border-slate-100 space-y-3">
-          <div className="flex items-center justify-between">
-            <div className="flex items-baseline gap-2">
-              <h2 className="text-lg font-semibold text-slate-900">Entreprises</h2>
-              <span className="text-xs text-slate-400 tabular-nums">
+          <div className="flex items-center justify-between gap-2">
+            {/* min-w-0 + truncate : le titre retrecit en priorite, les actions
+                (filtre + Nouvelle) restent toujours entieres (shrink-0). */}
+            <div className="flex items-baseline gap-2 min-w-0">
+              <h2 className="text-lg font-semibold text-slate-900 truncate">Entreprises</h2>
+              <span className="text-xs text-slate-400 tabular-nums shrink-0">
                 {companies.length}
               </span>
             </div>
-            <div className="flex gap-1">
+            <div className="flex gap-1 shrink-0">
               <button className="p-1.5 rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-600">
                 <Filter className="w-4 h-4" />
               </button>
-              <Link to="/companies" className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-primary-600 text-white text-xs font-medium hover:bg-primary-700">
-                <Plus className="w-3.5 h-3.5" /> Nouvelle
+              <Link to="/companies" className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-primary-600 text-white text-xs font-medium hover:bg-primary-700 whitespace-nowrap">
+                <Plus className="w-3.5 h-3.5 shrink-0" /> Nouvelle
               </Link>
             </div>
           </div>
