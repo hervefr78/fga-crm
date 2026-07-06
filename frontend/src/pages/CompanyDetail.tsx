@@ -21,7 +21,8 @@ import type {
   Company, Contact, Deal, Activity, CompanyAuditResponse,
   NextActionAction,
 } from '../types';
-import { ConfirmDialog, LoadingSpinner, Modal } from '../components/ui';
+import { ConfirmDialog, LoadingSpinner, Modal, ResizeHandle } from '../components/ui';
+import { useResizableWidth } from '../hooks/useResizableWidth';
 import CompanyForm from '../components/companies/CompanyForm';
 import ContactForm from '../components/contacts/ContactForm';
 import DealForm from '../components/pipeline/DealForm';
@@ -56,6 +57,10 @@ export default function CompanyDetailPage() {
   const [dealFormOpen, setDealFormOpen] = useState(false);
   const [composerOpen, setComposerOpen] = useState(false);
   const [composerChannel, setComposerChannel] = useState<ComposerChannel>('note');
+
+  // Colonne liste (split-view) redimensionnable (largeur persistee).
+  const { width: listWidth, startResize: startListResize, isResizing: listResizing } =
+    useResizableWidth({ storageKey: 'fga.companies-col.width', defaultWidth: 340, min: 260, max: 560 });
 
   // Liste pour le split-view (DC1 — size borne)
   const { data: companiesList } = useQuery({
@@ -194,8 +199,11 @@ export default function CompanyDetailPage() {
   return (
     <div className="flex h-full bg-slate-50">
 
-      {/* ======= COLONNE LISTE (split-view) ======= */}
-      <aside className="w-[340px] border-r border-slate-200 bg-white flex flex-col flex-shrink-0">
+      {/* ======= COLONNE LISTE (split-view) — redimensionnable ======= */}
+      <aside
+        style={{ width: listWidth }}
+        className="relative border-r border-slate-200 bg-white flex flex-col flex-shrink-0"
+      >
         <div className="p-4 border-b border-slate-100 space-y-3">
           <div className="flex items-center justify-between">
             <div className="flex items-baseline gap-2">
@@ -246,6 +254,12 @@ export default function CompanyDetailPage() {
             </Link>
           ))}
         </div>
+
+        <ResizeHandle
+          onMouseDown={startListResize}
+          isResizing={listResizing}
+          label="Redimensionner la colonne Entreprises"
+        />
       </aside>
 
       {/* ======= COLONNE DETAIL ======= */}
