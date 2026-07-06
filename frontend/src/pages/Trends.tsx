@@ -8,8 +8,8 @@
 // RBAC : admin + manager uniquement (les sales recoivent un ecran "non autorise").
 // =============================================================================
 
-import { useState } from 'react';
-import { useQuery, useMutation } from '@tanstack/react-query';
+import { useState, useEffect } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, Play, ShieldAlert } from 'lucide-react';
 import clsx from 'clsx';
 
@@ -17,11 +17,12 @@ import { useAuth } from '../contexts/useAuth';
 import { isManagerOrAbove } from '../types';
 import {
   listTrendCategories, createTrendReport, getTrendJob, getTrendReport,
-  getLatestTrendReport,
+  getLatestTrendReport, listTrendReports,
 } from '../api/trends';
 import type { TrendMode, TrendObjective, TrendTimeframe, TrendReport } from '../types/trends';
 import { Button } from '../components/ui';
 import { ReportView } from '../components/trends/TrendReportView';
+import { TrendsHistorySidebar } from '../components/trends/TrendsHistorySidebar';
 import {
   EmptyState, FailedState, Field, PageHeader, RunningState, SelectMini,
 } from '../components/trends/TrendStates';
@@ -58,10 +59,19 @@ export default function TrendsPage() {
     setErrorMsg(null);
   };
 
+  const queryClient = useQueryClient();
+
   // ---- Queries ----
   const { data: categories = [], isLoading: catLoading } = useQuery({
     queryKey: ['trend-categories'],
     queryFn: listTrendCategories,
+    enabled: hasAccess,
+  });
+
+  // Historique : analyses recentes de l'org (rouvrables sans relance).
+  const { data: history = [] } = useQuery({
+    queryKey: ['trend-reports'],
+    queryFn: listTrendReports,
     enabled: hasAccess,
   });
 
@@ -93,6 +103,13 @@ export default function TrendsPage() {
     queryFn: () => getTrendReport(activeJobId as string),
     enabled: !!activeJobId && job?.status === 'completed',
   });
+
+  // A la fin d'un job, rafraichir l'historique (la nouvelle analyse y apparait).
+  useEffect(() => {
+    if (job?.status === 'completed') {
+      void queryClient.invalidateQueries({ queryKey: ['trend-reports'] });
+    }
+  }, [job?.status, queryClient]);
 
   // ---- Mutation : lancer une analyse ----
   const runMutation = useMutation({
@@ -159,130 +176,142 @@ export default function TrendsPage() {
     jobReport ?? (activeJobId || freeMode ? null : latestReport) ?? null;
 
   return (
-    <div className="px-8 py-7 space-y-6">
+    <div className="px-8 py-7">
       <PageHeader />
 
-      {/* ===== Bandeau de filtres ===== */}
-      <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-4">
-        <div className="flex flex-wrap items-end gap-4">
-          <div className="flex flex-col gap-1">
-            {/* Bascule categorie du referentiel <-> sujet libre */}
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-medium text-slate-700">Cible</span>
-              <div className="flex items-center gap-0.5 rounded-md bg-slate-100 p-0.5">
-                {([['Categorie', false], ['Sujet libre', true]] as const).map(([label, free]) => (
-                  <button
-                    key={label}
-                    type="button"
-                    onClick={() => switchTargetMode(free)}
-                    className={clsx(
-                      'px-2 py-0.5 text-[11px] rounded transition-colors',
-                      freeMode === free
-                        ? 'bg-white text-slate-700 shadow-sm'
-                        : 'text-slate-500 hover:text-slate-700',
-                    )}
+      <div className="mt-6 grid grid-cols-1 lg:grid-cols-[300px_minmax(0,1fr)] gap-6">
+        {/* Historique : analyses recentes, rouvrables sans relance */}
+        <TrendsHistorySidebar
+          items={history}
+          activeJobId={activeJobId}
+          onSelect={(id) => { setActiveJobId(id); setErrorMsg(null); }}
+        />
+
+        {/* Colonne principale : filtres + rapport */}
+        <div className="space-y-6 min-w-0">
+          {/* ===== Bandeau de filtres ===== */}
+          <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-4">
+            <div className="flex flex-wrap items-end gap-4">
+              <div className="flex flex-col gap-1">
+                {/* Bascule categorie du referentiel <-> sujet libre */}
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-medium text-slate-700">Cible</span>
+                  <div className="flex items-center gap-0.5 rounded-md bg-slate-100 p-0.5">
+                    {([['Categorie', false], ['Sujet libre', true]] as const).map(([label, free]) => (
+                      <button
+                        key={label}
+                        type="button"
+                        onClick={() => switchTargetMode(free)}
+                        className={clsx(
+                          'px-2 py-0.5 text-[11px] rounded transition-colors',
+                          freeMode === free
+                            ? 'bg-white text-slate-700 shadow-sm'
+                            : 'text-slate-500 hover:text-slate-700',
+                        )}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                {freeMode ? (
+                  <input
+                    value={freeQuery}
+                    onChange={(e) => setFreeQuery(e.target.value)}
+                    placeholder="prospection IA, RevOps…"
+                    aria-label="Sujet libre a analyser"
+                    className="h-9 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-700 placeholder:text-slate-400 focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:outline-none min-w-[200px]"
+                  />
+                ) : (
+                  <select
+                    value={effectiveCategoryId}
+                    onChange={(e) => { setCategoryId(e.target.value); setActiveJobId(null); }}
+                    disabled={catLoading || categories.length === 0}
+                    aria-label="Categorie"
+                    className="h-9 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-700 focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:outline-none min-w-[200px]"
                   >
-                    {label}
-                  </button>
-                ))}
+                    {categories.map((c) => (
+                      <option key={c.id} value={c.id}>{c.label}</option>
+                    ))}
+                  </select>
+                )}
               </div>
-            </div>
-            {freeMode ? (
-              <input
-                value={freeQuery}
-                onChange={(e) => setFreeQuery(e.target.value)}
-                placeholder="prospection IA, RevOps…"
-                aria-label="Sujet libre a analyser"
-                className="h-9 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-700 placeholder:text-slate-400 focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:outline-none min-w-[200px]"
-              />
-            ) : (
-              <select
-                value={effectiveCategoryId}
-                onChange={(e) => { setCategoryId(e.target.value); setActiveJobId(null); }}
-                disabled={catLoading || categories.length === 0}
-                aria-label="Categorie"
-                className="h-9 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-700 focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:outline-none min-w-[200px]"
+
+              <Field label="Pays">
+                <SelectMini value={country} onChange={setCountry} options={COUNTRIES} />
+              </Field>
+
+              <Field label="Periode">
+                <SelectMini
+                  value={timeframe}
+                  onChange={(v) => setTimeframe(v as TrendTimeframe)}
+                  options={TIMEFRAMES}
+                />
+              </Field>
+
+              <Field label="Mode">
+                <SelectMini
+                  value={mode}
+                  onChange={(v) => setMode(v as TrendMode)}
+                  options={MODES}
+                />
+              </Field>
+
+              {/* Objectif : uniquement en mode Profond (oriente les recommandations IA). */}
+              {mode === 'deep' && (
+                <Field label="Objectif (recommandations)">
+                  <SelectMini
+                    value={objective}
+                    onChange={(v) => setObjective(v as TrendObjective)}
+                    options={OBJECTIVES}
+                  />
+                </Field>
+              )}
+
+              <Field label="Seeds (optionnel, separes par des virgules)">
+                <input
+                  value={seedsInput}
+                  onChange={(e) => setSeedsInput(e.target.value)}
+                  placeholder="prospection, sales automation"
+                  className="h-9 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-700 placeholder:text-slate-400 focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:outline-none min-w-[240px]"
+                />
+              </Field>
+
+              <Button
+                variant="primary"
+                size="sm"
+                loading={isBusy}
+                icon={Play}
+                onClick={() => runMutation.mutate()}
+                disabled={!canLaunch || isBusy}
               >
-                {categories.map((c) => (
-                  <option key={c.id} value={c.id}>{c.label}</option>
-                ))}
-              </select>
-            )}
+                {isBusy ? 'Analyse en cours…' : "Lancer l'analyse"}
+              </Button>
+            </div>
           </div>
 
-          <Field label="Pays">
-            <SelectMini value={country} onChange={setCountry} options={COUNTRIES} />
-          </Field>
-
-          <Field label="Periode">
-            <SelectMini
-              value={timeframe}
-              onChange={(v) => setTimeframe(v as TrendTimeframe)}
-              options={TIMEFRAMES}
-            />
-          </Field>
-
-          <Field label="Mode">
-            <SelectMini
-              value={mode}
-              onChange={(v) => setMode(v as TrendMode)}
-              options={MODES}
-            />
-          </Field>
-
-          {/* Objectif : uniquement en mode Profond (oriente les recommandations IA). */}
-          {mode === 'deep' && (
-            <Field label="Objectif (recommandations)">
-              <SelectMini
-                value={objective}
-                onChange={(v) => setObjective(v as TrendObjective)}
-                options={OBJECTIVES}
-              />
-            </Field>
+          {/* ===== Messages ===== */}
+          {errorMsg && (
+            <div className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+              <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
+              <span>{errorMsg}</span>
+            </div>
           )}
 
-          <Field label="Seeds (optionnel, separes par des virgules)">
-            <input
-              value={seedsInput}
-              onChange={(e) => setSeedsInput(e.target.value)}
-              placeholder="prospection, sales automation"
-              className="h-9 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-700 placeholder:text-slate-400 focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:outline-none min-w-[240px]"
-            />
-          </Field>
+          {/* ===== Etats ===== */}
+          {isBusy && <RunningState mode={job?.mode ?? mode} />}
+          {isFailed && <FailedState error={job?.error ?? null} />}
 
-          <Button
-            variant="primary"
-            size="sm"
-            loading={isBusy}
-            icon={Play}
-            onClick={() => runMutation.mutate()}
-            disabled={!canLaunch || isBusy}
-          >
-            {isBusy ? 'Analyse en cours…' : "Lancer l'analyse"}
-          </Button>
+          {!isBusy && !isFailed && !report && (
+            <EmptyState categories={categories.length} />
+          )}
+
+          {/* ===== Rapport ===== */}
+          {!isBusy && !isFailed && report && report.signals && (
+            <ReportView report={report} />
+          )}
         </div>
       </div>
-
-      {/* ===== Messages ===== */}
-      {errorMsg && (
-        <div className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-          <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
-          <span>{errorMsg}</span>
-        </div>
-      )}
-
-      {/* ===== Etats ===== */}
-      {isBusy && <RunningState mode={job?.mode ?? mode} />}
-      {isFailed && <FailedState error={job?.error ?? null} />}
-
-      {!isBusy && !isFailed && !report && (
-        <EmptyState categories={categories.length} />
-      )}
-
-      {/* ===== Rapport ===== */}
-      {!isBusy && !isFailed && report && report.signals && (
-        <ReportView report={report} />
-      )}
     </div>
   );
 }

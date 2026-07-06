@@ -143,6 +143,18 @@ export interface TrendReport {
   recommendations: TrendRecommendations | null;
 }
 
+// TrendReportListItem (historique des analyses)
+export interface TrendReportListItem {
+  job_id: string;
+  mode: string;
+  category_label: string;
+  objective: string | null;
+  country: string;
+  timeframe: string;
+  opportunity_score: number | null;
+  created_at: string;
+}
+
 // TrendHealthResponse
 export interface TrendHealth {
   provider: string;

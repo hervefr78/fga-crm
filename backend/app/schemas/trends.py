@@ -218,6 +218,19 @@ class TrendReportResponse(BaseModel):
     recommendations: TrendRecommendations | None = None
 
 
+class TrendReportListItem(BaseModel):
+    """Entree d'historique (analyses recentes) : de quoi reperer + rouvrir un rapport."""
+
+    job_id: UUID
+    mode: str
+    category_label: str
+    objective: str | None
+    country: str
+    timeframe: str
+    opportunity_score: float | None
+    created_at: datetime
+
+
 # ---------------------------------------------------------------------------
 # Health (admin)
 # ---------------------------------------------------------------------------

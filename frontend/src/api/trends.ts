@@ -7,7 +7,8 @@
 
 import api from './http';
 import type {
-  TrendCategory, TrendJob, TrendReport, TrendReportCreateInput, TrendHealth,
+  TrendCategory, TrendJob, TrendReport, TrendReportCreateInput, TrendReportListItem,
+  TrendHealth,
 } from '../types/trends';
 
 // --- Categories ---
@@ -46,6 +47,12 @@ export const getLatestTrendReport = async (
     params: { category_id: categoryId, country, language },
   });
   return r.data as TrendReport;
+};
+
+// --- Historique : analyses recentes de l'organisation (dedupliquees) ---
+export const listTrendReports = async (): Promise<TrendReportListItem[]> => {
+  const r = await api.get('/trends/reports');
+  return Array.isArray(r.data) ? (r.data as TrendReportListItem[]) : [];
 };
 
 // --- Health (admin only) ---

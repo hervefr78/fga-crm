@@ -127,6 +127,45 @@ async def test_reject_neither_category_nor_query(client: AsyncClient, auth_heade
     assert r.status_code == 422
 
 
+# ---------------------------------------------------------------------------
+# Historique (analyses recentes)
+# ---------------------------------------------------------------------------
+
+async def test_list_reports_history(client: AsyncClient, auth_headers: dict):
+    """Deux analyses distinctes -> deux entrees d'historique reperables."""
+    cat_id = await _first_category_id(client, auth_headers)
+    await client.post(
+        "/api/v1/trends/reports", headers=auth_headers,
+        json={"mode": "quick", "category_id": cat_id, "seed_terms": ["hist-a"]},
+    )
+    await client.post(
+        "/api/v1/trends/reports", headers=auth_headers,
+        json={"mode": "quick", "category_id": cat_id, "seed_terms": ["hist-b"]},
+    )
+    r = await client.get("/api/v1/trends/reports", headers=auth_headers)
+    assert r.status_code == 200
+    items = r.json()
+    assert len(items) >= 2
+    it = items[0]
+    assert {"job_id", "category_label", "opportunity_score", "created_at"} <= set(it)
+
+
+async def test_list_reports_dedup_by_hash(client: AsyncClient, auth_headers: dict):
+    """Deux runs identiques (refresh -> nouveau job, meme request_hash) ne comptent
+    que pour UNE entree d'historique (dedup par request_hash)."""
+    cat_id = await _first_category_id(client, auth_headers)
+    payload = {
+        "mode": "quick", "category_id": cat_id, "seed_terms": ["dup-hist"], "refresh": True,
+    }
+    j1 = (await client.post("/api/v1/trends/reports", headers=auth_headers, json=payload)).json()
+    j2 = (await client.post("/api/v1/trends/reports", headers=auth_headers, json=payload)).json()
+    assert j1["job_id"] != j2["job_id"]  # refresh bypasse le dedup a la creation
+
+    items = (await client.get("/api/v1/trends/reports", headers=auth_headers)).json()
+    matching = [i for i in items if i["job_id"] in {j1["job_id"], j2["job_id"]}]
+    assert len(matching) == 1  # dedup par hash cote historique
+
+
 async def test_get_job_status(client: AsyncClient, auth_headers: dict):
     cat_id = await _first_category_id(client, auth_headers)
     body = (await client.post(
