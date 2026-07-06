@@ -33,6 +33,7 @@ vi.mock('../contexts/useAuth', () => ({
 
 import {
   listTrendCategories, createTrendReport, getLatestTrendReport,
+  getTrendJob, getTrendReport,
 } from '../api/trends';
 import TrendsPage from './Trends';
 
@@ -138,5 +139,49 @@ describe('TrendsPage', () => {
         expect.objectContaining({ mode: 'quick', category_id: 'c1' }),
       );
     });
+  });
+
+  it('affiche le feedback "en cours" des le clic, pendant le POST (avant creation du job)', async () => {
+    // POST volontairement non resolu : on observe l'etat "occupe" pendant l'appel,
+    // AVANT meme que le job existe (activeJobId encore null). C'est la fenetre qui
+    // ne montrait qu'un bouton grise.
+    vi.mocked(createTrendReport).mockReturnValue(new Promise<TrendJob>(() => {}));
+    renderPage();
+    await screen.findByText('Marketing Digital');
+    fireEvent.click(screen.getByText("Lancer l'analyse"));
+
+    // Bouton en chargement (label change) + carte d'etat visible.
+    expect(await screen.findByText(/Analyse en cours/)).toBeInTheDocument();
+    expect(screen.getByText(/Le rapport s.affichera automatiquement/)).toBeInTheDocument();
+    // Le bouton est desactive et l'etat vide a disparu.
+    expect(screen.getByRole('button', { name: /Analyse en cours/ })).toBeDisabled();
+    expect(screen.queryByText(/Choisissez une categorie/)).not.toBeInTheDocument();
+  });
+
+  it('maintient le feedback tant que le job tourne (polling)', async () => {
+    vi.mocked(createTrendReport).mockResolvedValue({ ...completedJob, status: 'running' });
+    vi.mocked(getTrendJob).mockResolvedValue({ ...completedJob, status: 'running' });
+    renderPage();
+    await screen.findByText('Marketing Digital');
+    fireEvent.click(screen.getByText("Lancer l'analyse"));
+
+    // La carte "en cours" reste affichee pendant que le job est running.
+    expect(await screen.findByText(/Le rapport s.affichera automatiquement/)).toBeInTheDocument();
+    expect(screen.getByText(/Analyse en cours/)).toBeInTheDocument();
+  });
+
+  it('masque le feedback et affiche le rapport une fois le job complete', async () => {
+    vi.mocked(createTrendReport).mockResolvedValue(completedJob);
+    vi.mocked(getTrendJob).mockResolvedValue(completedJob);
+    vi.mocked(getTrendReport).mockResolvedValue(report);
+    renderPage();
+    await screen.findByText('Marketing Digital');
+    fireEvent.click(screen.getByText("Lancer l'analyse"));
+
+    // Le rapport s'affiche (score) et le feedback "en cours" a disparu (pas de
+    // flash d'etat vide ni de "en cours" bloque).
+    expect(await screen.findByText('74.3')).toBeInTheDocument();
+    expect(screen.queryByText(/Analyse en cours/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Le rapport s.affichera automatiquement/)).not.toBeInTheDocument();
   });
 });
