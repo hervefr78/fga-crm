@@ -14,11 +14,12 @@ from datetime import datetime
 from enum import StrEnum
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 # Bornes (DC1)
 MAX_SEED_TERM_LEN = 120
 MAX_SEED_TERMS = 20
+MAX_QUERY_LEN = 120
 MAX_COUNTRY_LEN = 8
 MAX_LANG_LEN = 8
 
@@ -61,13 +62,31 @@ class TrendCategoryResponse(BaseModel):
 
 class TrendReportCreateRequest(BaseModel):
     mode: TrendMode = TrendMode.quick
-    category_id: UUID
+    # Ciblage : categorie du referentiel OU sujet libre (exactement un — cf.
+    # validateur). category_id = categorie predefinie ; query = sujet hors
+    # referentiel (analyse one-shot, non persistee).
+    category_id: UUID | None = None
+    query: str | None = Field(None, max_length=MAX_QUERY_LEN)
     country: str = Field("FR", max_length=MAX_COUNTRY_LEN)
     language: str = Field("fr", max_length=MAX_LANG_LEN)
     timeframe: TrendTimeframe = TrendTimeframe.m12
     seed_terms: list[str] = Field(default_factory=list, max_length=MAX_SEED_TERMS)
     # refresh=True force un recalcul meme si un rapport en cache existe
     refresh: bool = False
+
+    @model_validator(mode="after")
+    def _exactly_one_target(self) -> TrendReportCreateRequest:
+        """Exactement un ciblage : category_id XOR query (DC1 : entree bornee/valide)."""
+        has_cat = self.category_id is not None
+        has_query = bool((self.query or "").strip())
+        if has_cat == has_query:  # les deux fournis, ou aucun
+            raise ValueError("Fournir soit category_id, soit query (exactement un).")
+        return self
+
+    def normalized_query(self) -> str | None:
+        """Sujet libre nettoye/borne (DC1). None si absent."""
+        q = (self.query or "").strip()[:MAX_QUERY_LEN]
+        return q or None
 
     def normalized_seeds(self) -> list[str]:
         """Seeds nettoyes, bornes en taille (DC1)."""

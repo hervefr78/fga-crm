@@ -11,6 +11,7 @@
 import { useState } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { AlertTriangle, Play, ShieldAlert } from 'lucide-react';
+import clsx from 'clsx';
 
 import { useAuth } from '../contexts/useAuth';
 import { isManagerOrAbove } from '../types';
@@ -38,12 +39,22 @@ export default function TrendsPage() {
 
   // ---- Etats de configuration ----
   const [categoryId, setCategoryId] = useState<string>('');
+  // Ciblage : categorie du referentiel (select) OU sujet libre (input texte).
+  const [freeMode, setFreeMode] = useState(false);
+  const [freeQuery, setFreeQuery] = useState('');
   const [country, setCountry] = useState('FR');
   const [timeframe, setTimeframe] = useState<TrendTimeframe>('today 12-m');
   const [mode, setMode] = useState<TrendMode>('quick');
   const [seedsInput, setSeedsInput] = useState('');
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  // Bascule categorie <-> sujet libre : reset du job/erreur pour repartir propre.
+  const switchTargetMode = (free: boolean) => {
+    setFreeMode(free);
+    setActiveJobId(null);
+    setErrorMsg(null);
+  };
 
   // ---- Queries ----
   const { data: categories = [], isLoading: catLoading } = useQuery({
@@ -58,7 +69,8 @@ export default function TrendsPage() {
   const { data: latestReport } = useQuery({
     queryKey: ['trend-latest', effectiveCategoryId, country],
     queryFn: () => getLatestTrendReport(effectiveCategoryId, country),
-    enabled: hasAccess && !!effectiveCategoryId && !activeJobId,
+    // Pas de "dernier rapport" en mode sujet libre (non rattache a une categorie).
+    enabled: hasAccess && !!effectiveCategoryId && !activeJobId && !freeMode,
     retry: false,
   });
 
@@ -82,15 +94,21 @@ export default function TrendsPage() {
 
   // ---- Mutation : lancer une analyse ----
   const runMutation = useMutation({
-    mutationFn: () =>
-      createTrendReport({
+    mutationFn: () => {
+      const base = {
         mode,
-        category_id: effectiveCategoryId,
         country,
         language: 'fr',
         timeframe,
         seed_terms: seedsInput.split(',').map((s) => s.trim()).filter(Boolean),
-      }),
+      };
+      // Sujet libre -> `query` ; sinon categorie du referentiel -> `category_id`.
+      return createTrendReport(
+        freeMode
+          ? { ...base, query: freeQuery.trim() }
+          : { ...base, category_id: effectiveCategoryId },
+      );
+    },
     onSuccess: (createdJob) => {
       setErrorMsg(null);
       setActiveJobId(createdJob.job_id);
@@ -129,8 +147,12 @@ export default function TrendsPage() {
     (job?.status === 'completed' && (!!jobReport || jobReportError));
   const isBusy = isSubmitting || (!!activeJobId && !jobSettled);
   const isFailed = job?.status === 'failed';
-  // Rapport a afficher : job actif complete, sinon dernier rapport connu.
-  const report: TrendReport | null = jobReport ?? (activeJobId ? null : latestReport) ?? null;
+  // Lancement possible : sujet libre non vide, ou categorie selectionnee.
+  const canLaunch = freeMode ? freeQuery.trim().length > 0 : !!effectiveCategoryId;
+  // Rapport a afficher : job actif complete, sinon dernier rapport connu (seulement
+  // en mode categorie — un sujet libre n'a pas d'historique par categorie).
+  const report: TrendReport | null =
+    jobReport ?? (activeJobId || freeMode ? null : latestReport) ?? null;
 
   return (
     <div className="px-8 py-7 space-y-6">
@@ -139,18 +161,50 @@ export default function TrendsPage() {
       {/* ===== Bandeau de filtres ===== */}
       <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-4">
         <div className="flex flex-wrap items-end gap-4">
-          <Field label="Categorie">
-            <select
-              value={effectiveCategoryId}
-              onChange={(e) => { setCategoryId(e.target.value); setActiveJobId(null); }}
-              disabled={catLoading || categories.length === 0}
-              className="h-9 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-700 focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:outline-none min-w-[200px]"
-            >
-              {categories.map((c) => (
-                <option key={c.id} value={c.id}>{c.label}</option>
-              ))}
-            </select>
-          </Field>
+          <div className="flex flex-col gap-1">
+            {/* Bascule categorie du referentiel <-> sujet libre */}
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-medium text-slate-700">Cible</span>
+              <div className="flex items-center gap-0.5 rounded-md bg-slate-100 p-0.5">
+                {([['Categorie', false], ['Sujet libre', true]] as const).map(([label, free]) => (
+                  <button
+                    key={label}
+                    type="button"
+                    onClick={() => switchTargetMode(free)}
+                    className={clsx(
+                      'px-2 py-0.5 text-[11px] rounded transition-colors',
+                      freeMode === free
+                        ? 'bg-white text-slate-700 shadow-sm'
+                        : 'text-slate-500 hover:text-slate-700',
+                    )}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            {freeMode ? (
+              <input
+                value={freeQuery}
+                onChange={(e) => setFreeQuery(e.target.value)}
+                placeholder="prospection IA, RevOps…"
+                aria-label="Sujet libre a analyser"
+                className="h-9 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-700 placeholder:text-slate-400 focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:outline-none min-w-[200px]"
+              />
+            ) : (
+              <select
+                value={effectiveCategoryId}
+                onChange={(e) => { setCategoryId(e.target.value); setActiveJobId(null); }}
+                disabled={catLoading || categories.length === 0}
+                aria-label="Categorie"
+                className="h-9 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-700 focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:outline-none min-w-[200px]"
+              >
+                {categories.map((c) => (
+                  <option key={c.id} value={c.id}>{c.label}</option>
+                ))}
+              </select>
+            )}
+          </div>
 
           <Field label="Pays">
             <SelectMini value={country} onChange={setCountry} options={COUNTRIES} />
@@ -187,7 +241,7 @@ export default function TrendsPage() {
             loading={isBusy}
             icon={Play}
             onClick={() => runMutation.mutate()}
-            disabled={!effectiveCategoryId || isBusy}
+            disabled={!canLaunch || isBusy}
           >
             {isBusy ? 'Analyse en cours…' : "Lancer l'analyse"}
           </Button>
