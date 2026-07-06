@@ -56,6 +56,36 @@ export function formatGrowth(value: number | null): string {
   return `+${value.toFixed(0)} %`;
 }
 
+// Detail derive d'un point de la serie temporelle (aucune donnee par point cote
+// provider : on calcule le contexte a partir de la serie elle-meme).
+export interface TrendPointDetail {
+  date: string;
+  value: number;
+  delta: number | null;   // variation vs point precedent (null au 1er point)
+  isPeak: boolean;        // point le plus haut de la periode
+  isTrough: boolean;      // point le plus bas de la periode
+  mean: number;           // moyenne de la serie (arrondie)
+}
+
+export function buildPointDetail(
+  series: { date: string; value: number }[],
+  index: number,
+): TrendPointDetail | null {
+  if (index < 0 || index >= series.length) return null;
+  const values = series.map((p) => p.value);
+  const mean = Math.round(values.reduce((a, b) => a + b, 0) / values.length);
+  const pt = series[index];
+  const prev = index > 0 ? series[index - 1] : null;
+  return {
+    date: pt.date,
+    value: pt.value,
+    delta: prev ? pt.value - prev.value : null,
+    isPeak: pt.value === Math.max(...values),
+    isTrough: pt.value === Math.min(...values),
+    mean,
+  };
+}
+
 export function extractError(err: unknown, fallback: string): string {
   if (typeof err === 'object' && err !== null && 'response' in err) {
     const resp = (err as { response?: { data?: { detail?: unknown } } }).response;
