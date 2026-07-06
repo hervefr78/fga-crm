@@ -4,14 +4,12 @@
 
 import type { ElementType } from 'react';
 import { Gauge, MapPin, Search, Sparkles, TrendingUp } from 'lucide-react';
-import {
-  CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis,
-} from 'recharts';
 import clsx from 'clsx';
 
 import type { TrendReport } from '../../types/trends';
 import { DIRECTION_META, formatGrowth, formatScore } from './trendUtils';
 import { TrendRecommendationsCard } from './TrendRecommendationsCard';
+import { TrendInterestChart } from './TrendInterestChart';
 
 export function ReportView({ report }: { report: TrendReport }) {
   const s = report.signals!;
@@ -19,8 +17,6 @@ export function ReportView({ report }: { report: TrendReport }) {
   const pulse = s.market_pulse;
   const dir = DIRECTION_META[pulse.direction];
   const breakoutCount = s.rising_queries.filter((q) => q.breakout).length;
-
-  const chartData = s.timeseries.map((p) => ({ date: p.date, value: p.value }));
 
   return (
     <div className="space-y-6">
@@ -63,27 +59,8 @@ export function ReportView({ report }: { report: TrendReport }) {
         />
       </div>
 
-      {/* Market pulse chart */}
-      <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
-        <div className="px-4 py-3 border-b border-slate-100 text-sm font-semibold text-slate-800">
-          Interet dans le temps
-        </div>
-        <div className="p-4">
-          {chartData.length === 0 ? (
-            <div className="py-8 text-center text-sm text-slate-400">Pas de serie disponible</div>
-          ) : (
-            <ResponsiveContainer width="100%" height={220}>
-              <LineChart data={chartData} margin={{ top: 8, right: 12, left: -12, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                <XAxis dataKey="date" tick={{ fontSize: 11, fill: '#94a3b8' }} minTickGap={40} />
-                <YAxis domain={[0, 100]} tick={{ fontSize: 11, fill: '#94a3b8' }} />
-                <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e2e8f0' }} />
-                <Line type="monotone" dataKey="value" stroke="#4f46e5" strokeWidth={2} dot={false} />
-              </LineChart>
-            </ResponsiveContainer>
-          )}
-        </div>
-      </div>
+      {/* Interet dans le temps (graphique interactif : detail d'un point au clic) */}
+      <TrendInterestChart timeseries={s.timeseries} />
 
       {/* Rising / Top queries */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
