@@ -14,20 +14,24 @@ import asyncio
 import uuid
 from datetime import UTC, datetime
 
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
+from app.models.company import Company as CrmCompany
 from app.models.enrichment import (
     EnrichmentBulk,
     EnrichmentBulkItem,
     EnrichmentJob,
 )
 from app.services.enrichment import freshness
+from app.services.enrichment.adapters.icypeas import _domain_from_url
 from app.services.enrichment.credit_ledger import CreditLedger
 from app.services.enrichment.ports import (
     Company,
     IcpFilter,
     PersonCandidate,
+    SourceFilter,
     TargetSpec,
 )
 from app.services.enrichment.roles import normalize_title
@@ -57,11 +61,13 @@ def _now() -> datetime:
 
 def _parse_target(raw: dict) -> TargetSpec:
     icp = raw.get("icp_filter")
+    source = raw.get("source_filter")
     return TargetSpec(
         kind=raw.get("kind", "company"),
         siren=raw.get("siren"),
         sirens=raw.get("sirens", []),
         icp_filter=IcpFilter(**icp) if icp else None,
+        source_filter=SourceFilter(**source) if source else None,
         contact_ids=raw.get("contact_ids", []),
         all_missing_email=bool(raw.get("all_missing_email", False)),
         reverify=bool(raw.get("reverify", False)),
@@ -88,6 +94,64 @@ async def _resolve_companies(company_src, target: TargetSpec) -> list[Company]:
     if target.kind == "icp" and target.icp_filter:
         return await company_src.get_companies(target.icp_filter)
     return []
+
+
+async def _resolve_source_companies(
+    db: AsyncSession, org_id, target: TargetSpec, company_src, stats: dict,
+) -> list[Company]:
+    """Mode 'source' : societes CRM de l'organisation filtrees par provenance.
+
+    Meme semantique que le filtre Provenance de la liste Entreprises :
+    'startup_radar' matche le lien SR (les fiches historiques n'ont pas lead_source).
+    - siren present en base -> aucune requete gouv (donnees CRM directes) ;
+    - siren absent -> resolution par nom (gouv), persistee sur la fiche (comme
+      l'endpoint by-id) ; introuvable -> compte dans stats['skipped_no_siren'].
+    """
+    if target.source_filter is None:
+        return []
+    sf = target.source_filter
+
+    query = select(CrmCompany).where(CrmCompany.organization_id == org_id)
+    if sf.lead_source == "startup_radar":
+        query = query.where(or_(
+            CrmCompany.lead_source == "startup_radar",
+            CrmCompany.startup_radar_id.is_not(None),
+        ))
+    else:
+        query = query.where(CrmCompany.lead_source == sf.lead_source)
+    query = query.order_by(CrmCompany.created_at.desc()).limit(sf.limit)
+    rows = (await db.execute(query)).scalars().all()
+
+    out: list[Company] = []
+    sem = asyncio.Semaphore(_GOUV_CONCURRENCY)
+
+    async def _resolve_missing(crm: CrmCompany) -> Company | None:
+        async with sem:
+            found = await company_src.search_by_name(crm.name)
+        if found is None or not found.siren:
+            return None
+        # Persiste le siren resolu sur la fiche (evite les re-resolutions).
+        crm.siren = found.siren
+        return Company(
+            siren=found.siren, name=crm.name,
+            domain=_domain_from_url(crm.website) or found.domain,
+        )
+
+    with_siren = [c for c in rows if c.siren]
+    without_siren = [c for c in rows if not c.siren]
+
+    out.extend(
+        Company(siren=c.siren, name=c.name, domain=_domain_from_url(c.website))
+        for c in with_siren
+    )
+    resolved = await asyncio.gather(*(_resolve_missing(c) for c in without_siren))
+    skipped = sum(1 for r in resolved if r is None)
+    if skipped:
+        stats["skipped_no_siren"] = stats.get("skipped_no_siren", 0) + skipped
+    out.extend(r for r in resolved if r is not None)
+    if without_siren:
+        await db.commit()  # persiste les sirens resolus (checkpoint avant pipeline)
+    return out
 
 
 def _normalize_and_dedup(people: list[PersonCandidate]) -> list[PersonCandidate]:

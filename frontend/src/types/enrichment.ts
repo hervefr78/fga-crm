@@ -2,7 +2,7 @@
 // FGA CRM - Types Enrichissement (feature Compass) — alignes DC10 sur le backend
 // =============================================================================
 
-export type EnrichmentMode = 'company' | 'batch' | 'icp' | 'contacts';
+export type EnrichmentMode = 'company' | 'batch' | 'icp' | 'source' | 'contacts';
 export type EnrichmentJobStatus = 'queued' | 'running' | 'awaiting_results' | 'done' | 'failed';
 
 export interface EnrichmentJobStats {
@@ -35,11 +35,18 @@ export interface IcpFilterInput {
   limit?: number;
 }
 
+// Mode source : societes CRM filtrees par provenance (lead_source)
+export interface SourceFilterInput {
+  lead_source: string;
+  limit?: number;
+}
+
 export interface EnrichmentJobCreateInput {
   mode: EnrichmentMode;
   siren?: string;
   sirens?: string[];
   icp_filter?: IcpFilterInput;
+  source_filter?: SourceFilterInput;
   // Mode contacts (Feature B)
   contact_ids?: string[];
   all_missing_email?: boolean;

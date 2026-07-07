@@ -82,6 +82,33 @@ async def test_contacts_without_selection_422(client: AsyncClient, auth_headers:
     assert r.status_code == 422
 
 
+# --- Mode source (provenance CRM) ---
+
+async def test_source_without_filter_422(client: AsyncClient, auth_headers: dict):
+    r = await client.post("/api/v1/enrichment/jobs", headers=auth_headers, json={"mode": "source"})
+    assert r.status_code == 422
+
+
+async def test_source_rejects_unknown_lead_source(client: AsyncClient, auth_headers: dict):
+    # lead_source hors Set autorise -> 422 (DC1)
+    r = await client.post(
+        "/api/v1/enrichment/jobs", headers=auth_headers,
+        json={"mode": "source", "source_filter": {"lead_source": "hacker"}},
+    )
+    assert r.status_code == 422
+
+
+async def test_create_source_job(client: AsyncClient, auth_headers: dict):
+    r = await client.post(
+        "/api/v1/enrichment/jobs", headers=auth_headers,
+        json={"mode": "source", "source_filter": {"lead_source": "startup_radar", "limit": 50}},
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["mode"] == "source"
+    assert body["status"] == "queued"
+
+
 # --- Enrichissement par ID de societe (resolution SIREN) ---
 
 async def test_enrich_by_id_uses_existing_siren(

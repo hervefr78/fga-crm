@@ -29,6 +29,7 @@ from ._pipeline import (
     _now,
     _parse_target,
     _resolve_companies,
+    _resolve_source_companies,
     _source_people,  # noqa: F401 — re-export pour tests (tests/unit/test_enrichment_quota.py)
 )
 from .modes.company import (
@@ -96,7 +97,13 @@ async def run_enrichment_job(db: AsyncSession, job: EnrichmentJob) -> None:
             await db.commit()
             return
 
-        companies = await _resolve_companies(company_src, target)
+        # Mode source : societes CRM par provenance (resolution DB, org-scoped).
+        if target.kind == "source":
+            companies = await _resolve_source_companies(
+                db, org_id, target, company_src, stats,
+            )
+        else:
+            companies = await _resolve_companies(company_src, target)
 
         # Client Redis reutilise sur toute la phase (fix #13 : un seul connect/close
         # par job au lieu d'un par personne). Ouvert dans CETTE event loop.

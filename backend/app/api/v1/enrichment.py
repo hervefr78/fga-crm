@@ -57,6 +57,8 @@ def _validate_target(payload: EnrichmentJobCreateRequest) -> None:
         raise HTTPException(422, "mode batch : liste de sirens requise")
     if payload.mode == EnrichmentMode.icp and payload.icp_filter is None:
         raise HTTPException(422, "mode icp : icp_filter requis")
+    if payload.mode == EnrichmentMode.source and payload.source_filter is None:
+        raise HTTPException(422, "mode source : source_filter requis")
     if payload.mode == EnrichmentMode.contacts and not (payload.contact_ids or payload.all_missing_email):
         raise HTTPException(422, "mode contacts : contact_ids ou all_missing_email requis")
 
@@ -69,6 +71,9 @@ def _estimate_credits(payload: EnrichmentJobCreateRequest) -> int:
     if payload.mode == EnrichmentMode.contacts:
         # ~1 credit / contact (email-search). all_missing_email : borne conservatrice.
         return len(payload.contact_ids) if payload.contact_ids else MAX_CONTACTS
+    if payload.mode == EnrichmentMode.source:
+        limit = payload.source_filter.limit if payload.source_filter else 200
+        return limit * _CREDITS_PER_TARGET
     limit = payload.icp_filter.limit if payload.icp_filter else 50
     return limit * _CREDITS_PER_TARGET
 

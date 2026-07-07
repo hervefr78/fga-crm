@@ -23,11 +23,21 @@ class IcpFilter:
 
 
 @dataclass
+class SourceFilter:
+    """Mode 'source' : societes CRM filtrees par provenance (lead_source)."""
+
+    lead_source: str
+    limit: int = 200
+
+
+@dataclass
 class TargetSpec:
-    kind: str  # 'company' | 'batch' | 'icp' | 'contacts'
+    kind: str  # 'company' | 'batch' | 'icp' | 'contacts' | 'source'
     siren: str | None = None
     sirens: list[str] = field(default_factory=list)
     icp_filter: IcpFilter | None = None
+    # Mode 'source' : societes CRM par provenance (Startup Radar, Nomo-IA...).
+    source_filter: SourceFilter | None = None
     # Mode 'contacts' (Feature B — enrichir des contacts existants).
     contact_ids: list[str] = field(default_factory=list)
     all_missing_email: bool = False  # tous les contacts de l'org sans email

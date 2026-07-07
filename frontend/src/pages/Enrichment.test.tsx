@@ -83,4 +83,23 @@ describe('EnrichmentPage', () => {
       );
     });
   });
+
+  it('lance un enrichissement par provenance (mode source)', async () => {
+    vi.mocked(createEnrichmentJob).mockResolvedValue(job);
+    renderPage();
+    // Bascule sur le mode Par provenance, choisit Nomo-IA, lance.
+    fireEvent.click(await screen.findByText('Par provenance'));
+    fireEvent.change(screen.getByDisplayValue('Startup Radar'), {
+      target: { value: 'nomo-ia' },
+    });
+    fireEvent.click(screen.getByText('Lancer l’enrichissement'));
+    await waitFor(() => {
+      expect(createEnrichmentJob).toHaveBeenCalledWith(
+        expect.objectContaining({
+          mode: 'source',
+          source_filter: { lead_source: 'nomo-ia', limit: 200 },
+        }),
+      );
+    });
+  });
 });

@@ -12,7 +12,7 @@ import {
 
 import { getCompanies, deleteCompany } from '../api/client';
 import type { Company } from '../types';
-import { COMPANY_SIZE_RANGES, isManagerOrAbove } from '../types';
+import { COMPANY_SIZE_RANGES, LEAD_SOURCES, isManagerOrAbove } from '../types';
 import { useAuth } from '../contexts/useAuth';
 import { Modal, SearchInput, Pagination, LoadingSpinner, EmptyState, ConfirmDialog, Button, FilterBar } from '../components/ui';
 import type { FilterDef } from '../components/ui';
@@ -53,11 +53,9 @@ const COMPANY_FILTERS: FilterDef[] = [
     key: 'lead_source',
     label: 'Provenance',
     type: 'select',
-    options: [
-      { value: 'startup_radar', label: 'Startup Radar' },
-      { value: 'nomo-ia', label: 'Nomo-IA' },
-      { value: 'pleinphare', label: 'Plein Phare Digital' },
-    ],
+    // Source unique LEAD_SOURCES (DC8) — fixe aussi 'plein-phare' (la valeur DB
+    // a un tiret ; l'ancienne option 'pleinphare' ne matchait aucune fiche).
+    options: [...LEAD_SOURCES],
   },
   // Funding multi-source (Phase B 2026-05) — filtres sur les levees detectees par SR
   {

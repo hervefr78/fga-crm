@@ -183,6 +183,84 @@ async def test_upsert_contact_dedup_by_linkedin(db_session: AsyncSession, test_o
     assert n == 1
 
 
+async def test_run_enrichment_job_source_mode(db_session: AsyncSession, test_org):
+    """Mode source : societes CRM de la provenance, org-scopees, sans-siren comptees."""
+    import uuid as _uuid
+
+    from app.models.company import Company as CrmCompany
+    from app.models.organization import Organization
+
+    other_org = Organization(id=_uuid.uuid4(), name="Autre", slug=f"o-{_uuid.uuid4().hex[:8]}")
+    db_session.add(other_org)
+    db_session.add_all([
+        # 2 societes de la source ciblee avec siren
+        CrmCompany(name="SrcCo1", siren="100000001", lead_source="nomo-ia",
+                   organization_id=test_org.id),
+        CrmCompany(name="SrcCo2", siren="100000002", lead_source="nomo-ia",
+                   website="https://www.acme.fr", organization_id=test_org.id),
+        # sans siren : search_by_name (mock ABC) -> None -> skipped_no_siren
+        CrmCompany(name="NoSiren", lead_source="nomo-ia", organization_id=test_org.id),
+        # bruit : autre provenance + autre org (isolation)
+        CrmCompany(name="OtherSrc", siren="100000009", lead_source="plein-phare",
+                   organization_id=test_org.id),
+        CrmCompany(name="OtherOrg", siren="100000008", lead_source="nomo-ia",
+                   organization_id=other_org.id),
+    ])
+    await db_session.commit()
+
+    job = EnrichmentJob(
+        mode="source", status="queued",
+        target_json={"kind": "source", "source_filter": {"lead_source": "nomo-ia", "limit": 200}},
+        organization_id=test_org.id,
+    )
+    db_session.add(job)
+    await db_session.commit()
+    await run_enrichment_job(db_session, job)
+
+    refreshed = await db_session.get(EnrichmentJob, job.id)
+    assert refreshed.status == "done"
+    stats = refreshed.stats_json
+    assert stats["companies"] == 2            # les 2 avec siren (org + provenance)
+    assert stats["skipped_no_siren"] == 1     # NoSiren irresoluble via mock
+    assert stats["people_found"] == 6         # 3 decideurs mock par societe
+
+
+async def test_resolve_source_companies_resolves_missing_siren(
+    db_session: AsyncSession, test_org
+):
+    """Sans siren + search_by_name qui trouve -> resolue ET persistee sur la fiche."""
+    from sqlalchemy import select as sa_select
+
+    from app.models.company import Company as CrmCompany
+    from app.services.enrichment._pipeline import (
+        _parse_target,
+        _resolve_source_companies,
+    )
+    from app.services.enrichment.ports import Company as PortCompany
+
+    class _Src:
+        async def search_by_name(self, name: str):
+            return PortCompany(siren="999888777", name=name, domain="found.fr")
+
+    db_session.add(CrmCompany(name="NoSirenCo", lead_source="nomo-ia",
+                              website="https://www.crm-site.fr/x", organization_id=test_org.id))
+    await db_session.commit()
+
+    stats: dict = {}
+    target = _parse_target(
+        {"kind": "source", "source_filter": {"lead_source": "nomo-ia", "limit": 10}}
+    )
+    out = await _resolve_source_companies(db_session, test_org.id, target, _Src(), stats)
+
+    assert [c.siren for c in out] == ["999888777"]
+    assert out[0].domain == "crm-site.fr"     # domaine CRM normalise prioritaire
+    assert stats.get("skipped_no_siren") is None
+    row = (
+        await db_session.execute(sa_select(CrmCompany).where(CrmCompany.name == "NoSirenCo"))
+    ).scalar_one()
+    assert row.siren == "999888777"           # persiste (pas de re-resolution future)
+
+
 async def test_run_enrichment_job_idempotent(db_session: AsyncSession, monkeypatch):
     called = {"n": 0}
     orig = orchestrator._resolve_companies
