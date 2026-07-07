@@ -33,6 +33,7 @@ import { useCompanyContactEnrichment } from '../components/company/useCompanyCon
 import {
   SPLIT_VIEW_SIZE, cleanUrl, formatDate,
 } from '../components/company/companyUtils';
+import { companiesListUrl } from '../components/companies/companiesListState';
 import CompanyHeader from '../components/company/CompanyHeader';
 import CompanyMainColumn from '../components/company/CompanyMainColumn';
 import CompanyTabsSection, {
@@ -105,7 +106,7 @@ export default function CompanyDetailPage() {
     mutationFn: () => deleteCompany(id!),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['companies'] });
-      navigate('/companies');
+      navigate(companiesListUrl()); // retour a la liste avec ses filtres
     },
   });
 
@@ -218,7 +219,7 @@ export default function CompanyDetailPage() {
               <button className="p-1.5 rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-600">
                 <Filter className="w-4 h-4" />
               </button>
-              <Link to="/companies" className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-primary-600 text-white text-xs font-medium hover:bg-primary-700 whitespace-nowrap">
+              <Link to={companiesListUrl()} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-primary-600 text-white text-xs font-medium hover:bg-primary-700 whitespace-nowrap">
                 <Plus className="w-3.5 h-3.5 shrink-0" /> Nouvelle
               </Link>
             </div>
@@ -269,7 +270,8 @@ export default function CompanyDetailPage() {
 
         {/* Toolbar */}
         <div className="flex items-center gap-2 px-6 h-11 border-b border-slate-200 bg-white">
-          <Link to="/companies" className="inline-flex items-center gap-1 text-xs text-slate-500 hover:text-slate-700 px-2 py-1 rounded">
+          {/* Retour a la liste AVEC son dernier etat de vue (filtres/tri/page) */}
+          <Link to={companiesListUrl()} className="inline-flex items-center gap-1 text-xs text-slate-500 hover:text-slate-700 px-2 py-1 rounded">
             <ArrowLeft className="w-3.5 h-3.5" /> Toutes
           </Link>
           {company.industry && <span className="text-xs text-slate-400">{company.industry}</span>}
