@@ -210,9 +210,40 @@ async def process_bulk_callback(db: AsyncSession, data: dict) -> dict:
                 if all(s == "done" for s in other_statuses):
                     job.status = "done"
                     job.finished_at = _now()
+                    # Les stats de soumission datent d'AVANT les resultats
+                    # (emails_found=0) : on les ecrase avec le reel des items.
+                    await _refresh_job_stats(db, job)
 
     await db.commit()
     return {"matched": True, "done": bulk.done, "found": bulk.found, "total": bulk.total}
+
+
+async def _refresh_job_stats(db: AsyncSession, job: EnrichmentJob) -> None:
+    """Agrege les resultats REELS des bulks email-search dans job.stats_json.
+
+    Sans ce refresh, le dashboard affiche les compteurs figes a la soumission
+    (emails_found=0, valid=0) alors que le webhook a trouve des emails et cree
+    les contacts. Nouveau dict assigne (JSONB : mutation in place non trackee).
+    """
+    items = (
+        await db.execute(
+            select(EnrichmentBulkItem)
+            .join(EnrichmentBulk, EnrichmentBulkItem.bulk_id == EnrichmentBulk.id)
+            .where(
+                EnrichmentBulk.job_id == job.id,
+                EnrichmentBulk.task == "email-search",
+            )
+        )
+    ).scalars().all()
+    if not items:
+        return
+    found = [i for i in items if i.status == "found"]
+    valid = sum(1 for i in found if _map_certainty(i.certainty)[0] == "valid")
+    job.stats_json = {
+        **(job.stats_json or {}),
+        "emails_found": len(found),
+        "valid": valid,
+    }
 
 
 async def reconcile_stuck_bulks(db: AsyncSession, *, timeout_hours: int) -> int:

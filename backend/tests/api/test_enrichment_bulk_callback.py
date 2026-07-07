@@ -65,6 +65,10 @@ async def test_process_bulk_callback_creates_contacts_and_finishes_job(
 
     refreshed = await db_session.get(EnrichmentJob, job.id)
     assert refreshed.status == "done"  # job clos par le dernier callback
+    # Stats rafraichies au fan-in avec le REEL des items (sinon le dashboard
+    # affiche les compteurs figes a la soumission : emails_found=0).
+    assert refreshed.stats_json["emails_found"] == 2
+    assert refreshed.stats_json["valid"] == 2  # ultra_sure -> valid
 
     contacts = (
         await db_session.execute(select(Contact).where(Contact.source == "enrichment"))
