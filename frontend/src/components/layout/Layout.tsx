@@ -1,54 +1,37 @@
 // =============================================================================
 // FGA CRM - Layout (Light theme, inspired by Startup Radar)
 // =============================================================================
+// Sidebar : Dashboard (hors groupe) + groupes depliables Sales / Marketing /
+// Reglages (config : navConfig.ts). Etat ouvert/ferme persiste (localStorage),
+// le groupe contenant la page active s'ouvre automatiquement.
+// =============================================================================
 
-import { Link, Outlet, useLocation } from 'react-router-dom';
-import {
-  LayoutDashboard,
-  Building2,
-  Users,
-  Target,
-  ListTodo,
-  Activity,
-  Mail,
-  FileCheck,
-  TrendingUp,
-  BarChart3,
-  UserPlus,
-  Link2,
-  Settings,
-  LogOut,
-  User,
-  Zap,
-  Shield,
-  Award,
-  XCircle,
-  Coins,
-} from 'lucide-react';
-import clsx from 'clsx';
+import { useEffect, useState } from 'react';
+import { Outlet, useLocation } from 'react-router-dom';
+import { LogOut, User, Zap } from 'lucide-react';
+
 import { useAuth } from '../../contexts/useAuth';
-import { isAdmin, isManagerOrAbove, USER_ROLES } from '../../types';
+import { USER_ROLES } from '../../types';
 import { ResizeHandle } from '../ui';
 import { useResizableWidth } from '../../hooks/useResizableWidth';
 import GlobalSearch from './GlobalSearch';
-
-const baseNavigation = [
-  { name: 'Dashboard', href: '/', icon: LayoutDashboard },
-  { name: 'Contacts', href: '/contacts', icon: Users },
-  { name: 'Entreprises', href: '/companies', icon: Building2 },
-  { name: 'Pipeline', href: '/pipeline', icon: Target },
-  { name: 'Signés', href: '/signed', icon: Award },
-  { name: 'Perdus', href: '/lost', icon: XCircle },
-  { name: 'Tâches', href: '/tasks', icon: ListTodo },
-  { name: 'Activités', href: '/activities', icon: Activity },
-  { name: 'Drafts à valider', href: '/drafts', icon: FileCheck },
-  { name: 'Email', href: '/email', icon: Mail },
-  { name: 'Paramètres', href: '/settings', icon: Settings },
-];
+import { DASHBOARD_ITEM, isActivePath, navGroupsForUser } from './navConfig';
+import SidebarNavGroup, { NavLinkItem } from './SidebarNavGroup';
 
 const ROLE_LABELS: Record<string, string> = Object.fromEntries(
   USER_ROLES.map((r) => [r.value, r.label]),
 );
+
+// Etat ouvert/ferme des groupes (par cle). Absent => ouvert par defaut.
+const GROUPS_STORAGE_KEY = 'fga.nav.groups';
+
+function readOpenGroups(): Record<string, boolean> {
+  try {
+    return JSON.parse(localStorage.getItem(GROUPS_STORAGE_KEY) ?? '{}') as Record<string, boolean>;
+  } catch {
+    return {};
+  }
+}
 
 export default function Layout() {
   const location = useLocation();
@@ -58,44 +41,33 @@ export default function Layout() {
   const { width: navWidth, startResize: startNavResize, isResizing: navResizing } =
     useResizableWidth({ storageKey: 'fga.nav.width', defaultWidth: 256, min: 200, max: 400 });
 
-  // GEO : module reserve aux managers/admins — masque pour les sales
-  // (cf garde RBAC dans GEOPage). Insere juste avant 'Email'.
-  const geoNav = isManagerOrAbove(user)
-    ? [{ name: 'GEO', href: '/geo', icon: TrendingUp }]
-    : [];
+  const groups = navGroupsForUser(user);
 
-  // Trends : signal de demande de marche, reserve managers/admins (garde RBAC
-  // dans TrendsPage). Insere juste apres GEO.
-  const trendsNav = isManagerOrAbove(user)
-    ? [{ name: 'Trends', href: '/trends', icon: BarChart3 }]
-    : [];
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(readOpenGroups);
+  const isOpen = (key: string) => openGroups[key] !== false; // defaut : ouvert
+  const toggleGroup = (key: string) =>
+    setOpenGroups((prev) => ({ ...prev, [key]: !(prev[key] !== false) }));
 
-  // Enrichissement (Compass) : reserve managers/admins (garde RBAC dans la page).
-  const enrichmentNav = isManagerOrAbove(user)
-    ? [{ name: 'Enrichissement', href: '/enrichment', icon: UserPlus }]
-    : [];
+  // Persiste l'etat des groupes.
+  useEffect(() => {
+    try {
+      localStorage.setItem(GROUPS_STORAGE_KEY, JSON.stringify(openGroups));
+    } catch {
+      // localStorage indispo : etat en memoire pour la session.
+    }
+  }, [openGroups]);
 
-  // Integrations : op couteuse reservee aux managers/admins (cf garde RBAC
-  // backend get_current_manager + ManagerRoute frontend). Masque pour les sales.
-  const integrationsNav = isManagerOrAbove(user)
-    ? [{ name: 'Integrations', href: '/integrations', icon: Link2 }]
-    : [];
-
-  const navigation = [
-    ...baseNavigation.slice(0, 9), // jusqu'a 'Drafts à valider' inclus
-    ...geoNav,
-    ...trendsNav,
-    ...enrichmentNav,
-    ...baseNavigation.slice(9, 10), // 'Email'
-    ...integrationsNav,
-    ...baseNavigation.slice(10), // 'Paramètres'
-    ...(isAdmin(user)
-      ? [
-          { name: 'Utilisateurs', href: '/admin/users', icon: Shield },
-          { name: 'Conso MCP', href: '/mcp-tokens', icon: Coins },
-        ]
-      : []),
-  ];
+  // Auto-ouvre le groupe contenant la page active (arrivee via recherche/lien).
+  useEffect(() => {
+    const active = navGroupsForUser(user).find((g) =>
+      g.items.some((i) => isActivePath(location.pathname, i.href)),
+    );
+    if (!active) return;
+    // Forme fonctionnelle : `openGroups` n'est pas une dependance -> l'effet ne
+    // reagit qu'au changement de ROUTE (le repli manuel du groupe actif reste
+    // possible, pas de re-ouverture immediate).
+    setOpenGroups((prev) => (prev[active.key] === false ? { ...prev, [active.key]: true } : prev));
+  }, [location.pathname, user]);
 
   return (
     <div className="flex h-screen bg-slate-50">
@@ -112,28 +84,20 @@ export default function Layout() {
           <span className="text-lg font-bold text-slate-800">FGA CRM</span>
         </div>
 
-        {/* Navigation */}
-        <nav className="px-3 py-4 space-y-0.5 flex-1">
-          {navigation.map((item) => {
-            const isActive = location.pathname === item.href ||
-              (item.href !== '/' && location.pathname.startsWith(item.href));
-
-            return (
-              <Link
-                key={item.name}
-                to={item.href}
-                className={clsx(
-                  'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors',
-                  isActive
-                    ? 'bg-primary-50 text-primary-700'
-                    : 'text-slate-500 hover:bg-slate-50 hover:text-slate-700'
-                )}
-              >
-                <item.icon className={clsx('w-5 h-5', isActive ? 'text-primary-600' : 'text-slate-400')} />
-                {item.name}
-              </Link>
-            );
-          })}
+        {/* Navigation : Dashboard + groupes depliables */}
+        <nav className="px-3 py-4 flex-1 overflow-y-auto">
+          <NavLinkItem item={DASHBOARD_ITEM} pathname={location.pathname} />
+          <div className="mt-3 space-y-2">
+            {groups.map((g) => (
+              <SidebarNavGroup
+                key={g.key}
+                group={g}
+                open={isOpen(g.key)}
+                onToggle={() => toggleGroup(g.key)}
+                pathname={location.pathname}
+              />
+            ))}
+          </div>
         </nav>
 
         {/* User */}
