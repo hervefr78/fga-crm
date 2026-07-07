@@ -147,12 +147,12 @@ async def _process_company(
 
 
 def _should_use_bulk(target: TargetSpec) -> bool:
-    """Mode bulk (W3) : batch/icp + Icypeas reel + URL webhook configuree.
+    """Mode bulk (W3) : batch/icp/source + Icypeas reel + URL webhook configuree.
 
     Sinon (on-demand, mock, ou pas d'URL) -> pipeline inline synchrone (polling).
     """
     return (
-        target.kind in ("batch", "icp")
+        target.kind in ("batch", "icp", "source")
         and bool(settings.icypeas_api_key)
         and bool(settings.icypeas_webhook_url)
     )

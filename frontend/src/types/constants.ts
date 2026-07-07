@@ -66,6 +66,15 @@ export const COMPANY_SIZE_RANGES = [
   { value: '500+', label: '500+' },
 ] as const;
 
+// Provenances CRM (lead_source) — valeurs ALIGNEES sur ce que les integrations
+// ecrivent en base (DC10 : 'plein-phare' avec tiret). Source unique (DC8) pour
+// le filtre Entreprises et le mode source de l'enrichissement.
+export const LEAD_SOURCES = [
+  { value: 'startup_radar', label: 'Startup Radar' },
+  { value: 'nomo-ia', label: 'Nomo-IA' },
+  { value: 'plein-phare', label: 'Plein Phare Digital' },
+] as const;
+
 export const TASK_TYPES = [
   { value: 'todo', label: 'À faire' },
   { value: 'call', label: 'Appel' },

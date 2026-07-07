@@ -8,11 +8,11 @@
 
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, Building2, Filter, List, Play, ShieldAlert, Users } from 'lucide-react';
+import { AlertTriangle, Building2, Database, Filter, List, Play, ShieldAlert, Users } from 'lucide-react';
 import clsx from 'clsx';
 
 import { useAuth } from '../contexts/useAuth';
-import { isManagerOrAbove } from '../types';
+import { isManagerOrAbove, LEAD_SOURCES } from '../types';
 import { createEnrichmentJob, listEnrichmentJobs } from '../api/enrichment';
 import type { EnrichmentJobCreateInput, EnrichmentMode } from '../types/enrichment';
 import { Button } from '../components/ui';
@@ -39,6 +39,9 @@ export default function EnrichmentPage() {
   const [sirensInput, setSirensInput] = useState('');
   const [nafInput, setNafInput] = useState(DEFAULT_NAF);
   const [limit, setLimit] = useState(50);
+  // Mode source : provenance CRM + limite de societes.
+  const [leadSource, setLeadSource] = useState<string>(LEAD_SOURCES[0].value);
+  const [sourceLimit, setSourceLimit] = useState(200);
   const [reverify, setReverify] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
@@ -67,6 +70,8 @@ export default function EnrichmentPage() {
         payload.siren = siren.trim();
       } else if (mode === 'batch') {
         payload.sirens = parsedSirens;
+      } else if (mode === 'source') {
+        payload.source_filter = { lead_source: leadSource, limit: sourceLimit };
       } else if (mode === 'contacts') {
         payload.all_missing_email = true;
         payload.reverify = reverify;
@@ -104,6 +109,7 @@ export default function EnrichmentPage() {
   const canLaunch =
     mode === 'company' ? siren.trim().length > 0
     : mode === 'batch' ? parsedSirens.length > 0
+    : mode === 'source' ? leadSource.length > 0
     : mode === 'contacts' ? true
     : nafInput.trim().length > 0;
 
@@ -121,7 +127,7 @@ export default function EnrichmentPage() {
       <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-4 space-y-4">
         {/* Selecteur de mode */}
         <div className="inline-flex rounded-lg border border-slate-200 p-0.5">
-          {([['company', 'A la demande', Building2], ['batch', 'Liste de SIREN', List], ['icp', 'ICP (NAF)', Filter], ['contacts', 'Contacts existants', Users]] as const).map(
+          {([['company', 'A la demande', Building2], ['batch', 'Liste de SIREN', List], ['icp', 'ICP (NAF)', Filter], ['source', 'Par provenance', Database], ['contacts', 'Contacts existants', Users]] as const).map(
             ([m, label, Icon]) => (
               <button
                 key={m}
@@ -163,6 +169,32 @@ export default function EnrichmentPage() {
               className="w-full max-w-md rounded-md border border-slate-200 px-3 py-2 text-sm text-slate-700 tabular-nums focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:outline-none"
             />
             <span className="text-xs text-slate-400">{parsedSirens.length} SIREN valides detectes</span>
+          </div>
+        ) : mode === 'source' ? (
+          <div className="flex flex-wrap items-end gap-3">
+            <label className="flex flex-col gap-1">
+              <span className="text-xs font-medium text-slate-700">Provenance (source des fiches)</span>
+              <select
+                value={leadSource}
+                onChange={(e) => setLeadSource(e.target.value)}
+                className="h-9 w-56 rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-700 focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:outline-none"
+              >
+                {LEAD_SOURCES.map((s) => (
+                  <option key={s.value} value={s.value}>{s.label}</option>
+                ))}
+              </select>
+            </label>
+            <label className="flex flex-col gap-1">
+              <span className="text-xs font-medium text-slate-700">Limite societes</span>
+              <input
+                type="number"
+                min={1}
+                max={1000}
+                value={sourceLimit}
+                onChange={(e) => setSourceLimit(Math.max(1, Math.min(1000, Number(e.target.value) || 1)))}
+                className="h-9 w-28 rounded-md border border-slate-200 px-3 text-sm text-slate-700 tabular-nums focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:outline-none"
+              />
+            </label>
           </div>
         ) : mode === 'contacts' ? (
           <div className="flex flex-col gap-2">
@@ -219,9 +251,11 @@ export default function EnrichmentPage() {
               ? 'Enrichit les decideurs de cette societe.'
               : mode === 'batch'
                 ? 'Enrichit les decideurs d’un lot de societes (par SIREN).'
-                : mode === 'contacts'
-                  ? 'Enrichit les contacts existants sans email (import LinkedIn/CSV).'
-                  : 'Enrichit un lot de societes filtrees par code NAF.'}
+                : mode === 'source'
+                  ? 'Enrichit les societes CRM d’une provenance (SIREN resolu automatiquement si absent).'
+                  : mode === 'contacts'
+                    ? 'Enrichit les contacts existants sans email (import LinkedIn/CSV).'
+                    : 'Enrichit un lot de societes filtrees par code NAF.'}
           </span>
         </div>
       </div>
