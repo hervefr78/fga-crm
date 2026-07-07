@@ -190,7 +190,9 @@ async def list_companies(
     total = (await db.execute(count_query)).scalar() or 0
 
     # Tri dynamique
-    _SORTABLE = {"name", "industry", "size_range", "created_at"}
+    _SORTABLE = {"name", "industry", "size_range", "created_at", "funding_amount", "funding_date"}
+    # Champs nullable (funding) : NULLs toujours en dernier, quel que soit le sens.
+    _NULLS_LAST = {"funding_amount", "funding_date"}
     if sort_by in _SORTABLE:
         if sort_by == "size_range":
             sort_col = case(
@@ -200,7 +202,10 @@ async def list_companies(
             )
         else:
             sort_col = getattr(Company, sort_by)
-        query = query.order_by(sort_col.desc() if sort_dir == "desc" else sort_col.asc())
+        ordering = sort_col.desc() if sort_dir == "desc" else sort_col.asc()
+        if sort_by in _NULLS_LAST:
+            ordering = ordering.nulls_last()
+        query = query.order_by(ordering)
     else:
         query = query.order_by(Company.created_at.desc())
 

@@ -2,7 +2,7 @@
 // FGA CRM - Companies Page (liste + CRUD + filtres + import/export)
 // =============================================================================
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
@@ -12,13 +12,16 @@ import {
 
 import { getCompanies, deleteCompany } from '../api/client';
 import type { Company } from '../types';
-import { COMPANY_SIZE_RANGES } from '../types';
+import { COMPANY_SIZE_RANGES, isManagerOrAbove } from '../types';
+import { useAuth } from '../contexts/useAuth';
 import { Modal, SearchInput, Pagination, LoadingSpinner, EmptyState, ConfirmDialog, Button, FilterBar } from '../components/ui';
 import type { FilterDef } from '../components/ui';
 import CompanyForm from '../components/companies/CompanyForm';
+import CompanyBulkActionBar from '../components/companies/CompanyBulkActionBar';
+import { useCompanyBulkAction, isAuditEligible } from '../components/companies/useCompanyBulkAction';
 import CsvImportModal from '../components/import/CsvImportModal';
 import { exportToCsv, COMPANY_CSV_COLUMNS } from '../utils/csv';
-import { formatDateFR } from '../utils/format';
+import { formatDateFR, formatAmountMillions } from '../utils/format';
 
 // Filtres disponibles
 const COMPANY_FILTERS: FilterDef[] = [
@@ -76,7 +79,7 @@ const COMPANY_FILTERS: FilterDef[] = [
 ];
 
 // Colonnes triables côté backend
-type SortKey = 'name' | 'industry' | 'size_range' | 'created_at';
+type SortKey = 'name' | 'industry' | 'size_range' | 'created_at' | 'funding_amount';
 
 const MAX_EXPORT_SIZE = 5000;
 
@@ -96,10 +99,23 @@ export default function CompaniesPage() {
   const [editingCompany, setEditingCompany] = useState<Company | undefined>(undefined);
   const [deletingCompany, setDeletingCompany] = useState<Company | null>(null);
 
+  // Selection multiple + actions groupees (audit / recherche de contacts)
+  const { user } = useAuth();
+  const canAudit = isManagerOrAbove(user); // audit SR reserve managers/admins
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [confirmAction, setConfirmAction] = useState<'audit' | 'contacts' | null>(null);
+  const bulk = useCompanyBulkAction();
+
   // Construire les params avec filtres actifs
   const activeFilters = Object.fromEntries(
     Object.entries(filters).filter(([, v]) => v !== ''),
   );
+  const filtersKey = JSON.stringify(activeFilters);
+
+  // Reset la selection quand la vue change (page / tri / recherche / filtres).
+  useEffect(() => {
+    setSelectedIds(new Set());
+  }, [page, search, sortBy, sortDir, filtersKey]);
 
   const { data, isLoading } = useQuery({
     queryKey: ['companies', { page, search, sortBy, sortDir, ...activeFilters }],
@@ -169,6 +185,35 @@ export default function CompaniesPage() {
     setEditingCompany(undefined);
   };
 
+  // --- Selection multiple (sur la page courante) ---
+  const items: Company[] = data?.items ?? [];
+  const allSelected = items.length > 0 && items.every((c) => selectedIds.has(c.id));
+  const someSelected = items.some((c) => selectedIds.has(c.id));
+  const selectedCompanies = items.filter((c) => selectedIds.has(c.id));
+  const eligibleAuditCount = selectedCompanies.filter(isAuditEligible).length;
+  const skippedAuditCount = selectedCompanies.length - eligibleAuditCount;
+
+  const toggleOne = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleAll = () => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (items.every((c) => prev.has(c.id))) {
+        items.forEach((c) => next.delete(c.id));
+      } else {
+        items.forEach((c) => next.add(c.id));
+      }
+      return next;
+    });
+  };
+
   return (
     <div className="p-8">
       {/* Header */}
@@ -205,6 +250,20 @@ export default function CompaniesPage() {
         />
       </div>
 
+      {/* Barre d'actions groupees (selection multiple) */}
+      {(selectedIds.size > 0 || bulk.action) && (
+        <div className="mb-4">
+          <CompanyBulkActionBar
+            selectedCount={selectedCompanies.length}
+            canAudit={canAudit}
+            onAudit={() => setConfirmAction('audit')}
+            onContacts={() => setConfirmAction('contacts')}
+            onClear={() => setSelectedIds(new Set())}
+            bulk={bulk}
+          />
+        </div>
+      )}
+
       {/* Tableau */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
         {isLoading ? (
@@ -216,9 +275,20 @@ export default function CompaniesPage() {
             <table className="w-full">
               <thead className="bg-slate-50">
                 <tr>
+                  <th className="px-4 py-3 w-10">
+                    <input
+                      type="checkbox"
+                      checked={allSelected}
+                      ref={(el) => { if (el) el.indeterminate = !allSelected && someSelected; }}
+                      onChange={toggleAll}
+                      aria-label="Tout selectionner"
+                      className="h-4 w-4 rounded border-slate-300 text-primary-600 focus:ring-primary-500 cursor-pointer"
+                    />
+                  </th>
                   <SortTh col="name" label="Entreprise" sortBy={sortBy} sortDir={sortDir} onSort={handleSort} align="left" />
                   <SortTh col="industry" label="Secteur" sortBy={sortBy} sortDir={sortDir} onSort={handleSort} align="left" />
                   <SortTh col="size_range" label="Taille" sortBy={sortBy} sortDir={sortDir} onSort={handleSort} align="left" />
+                  <SortTh col="funding_amount" label="Levée" sortBy={sortBy} sortDir={sortDir} onSort={handleSort} align="left" />
                   <th className="px-6 py-3 text-center text-xs font-medium text-slate-400 uppercase tracking-wide">Score</th>
                   <th className="px-6 py-3 text-center text-xs font-medium text-slate-400 uppercase tracking-wide">Audits</th>
                   <SortTh col="created_at" label="Créé le" sortBy={sortBy} sortDir={sortDir} onSort={handleSort} align="left" />
@@ -232,6 +302,15 @@ export default function CompaniesPage() {
                     onClick={() => navigate(`/companies/${company.id}`)}
                     className="hover:bg-slate-50 cursor-pointer transition-colors"
                   >
+                    <td className="px-4 py-4" onClick={(e) => e.stopPropagation()}>
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.has(company.id)}
+                        onChange={() => toggleOne(company.id)}
+                        aria-label={`Selectionner ${company.name}`}
+                        className="h-4 w-4 rounded border-slate-300 text-primary-600 focus:ring-primary-500 cursor-pointer"
+                      />
+                    </td>
                     <td className="px-6 py-4">
                       <p className="text-sm font-medium text-slate-700">{company.name}</p>
                       {company.website && (
@@ -240,6 +319,22 @@ export default function CompaniesPage() {
                     </td>
                     <td className="px-6 py-4 text-sm text-slate-500">{company.industry || '—'}</td>
                     <td className="px-6 py-4 text-sm text-slate-500">{company.size_range || '—'}</td>
+                    <td className="px-6 py-4">
+                      {company.funding_amount != null ? (
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-sm font-medium text-emerald-700">
+                            {formatAmountMillions(company.funding_amount)}
+                          </span>
+                          {company.funding_series && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 whitespace-nowrap">
+                              {company.funding_series}
+                            </span>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="text-slate-300">—</span>
+                      )}
+                    </td>
                     <td className="px-6 py-4 text-center">
                       {company.audit_score != null ? (
                         <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold ${
@@ -317,6 +412,28 @@ export default function CompaniesPage() {
         title="Supprimer l'entreprise"
         message={`Voulez-vous vraiment supprimer ${deletingCompany?.name} ? Cette action est irréversible.`}
         loading={deleteMutation.isPending}
+      />
+
+      {/* Confirmation des actions groupees (operations couteuses) */}
+      <ConfirmDialog
+        open={confirmAction !== null}
+        onClose={() => setConfirmAction(null)}
+        onConfirm={() => {
+          if (confirmAction === 'audit') bulk.startAudit(selectedCompanies);
+          else if (confirmAction === 'contacts') bulk.startContacts(selectedCompanies);
+          setConfirmAction(null);
+        }}
+        title={confirmAction === 'audit' ? "Lancer l'audit ?" : 'Chercher les contacts ?'}
+        message={
+          confirmAction === 'audit'
+            ? `${eligibleAuditCount} audit(s) SR vont etre lances${
+                skippedAuditCount > 0
+                  ? ` (${skippedAuditCount} sans lien Startup Radar seront ignorees)`
+                  : ''
+              }. Operation longue (plusieurs minutes par entreprise).`
+            : `${selectedCompanies.length} recherche(s) de contacts (Icypeas) vont etre lancees. Consomme des credits d'enrichissement.`
+        }
+        confirmLabel="Lancer"
       />
 
       {/* Modal import CSV */}

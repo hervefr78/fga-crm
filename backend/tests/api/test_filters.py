@@ -118,3 +118,27 @@ async def test_filter_companies_by_country(client: AsyncClient, auth_headers: di
     assert response.status_code == 200
     assert response.json()["total"] == 1
     assert response.json()["items"][0]["name"] == "FrenchCo"
+
+
+@pytest.mark.asyncio
+async def test_sort_companies_by_funding_amount(client: AsyncClient, auth_headers: dict):
+    """Tri par montant de levee (desc) avec NULLs (pas de levee) toujours en dernier."""
+    await client.post("/api/v1/companies/", json={
+        "name": "SmallRaise", "funding_amount": 500000,
+    }, headers=auth_headers)
+    await client.post("/api/v1/companies/", json={
+        "name": "BigRaise", "funding_amount": 5000000,
+    }, headers=auth_headers)
+    await client.post("/api/v1/companies/", json={
+        "name": "NoRaise",
+    }, headers=auth_headers)
+
+    response = await client.get(
+        "/api/v1/companies/",
+        params={"sort_by": "funding_amount", "sort_dir": "desc"},
+        headers=auth_headers,
+    )
+    assert response.status_code == 200
+    names = [c["name"] for c in response.json()["items"]]
+    # Montant decroissant, puis les sans-levee (NULL) en dernier.
+    assert names.index("BigRaise") < names.index("SmallRaise") < names.index("NoRaise")
