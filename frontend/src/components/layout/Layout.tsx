@@ -63,11 +63,10 @@ export default function Layout() {
       g.items.some((i) => isActivePath(location.pathname, i.href)),
     );
     if (!active) return;
+    // Forme fonctionnelle : `openGroups` n'est pas une dependance -> l'effet ne
+    // reagit qu'au changement de ROUTE (le repli manuel du groupe actif reste
+    // possible, pas de re-ouverture immediate).
     setOpenGroups((prev) => (prev[active.key] === false ? { ...prev, [active.key]: true } : prev));
-    // `openGroups` volontairement hors deps : l'auto-ouverture ne doit reagir
-    // qu'au changement de ROUTE — sinon elle annulerait le repli manuel du
-    // groupe de la page active (re-ouverture immediate).
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.pathname, user]);
 
   return (
