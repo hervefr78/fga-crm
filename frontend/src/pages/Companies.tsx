@@ -3,7 +3,7 @@
 // =============================================================================
 
 import { useState, useCallback, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Building2, Plus, Trash2, Download, Upload,
@@ -19,6 +19,9 @@ import type { FilterDef } from '../components/ui';
 import CompanyForm from '../components/companies/CompanyForm';
 import CompanyBulkActionBar from '../components/companies/CompanyBulkActionBar';
 import { useCompanyBulkAction, isAuditEligible } from '../components/companies/useCompanyBulkAction';
+import {
+  CompanySortKey, parseListParams, buildListParams, saveCompaniesListQuery,
+} from '../components/companies/companiesListState';
 import CsvImportModal from '../components/import/CsvImportModal';
 import { exportToCsv, COMPANY_CSV_COLUMNS } from '../utils/csv';
 import { formatDateFR, formatAmountMillions } from '../utils/format';
@@ -78,19 +81,38 @@ const COMPANY_FILTERS: FilterDef[] = [
   { key: 'funding_date_after', label: 'Levee apres', type: 'date' },
 ];
 
-// Colonnes triables côté backend
-type SortKey = 'name' | 'industry' | 'size_range' | 'created_at' | 'funding_amount';
+// Colonnes triables côté backend (source unique : companiesListState — DC8)
+type SortKey = CompanySortKey;
+
+// Cles de filtres presentes dans l'URL
+const FILTER_KEYS = COMPANY_FILTERS.map((f) => f.key);
 
 const MAX_EXPORT_SIZE = 5000;
 
 export default function CompaniesPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const [search, setSearch] = useState('');
-  const [page, setPage] = useState(1);
-  const [filters, setFilters] = useState<Record<string, string>>({});
-  const [sortBy, setSortBy] = useState<SortKey>('created_at');
-  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+
+  // Etat de vue (recherche, page, tri, filtres) porte par l'URL : le retour
+  // depuis une fiche (back navigateur / liens du detail) restaure la liste
+  // filtree telle quelle. `replace: true` : pas d'entree d'historique par frappe.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const view = parseListParams(searchParams, FILTER_KEYS);
+  const { search, page, sortBy, sortDir, filters } = view;
+
+  const updateView = useCallback((patch: Partial<typeof view>) => {
+    setSearchParams(
+      (prev) => buildListParams({ ...parseListParams(prev, FILTER_KEYS), ...patch }, FILTER_KEYS),
+      { replace: true },
+    );
+  }, [setSearchParams]);
+
+  // Memorise le dernier etat de vue pour les liens "Entreprises" du detail.
+  const viewQuery = searchParams.toString();
+  useEffect(() => {
+    saveCompaniesListQuery(viewQuery);
+  }, [viewQuery]);
+
   const [importOpen, setImportOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
 
@@ -110,12 +132,11 @@ export default function CompaniesPage() {
   const activeFilters = Object.fromEntries(
     Object.entries(filters).filter(([, v]) => v !== ''),
   );
-  const filtersKey = JSON.stringify(activeFilters);
 
   // Reset la selection quand la vue change (page / tri / recherche / filtres).
   useEffect(() => {
     setSelectedIds(new Set());
-  }, [page, search, sortBy, sortDir, filtersKey]);
+  }, [viewQuery]);
 
   const { data, isLoading } = useQuery({
     queryKey: ['companies', { page, search, sortBy, sortDir, ...activeFilters }],
@@ -135,29 +156,24 @@ export default function CompaniesPage() {
   });
 
   const handleSearch = (value: string) => {
-    setSearch(value);
-    setPage(1);
+    updateView({ search: value, page: 1 });
   };
 
   const handleFilterChange = useCallback((key: string, value: string) => {
-    setFilters((prev) => ({ ...prev, [key]: value }));
-    setPage(1);
-  }, []);
+    updateView({ filters: { ...filters, [key]: value }, page: 1 });
+  }, [updateView, filters]);
 
   const handleFilterReset = useCallback(() => {
-    setFilters({});
-    setPage(1);
-  }, []);
+    updateView({ filters: {}, page: 1 });
+  }, [updateView]);
 
   const handleSort = useCallback((col: SortKey) => {
     if (sortBy === col) {
-      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+      updateView({ sortDir: sortDir === 'asc' ? 'desc' : 'asc', page: 1 });
     } else {
-      setSortBy(col);
-      setSortDir('asc');
+      updateView({ sortBy: col, sortDir: 'asc', page: 1 });
     }
-    setPage(1);
-  }, [sortBy]);
+  }, [updateView, sortBy, sortDir]);
 
   const handleExport = async () => {
     setExporting(true);
@@ -384,7 +400,7 @@ export default function CompaniesPage() {
               page={data.page}
               pages={data.pages}
               total={data.total}
-              onPageChange={setPage}
+              onPageChange={(p) => updateView({ page: p })}
             />
           </>
         )}
