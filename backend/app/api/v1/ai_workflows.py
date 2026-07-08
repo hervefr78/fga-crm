@@ -17,7 +17,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.core.deps import get_current_user
+from app.core.deps import get_current_manager, get_current_user
 from app.core.rbac import check_entity_access, check_tenant_access
 from app.db.session import get_db
 from app.models.contact import Contact
@@ -27,8 +27,10 @@ from app.schemas.ai_workflows import (
     ContactQualifyRequest,
     ContactQualifyResponse,
     DealScoreResponse,
+    InsightsResponse,
 )
 from app.services.ai_workflows.client import AiWorkflowError
+from app.services.ai_workflows.insights import get_weekly_insights
 from app.services.ai_workflows.qualification import qualify_contact
 from app.services.ai_workflows.scoring import score_deal
 
@@ -142,4 +144,43 @@ async def qualify_contact_endpoint(
             "model": qual.get("model"),
             "prompt_version": qual.get("prompt_version"),
         },
+    )
+
+
+@router.get("/insights/weekly", response_model=InsightsResponse)
+async def weekly_insights_endpoint(
+    period_days: int = Query(7, ge=1, le=90),
+    refresh: bool = Query(False),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_manager),
+) -> InsightsResponse:
+    """Synthese hebdo du pipeline (manager+ : vue org entiere).
+
+    La synthese la plus recente (< 24 h, meme periode) est servie du cache ;
+    refresh=true force une regeneration.
+    """
+    if not settings.ai_workflows_enabled:
+        raise HTTPException(status_code=503, detail="Workflows IA desactives")
+    if not settings.openai_api_key:
+        raise HTTPException(status_code=503, detail="OpenAI non configure")
+
+    try:
+        insight, cached = await get_weekly_insights(
+            db, user.organization_id, period_days=period_days, refresh=refresh,
+        )
+    except AiWorkflowError as exc:
+        raise HTTPException(status_code=502, detail=f"Insights IA indisponibles : {exc}")
+
+    p = insight.payload_json or {}
+    return InsightsResponse(
+        headline=p.get("headline", ""),
+        pipeline_health=p.get("pipeline_health", ""),
+        stale_deals_summary=p.get("stale_deals_summary", ""),
+        loss_patterns=p.get("loss_patterns"),
+        top_actions=list(p.get("top_actions") or []),
+        data_caveats=list(p.get("data_caveats") or []),
+        period_days=insight.period_days,
+        generated_at=insight.generated_at.isoformat() if insight.generated_at else "",
+        cached=cached,
+        meta={"model": p.get("model"), "prompt_version": p.get("prompt_version")},
     )

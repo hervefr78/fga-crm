@@ -3,7 +3,7 @@
 # =============================================================================
 
 from app.models.activity import Activity
-from app.models.ai_workflow import AiWorkflowRun
+from app.models.ai_workflow import AiInsight, AiWorkflowRun
 from app.models.api_key import ApiKey
 from app.models.base import Base, TimestampMixin, UUIDMixin
 from app.models.company import Company
@@ -75,4 +75,5 @@ __all__ = [
     "TrendKeyword",
     "TrendReport",
     "AiWorkflowRun",
+    "AiInsight",
 ]

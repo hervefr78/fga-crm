@@ -162,6 +162,14 @@ export const qualifyContact = async (id: string, submissionText?: string) => {
   return response.data;
 };
 
+// Synthese hebdo du pipeline (manager+). Servie du cache < 24 h sauf refresh.
+export const getWeeklyInsights = async (refresh = false) => {
+  const response = await api.get('/insights/weekly', {
+    params: refresh ? { refresh: true } : undefined,
+  });
+  return response.data;
+};
+
 // ---------- Tasks ----------
 export const getTasks = async (params?: Record<string, unknown>) => {
   const response = await api.get('/tasks', { params });
