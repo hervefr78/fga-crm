@@ -119,6 +119,12 @@ class Settings(BaseSettings):
     # Recommandations LLM (mode Profond) : reutilise openai_api_key. None -> desactive.
     trends_llm_model: str = "gpt-4o-mini"
 
+    # Workflows IA natifs (scoring, qualification, insights — spec workflows-ia).
+    # Reutilise openai_api_key (stack LLM unique). Kill switch global.
+    ai_workflows_enabled: bool = True
+    ai_workflows_model: str = "gpt-4o-mini"
+    ai_score_ttl_days: int = 7                      # score deal en cache N jours
+
     # Enrichissement emails B2B (feature Compass). Icypeas = moteur principal ;
     # si cle absente -> provider mock (deployable/testable sans cle).
     icypeas_api_key: str | None = None

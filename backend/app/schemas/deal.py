@@ -168,6 +168,15 @@ class DealResponse(BaseModel):
     recurring_amount: float | None
     commitment_months: int | None
 
+    # Produit + scoring IA (workflow scoring — null tant que non score)
+    product: str | None = None
+    ai_score: int | None = None
+    ai_tier: str | None = None
+    ai_score_rationale: str | None = None
+    ai_score_missing: list[str] = []
+    ai_scored_at: str | None = None
+    ai_score_meta: dict = {}
+
     class Config:
         from_attributes = True
 
