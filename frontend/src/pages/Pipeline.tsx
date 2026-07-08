@@ -122,6 +122,7 @@ export default function PipelinePage() {
                   <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wide">Deal</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wide">Stage</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wide">Montant</th>
+                  <th className="px-6 py-3 text-center text-xs font-medium text-slate-400 uppercase tracking-wide">Score IA</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wide">Priorité</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wide">Probabilité</th>
                   <th className="px-6 py-3 w-12" />
@@ -147,6 +148,22 @@ export default function PipelinePage() {
                     </td>
                     <td className="px-6 py-4 text-sm text-slate-500">
                       {formatAmount(deal.amount, deal.currency)}
+                    </td>
+                    <td className="px-6 py-4 text-center">
+                      {deal.ai_tier ? (
+                        <span
+                          className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold ${
+                            deal.ai_tier === 'A' ? 'bg-emerald-50 text-emerald-700'
+                            : deal.ai_tier === 'B' ? 'bg-amber-50 text-amber-700'
+                            : 'bg-slate-100 text-slate-600'
+                          }`}
+                          title={`Score IA : ${deal.ai_score}/100`}
+                        >
+                          {deal.ai_tier} · {deal.ai_score}
+                        </span>
+                      ) : (
+                        <span className="text-slate-300">—</span>
+                      )}
                     </td>
                     <td className="px-6 py-4">
                       <Badge variant={PRIORITY_VARIANTS[deal.priority] || 'default'}>

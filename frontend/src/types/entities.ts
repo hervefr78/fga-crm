@@ -120,6 +120,21 @@ export interface Deal {
   company_name: string | null;
   // Champ derive backend (joined depuis Contact.full_name) — null si pas de contact
   contact_name: string | null;
+  // Produit vendu (audit-999 | founder-499 | advisory) + scoring IA (null si non score)
+  product: string | null;
+  ai_score: number | null;
+  ai_tier: string | null;
+  ai_score_rationale: string | null;
+  ai_score_missing: string[];
+  ai_scored_at: string | null;
+  ai_score_meta: {
+    model?: string | null;
+    prompt_version?: string | null;
+    recommended_product?: string | null;
+    fit_points?: number | null;
+    intent_points?: number | null;
+    message_points?: number | null;
+  };
 }
 
 // Stats agregees retournees par GET /api/v1/deals/stats

@@ -34,6 +34,12 @@ DEAL_CATEGORIES: dict[str, list[str]] = {
 # Types de pricing supportes (one-shot ou recurrent)
 PRICING_TYPES = ["one_shot", "monthly", "quarterly", "biannual", "annual"]
 
+# Produits FGA (DC8 — source unique ; agregats par produit + scoring IA)
+DEAL_PRODUCTS = ["audit-999", "founder-499", "advisory"]
+
+# Tiers de score IA (DC5)
+AI_TIERS = ["A", "B", "C"]
+
 # Conversion d'une periode recurrente en nombre de mois (pour normaliser le MRR)
 PERIOD_TO_MONTHS: dict[str, int] = {"monthly": 1, "quarterly": 3, "biannual": 6, "annual": 12}
 
@@ -70,6 +76,18 @@ class Deal(Base, UUIDMixin, OrgScopedMixin, TimestampMixin):
     )
     recurring_amount: Mapped[float | None] = mapped_column(Float, nullable=True)
     commitment_months: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    # Produit vendu (audit-999 | founder-499 | advisory) — agregats + scoring IA
+    product: Mapped[str | None] = mapped_column(String(30), nullable=True, index=True)
+
+    # Scoring IA (workflow scoring — services/ai_workflows). Renseigne par
+    # POST /deals/{id}/score ; vide tant que le deal n'a pas ete score.
+    ai_score: Mapped[int | None] = mapped_column(Integer, nullable=True)          # 0-100
+    ai_tier: Mapped[str | None] = mapped_column(String(1), nullable=True, index=True)  # A|B|C
+    ai_score_rationale: Mapped[str | None] = mapped_column(Text, nullable=True)
+    ai_score_missing: Mapped[list | None] = mapped_column(JSONB, nullable=True, default=list)
+    ai_scored_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    ai_score_meta: Mapped[dict | None] = mapped_column(JSONB, nullable=True, default=dict)
 
     # Flexible
     custom_fields: Mapped[dict | None] = mapped_column(JSONB, nullable=True, default=dict)

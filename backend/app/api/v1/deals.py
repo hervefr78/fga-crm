@@ -83,6 +83,13 @@ def _deal_to_response(d: Deal) -> DealResponse:
         pricing_type=d.pricing_type,
         recurring_amount=d.recurring_amount,
         commitment_months=d.commitment_months,
+        product=d.product,
+        ai_score=d.ai_score,
+        ai_tier=d.ai_tier,
+        ai_score_rationale=d.ai_score_rationale,
+        ai_score_missing=list(d.ai_score_missing or []),
+        ai_scored_at=d.ai_scored_at.isoformat() if d.ai_scored_at else None,
+        ai_score_meta=dict(d.ai_score_meta or {}),
     )
 
 

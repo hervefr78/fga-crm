@@ -145,6 +145,15 @@ export const deleteDeal = async (id: string) => {
   await api.delete(`/deals/${id}`);
 };
 
+// Scoring IA d'un deal (workflow scoring). Un score < 7 jours est renvoye du
+// cache (cached=true) sauf forceRescore.
+export const scoreDeal = async (id: string, forceRescore = false) => {
+  const response = await api.post(`/deals/${id}/score`, null, {
+    params: forceRescore ? { force_rescore: true } : undefined,
+  });
+  return response.data;
+};
+
 // ---------- Tasks ----------
 export const getTasks = async (params?: Record<string, unknown>) => {
   const response = await api.get('/tasks', { params });

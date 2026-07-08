@@ -8,6 +8,7 @@ from app.api.v1 import (
     activities,
     admin_api_keys,
     ai,
+    ai_workflows,
     auth,
     companies,
     contacts,
@@ -55,3 +56,5 @@ api_router.include_router(mcp_usage.router, prefix="/mcp-usage", tags=["MCP Usag
 # AI router : routes absolues (/companies/{id}/next-action, /contacts/{id}/next-action,
 # /deals/{id}/next-action). Pas de prefix ici — chaque route porte son chemin complet.
 api_router.include_router(ai.router, tags=["AI"])
+# Workflows IA (scoring...) : routes absolues (/deals/{id}/score), pas de prefix.
+api_router.include_router(ai_workflows.router, tags=["AI Workflows"])

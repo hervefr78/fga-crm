@@ -34,6 +34,7 @@ import type {
 import { PRICING_PERIOD_MONTHS } from '../types';
 import { Button, ConfirmDialog, LoadingSpinner } from '../components/ui';
 import AiCard from '../components/ai/AiCard';
+import DealScoreCard from '../components/pipeline/DealScoreCard';
 import ComposerModal, { ComposerChannel } from '../components/activities/ComposerModal';
 import {
   SPLIT_VIEW_SIZE, PIPELINE_STAGES, STAGE_LABELS,
@@ -331,6 +332,9 @@ export default function DealDetailPage() {
               <div className="min-w-0 flex flex-col gap-4">
 
                 <AiCard data={nextAction} loading={nextActionLoading} onAction={handleAiAction} />
+
+                {/* Score IA (workflow scoring — fit + intent + opportunite message) */}
+                <DealScoreCard deal={deal} />
 
                 {deal.description && (
                   <Card title="Contexte" icon={FileText}>
