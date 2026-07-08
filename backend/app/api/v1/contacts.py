@@ -97,6 +97,9 @@ def _contact_to_response(
         enrichment_source=c.enrichment_source,
         email_pattern_used=c.email_pattern_used,
         linkedin_url_status=c.linkedin_url_status,
+        ai_qualification=c.ai_qualification,
+        ai_routing=c.ai_routing,
+        ai_qualified_at=c.ai_qualified_at.isoformat() if c.ai_qualified_at else None,
     )
 
 
@@ -112,6 +115,7 @@ async def list_contacts(
     title: str | None = Query(None, max_length=255),
     is_decision_maker: str | None = None,
     has_email: str | None = None,
+    ai_routing: str | None = Query(None, max_length=20),
     created_after: str | None = None,
     created_before: str | None = None,
     db: AsyncSession = Depends(get_db),
@@ -150,6 +154,16 @@ async def list_contacts(
         query = query.where(Contact.email.isnot(None), Contact.email != "")
     elif has_email == "false":
         query = query.where((Contact.email.is_(None)) | (Contact.email == ""))
+    if ai_routing:
+        # Valide contre le Set des routages connus (DC1) — valeur inconnue -> 422.
+        from app.schemas.ai_workflows import AI_ROUTINGS
+
+        if ai_routing not in AI_ROUTINGS:
+            raise HTTPException(
+                status_code=422,
+                detail=f"ai_routing invalide. Valeurs : {', '.join(AI_ROUTINGS)}",
+            )
+        query = query.where(Contact.ai_routing == ai_routing)
     if created_after:
         query = query.where(Contact.created_at >= _parse_date(created_after, "created_after"))
     if created_before:

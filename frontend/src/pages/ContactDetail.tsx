@@ -29,6 +29,7 @@ import EmailIndicator from '../components/contacts/EmailIndicator';
 import LinkedinIndicator from '../components/contacts/LinkedinIndicator';
 import { Kpi, Card, Tab, SideLink, Row } from '../components/contact/ContactAtoms';
 import { useContactEmailEnrichment } from '../components/contact/useContactEmailEnrichment';
+import ContactQualificationCard from '../components/contact/ContactQualificationCard';
 import { ActivityFeed } from '../components/contact/ContactActivityFeed';
 import { DealsList, TasksList } from '../components/contact/ContactLists';
 import {
@@ -323,6 +324,9 @@ export default function ContactDetailPage() {
                           : 'La recherche a echoue.'}
                   </div>
                 )}
+
+                {/* Qualification IA (SPICED — workflow qualification) */}
+                <ContactQualificationCard contact={contact} />
 
                 {/* Tabs */}
                 <div className="flex items-center gap-0.5 border-b border-slate-200 px-1 mt-2">

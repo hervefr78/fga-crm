@@ -20,10 +20,16 @@ from app.config import settings
 from app.core.deps import get_current_user
 from app.core.rbac import check_entity_access, check_tenant_access
 from app.db.session import get_db
+from app.models.contact import Contact
 from app.models.deal import Deal
 from app.models.user import User
-from app.schemas.ai_workflows import DealScoreResponse
+from app.schemas.ai_workflows import (
+    ContactQualifyRequest,
+    ContactQualifyResponse,
+    DealScoreResponse,
+)
 from app.services.ai_workflows.client import AiWorkflowError
+from app.services.ai_workflows.qualification import qualify_contact
 from app.services.ai_workflows.scoring import score_deal
 
 router = APIRouter()
@@ -89,3 +95,51 @@ async def score_deal_endpoint(
         raise HTTPException(status_code=502, detail=f"Scoring IA indisponible : {exc}")
 
     return _score_response(deal, cached=False)
+
+
+@router.post("/contacts/{contact_id}/qualify", response_model=ContactQualifyResponse)
+async def qualify_contact_endpoint(
+    contact_id: uuid.UUID,
+    payload: ContactQualifyRequest | None = None,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> ContactQualifyResponse:
+    """Qualifie un contact selon SPICED et recommande un routage.
+
+    fast_track cree automatiquement un deal (stage 'new', produit suggere,
+    owner = declencheur). Jamais de disqualification automatique. Pas de cache :
+    re-qualifier est une action explicite (cout negligeable).
+    """
+    if not settings.ai_workflows_enabled:
+        raise HTTPException(status_code=503, detail="Workflows IA desactives")
+
+    contact = await db.get(Contact, contact_id)
+    if contact is None:
+        raise HTTPException(status_code=404, detail="Contact non trouve")
+    check_tenant_access(contact, user)
+    check_entity_access(contact, user)
+
+    if not settings.openai_api_key:
+        raise HTTPException(status_code=503, detail="OpenAI non configure")
+
+    submission = payload.submission_text if payload else None
+    try:
+        output, deal = await qualify_contact(db, contact, user, submission)
+    except AiWorkflowError as exc:
+        raise HTTPException(status_code=502, detail=f"Qualification IA indisponible : {exc}")
+
+    qual = contact.ai_qualification or {}
+    return ContactQualifyResponse(
+        contact_id=str(contact.id),
+        routing=output.routing,
+        routing_rationale=output.routing_rationale,
+        spiced=output.spiced.model_dump(),
+        suggested_product=output.suggested_product,
+        next_action=output.next_action,
+        qualified_at=contact.ai_qualified_at.isoformat() if contact.ai_qualified_at else "",
+        deal_created_id=str(deal.id) if deal is not None else None,
+        meta={
+            "model": qual.get("model"),
+            "prompt_version": qual.get("prompt_version"),
+        },
+    )

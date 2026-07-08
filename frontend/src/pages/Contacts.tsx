@@ -38,6 +38,17 @@ const CONTACT_FILTERS: FilterDef[] = [
   { key: 'source', label: 'Source', type: 'select', options: [...CONTACT_SOURCES] },
   { key: 'title', label: 'Titre', type: 'text' },
   { key: 'has_email', label: 'Email', type: 'boolean' },
+  // File de revue de la qualification IA (SPICED)
+  {
+    key: 'ai_routing',
+    label: 'Routage IA',
+    type: 'select',
+    options: [
+      { value: 'fast_track', label: 'Fast track' },
+      { value: 'standard', label: 'Standard' },
+      { value: 'human_review', label: 'À revoir' },
+    ],
+  },
   { key: 'created_after', label: 'Créé après', type: 'date' },
   { key: 'created_before', label: 'Créé avant', type: 'date' },
 ];

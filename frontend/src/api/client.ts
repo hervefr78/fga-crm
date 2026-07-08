@@ -154,6 +154,14 @@ export const scoreDeal = async (id: string, forceRescore = false) => {
   return response.data;
 };
 
+// Qualification IA d'un contact (SPICED). fast_track cree un deal automatiquement.
+export const qualifyContact = async (id: string, submissionText?: string) => {
+  const response = await api.post(`/contacts/${id}/qualify`, {
+    submission_text: submissionText || null,
+  });
+  return response.data;
+};
+
 // ---------- Tasks ----------
 export const getTasks = async (params?: Record<string, unknown>) => {
   const response = await api.get('/tasks', { params });
