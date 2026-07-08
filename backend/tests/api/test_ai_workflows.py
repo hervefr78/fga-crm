@@ -291,3 +291,93 @@ async def test_qualify_llm_failure_leaves_contact_intact(
     assert r.status_code == 502
     got = (await client.get(f"/api/v1/contacts/{contact['id']}", headers=auth_headers)).json()
     assert got["ai_routing"] is None
+
+
+# ---------------------------------------------------------------------------
+# Workflow 3 — Sales Insights
+# ---------------------------------------------------------------------------
+
+from app.schemas.ai_workflows import InsightsOutput  # noqa: E402
+from app.services.ai_workflows import insights as insights_svc  # noqa: E402
+
+FAKE_INSIGHTS = InsightsOutput(
+    headline="2 deals stagnent en proposal.",
+    pipeline_health="Pipeline stable vs semaine precedente.",
+    stale_deals_summary="Deal X inactif depuis 12 jours (proposal).",
+    loss_patterns=None,
+    top_actions=["Relancer Deal X", "Qualifier les 3 nouveaux leads"],
+    data_caveats=["Moins de 5 deals perdus : pas de pattern fiable."],
+)
+
+
+@pytest.fixture()
+def mock_insights_llm(monkeypatch: pytest.MonkeyPatch):
+    calls = {"n": 0}
+
+    async def _fake(schema_model, **kwargs):
+        calls["n"] += 1
+        return FAKE_INSIGHTS, {"input_tokens": 1200, "output_tokens": 250}
+
+    monkeypatch.setattr(insights_svc, "call_openai_structured", _fake)
+    return calls
+
+
+async def test_insights_generates_and_caches(
+    client: AsyncClient, auth_headers: dict, mock_insights_llm
+):
+    r1 = await client.get("/api/v1/insights/weekly", headers=auth_headers)
+    assert r1.status_code == 200, r1.text
+    b1 = r1.json()
+    assert b1["headline"].startswith("2 deals")
+    assert b1["cached"] is False
+    assert b1["top_actions"] == ["Relancer Deal X", "Qualifier les 3 nouveaux leads"]
+    assert b1["meta"]["prompt_version"] == "insights-v1"
+
+    # 2e appel < 24 h : cache, pas de nouvel appel LLM.
+    r2 = await client.get("/api/v1/insights/weekly", headers=auth_headers)
+    assert r2.json()["cached"] is True
+    assert mock_insights_llm["n"] == 1
+
+    # refresh force la regeneration.
+    r3 = await client.get("/api/v1/insights/weekly?refresh=true", headers=auth_headers)
+    assert r3.json()["cached"] is False
+    assert mock_insights_llm["n"] == 2
+
+
+async def test_insights_manager_only(
+    client: AsyncClient, sales_headers: dict, mock_insights_llm
+):
+    r = await client.get("/api/v1/insights/weekly", headers=sales_headers)
+    assert r.status_code == 403
+    assert mock_insights_llm["n"] == 0
+
+
+async def test_stale_deals_thresholds(db_session: AsyncSession, test_org):
+    """Un deal 'proposal' sans activite depuis 8 j est stagnant (seuil 7), pas
+    un deal 'new' de 8 j (seuil 14)."""
+    import uuid as _uuid
+    from datetime import UTC, datetime, timedelta
+
+    from app.models.deal import Deal
+
+    old = datetime.now(UTC) - timedelta(days=8)
+    d1 = Deal(title="Proposal dormant", stage="proposal", organization_id=test_org.id)
+    d2 = Deal(title="New recent", stage="new", organization_id=test_org.id)
+    other = Deal(title="Autre org", stage="proposal",
+                 organization_id=_uuid.uuid4())
+    db_session.add_all([d1, d2])
+    await db_session.commit()
+    # Vieillir updated_at directement (pas d'activites liees).
+    from sqlalchemy import update as sa_update
+    await db_session.execute(
+        sa_update(Deal).where(Deal.id.in_([d1.id, d2.id])).values(
+            updated_at=old, created_at=old,
+        )
+    )
+    await db_session.commit()
+    del other  # (non insere : FK org inexistante — isolation testee via l'API)
+
+    stale = await insights_svc._stale_deals(db_session, test_org.id)
+    titles = [s["title"] for s in stale]
+    assert "Proposal dormant" in titles      # 8 j >= seuil 7
+    assert "New recent" not in titles        # 8 j < seuil 14

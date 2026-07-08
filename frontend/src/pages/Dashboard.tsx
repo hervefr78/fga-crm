@@ -31,12 +31,15 @@ import type {
   Deal, Task, PaginatedResponse,
 } from '../types';
 import { formatCurrency } from '../utils/format';
+import { useAuth } from '../contexts/useAuth';
+import { isManagerOrAbove } from '../types';
 
 import KpiCard from '../components/dashboard/KpiCard';
 import PipelineChart from '../components/dashboard/PipelineChart';
 import ActivityChart from '../components/dashboard/ActivityChart';
 import DashboardTaskCard from '../components/dashboard/DashboardTaskCard';
 import AiCard from '../components/ai/AiCard';
+import InsightsCard from '../components/dashboard/InsightsCard';
 import TimelineGrouped from '../components/activities/TimelineGrouped';
 
 // Bornes (DC1 — limites client-side explicites)
@@ -45,6 +48,10 @@ const SIDE_DEAL_SIZE = 5;
 const OVERDUE_TASK_SIZE = 5;
 
 export default function Dashboard() {
+  const { user } = useAuth();
+  // Insights = vue pipeline org entiere -> managers/admins uniquement (RBAC).
+  const canSeeInsights = isManagerOrAbove(user);
+
   // Stats agregees (1 seul appel API)
   const { data: stats } = useQuery<DashboardStats>({
     queryKey: ['dashboard-stats'],
@@ -191,6 +198,9 @@ export default function Dashboard() {
       {/* ===== AI Card pleine largeur ===== */}
       {/* AiCard retourne null si suggestions === [] : pas de chrome vide (UI_GUIDELINES §1.4) */}
       <AiCard data={suggestions} loading={suggestionsLoading} />
+
+      {/* ===== Insights IA (synthese hebdo pipeline — managers/admins) ===== */}
+      {canSeeInsights && <InsightsCard />}
 
       {/* ===== Grid 2/3 main + 1/3 side ===== */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

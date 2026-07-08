@@ -95,3 +95,36 @@ class ContactQualifyResponse(BaseModel):
     qualified_at: str              # ISO datetime
     deal_created_id: str | None    # deal cree automatiquement si fast_track
     meta: dict                     # {model, prompt_version}
+
+
+# ---------------------------------------------------------------------------
+# Workflow 3 — Sales Insights (synthese hebdo du pipeline)
+# ---------------------------------------------------------------------------
+
+INSIGHTS_PROMPT_VERSION = "insights-v1"
+
+
+class InsightsOutput(BaseModel):
+    """Sortie structuree du LLM pour la synthese hebdo."""
+
+    headline: str = Field(..., max_length=300)
+    pipeline_health: str = Field(..., max_length=800)
+    stale_deals_summary: str = Field(..., max_length=800)
+    loss_patterns: str | None = Field(None, max_length=600)
+    top_actions: list[str] = Field(default_factory=list, max_length=3)
+    data_caveats: list[str] = Field(default_factory=list, max_length=5)
+
+
+class InsightsResponse(BaseModel):
+    """Reponse de GET /insights/weekly."""
+
+    headline: str
+    pipeline_health: str
+    stale_deals_summary: str
+    loss_patterns: str | None
+    top_actions: list[str]
+    data_caveats: list[str]
+    period_days: int
+    generated_at: str              # ISO datetime
+    cached: bool                   # True si synthese < 24 h servie sans appel LLM
+    meta: dict                     # {model, prompt_version}

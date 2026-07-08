@@ -9,7 +9,7 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import DateTime, Integer, String, Text, func
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, UUIDMixin
@@ -49,3 +49,27 @@ class AiWorkflowRun(Base, UUIDMixin):
 
     def __repr__(self) -> str:
         return f"<AiWorkflowRun {self.workflow} {self.status}>"
+
+
+class AiInsight(Base, UUIDMixin):
+    """Synthese pipeline generee par le workflow insights (org-scopee).
+
+    La derniere ligne (generated_at max) par org/period_days est la synthese
+    courante ; regeneree si > 24 h ou refresh force. Immutable : created via
+    generated_at, l'historique est conserve (auditabilite / evolution)."""
+
+    __tablename__ = "ai_insights"
+
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), nullable=False, index=True
+    )
+    period_days: Mapped[int] = mapped_column(Integer, nullable=False, default=7)
+    # {headline, pipeline_health, stale_deals_summary, loss_patterns,
+    #  top_actions[], data_caveats[], model, prompt_version}
+    payload_json: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    generated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False, index=True
+    )
+
+    def __repr__(self) -> str:
+        return f"<AiInsight {self.organization_id} {self.generated_at}>"
