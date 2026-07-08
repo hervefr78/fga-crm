@@ -13,8 +13,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.models.ai_workflow import AiWorkflowRun
-from app.schemas.ai_workflows import DealScoreOutput
-from app.services.ai_workflows import scoring
+from app.schemas.ai_workflows import (
+    ContactQualifyOutput,
+    DealScoreOutput,
+    SpicedDimension,
+    SpicedGrid,
+)
+from app.services.ai_workflows import qualification, scoring
 from app.services.ai_workflows.client import AiWorkflowError
 
 FAKE_OUTPUT = DealScoreOutput(
@@ -164,3 +169,125 @@ async def test_score_deal_llm_failure_leaves_deal_intact(
         )
     ).scalar_one()
     assert run.status == "api_error"
+
+
+# ---------------------------------------------------------------------------
+# Workflow 2 — Qualification SPICED
+# ---------------------------------------------------------------------------
+
+def _qualify_output(routing: str) -> ContactQualifyOutput:
+    known = SpicedDimension(value="startup B2B post-levee", source="fiche entreprise")
+    unknown = SpicedDimension(value="unknown", source="unknown")
+    return ContactQualifyOutput(
+        spiced=SpicedGrid(
+            situation=known, pain=unknown, impact=unknown,
+            critical_event=unknown, decision=known,
+        ),
+        routing=routing,  # type: ignore[arg-type]
+        routing_rationale="Fit ICP probable, dimensions cles inconnues.",
+        suggested_product="audit-999",
+        next_action="Appeler pour qualifier la douleur.",
+    )
+
+
+@pytest.fixture()
+def mock_qualify_llm(monkeypatch: pytest.MonkeyPatch):
+    """Mock LLM qualification : routing pilotable par test."""
+    state = {"routing": "standard", "n": 0}
+
+    async def _fake(schema_model, **kwargs):
+        state["n"] += 1
+        return _qualify_output(state["routing"]), {"input_tokens": 700, "output_tokens": 200}
+
+    monkeypatch.setattr(qualification, "call_openai_structured", _fake)
+    return state
+
+
+async def _create_contact(client: AsyncClient, headers: dict, **kwargs) -> dict:
+    payload = {"first_name": "Lea", "last_name": "Inbound", **kwargs}
+    resp = await client.post("/api/v1/contacts", json=payload, headers=headers)
+    assert resp.status_code == 201, resp.text
+    return resp.json()
+
+
+async def test_qualify_contact_persists(
+    client: AsyncClient, auth_headers: dict, db_session: AsyncSession, mock_qualify_llm
+):
+    contact = await _create_contact(client, auth_headers)
+    r = await client.post(
+        f"/api/v1/contacts/{contact['id']}/qualify", headers=auth_headers,
+        json={"submission_text": "Telechargement Observatoire 2026"},
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["routing"] == "standard"
+    assert body["spiced"]["pain"]["value"] == "unknown"
+    assert body["deal_created_id"] is None  # standard : pas de deal auto
+    assert body["meta"]["prompt_version"] == "qualif-v1"
+
+    got = (await client.get(f"/api/v1/contacts/{contact['id']}", headers=auth_headers)).json()
+    assert got["ai_routing"] == "standard"
+    assert got["ai_qualification"]["next_action"]
+
+    run = (
+        await db_session.execute(
+            select(AiWorkflowRun).where(AiWorkflowRun.target_id == uuid.UUID(contact["id"]))
+        )
+    ).scalar_one()
+    assert run.workflow == "qualification"
+    assert run.status == "ok"
+
+
+async def test_qualify_fast_track_creates_deal(
+    client: AsyncClient, auth_headers: dict, mock_qualify_llm
+):
+    mock_qualify_llm["routing"] = "fast_track"
+    contact = await _create_contact(client, auth_headers, first_name="Max")
+    r = await client.post(
+        f"/api/v1/contacts/{contact['id']}/qualify", headers=auth_headers, json={},
+    )
+    assert r.status_code == 200, r.text
+    deal_id = r.json()["deal_created_id"]
+    assert deal_id is not None
+
+    deal = (await client.get(f"/api/v1/deals/{deal_id}", headers=auth_headers)).json()
+    assert deal["stage"] == "new"           # stage reel FGA (pas 'qualified')
+    assert deal["product"] == "audit-999"
+    assert deal["contact_id"] == contact["id"]
+
+
+async def test_qualify_filter_human_review(
+    client: AsyncClient, auth_headers: dict, mock_qualify_llm
+):
+    """File 'A revoir' : filtre ai_routing sur la liste des contacts."""
+    mock_qualify_llm["routing"] = "human_review"
+    c = await _create_contact(client, auth_headers, first_name="Zoe")
+    await client.post(f"/api/v1/contacts/{c['id']}/qualify", headers=auth_headers, json={})
+
+    r = await client.get(
+        "/api/v1/contacts", params={"ai_routing": "human_review"}, headers=auth_headers
+    )
+    assert r.status_code == 200
+    ids = [it["id"] for it in r.json()["items"]]
+    assert c["id"] in ids
+    # Valeur inconnue -> 422 (DC1)
+    bad = await client.get(
+        "/api/v1/contacts", params={"ai_routing": "poubelle"}, headers=auth_headers
+    )
+    assert bad.status_code == 422
+
+
+async def test_qualify_llm_failure_leaves_contact_intact(
+    client: AsyncClient, auth_headers: dict, monkeypatch: pytest.MonkeyPatch
+):
+    async def _boom(schema_model, **kwargs):
+        raise AiWorkflowError("down", kind="api_error")
+
+    monkeypatch.setattr(qualification, "call_openai_structured", _boom)
+    contact = await _create_contact(client, auth_headers, first_name="Bob")
+    r = await client.post(
+        f"/api/v1/contacts/{contact['id']}/qualify", headers=auth_headers, json={},
+    )
+    assert r.status_code == 502
+    got = (await client.get(f"/api/v1/contacts/{contact['id']}", headers=auth_headers)).json()
+    assert got["ai_routing"] is None

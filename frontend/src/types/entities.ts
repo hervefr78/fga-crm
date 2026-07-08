@@ -57,6 +57,17 @@ export interface Contact {
   enrichment_source?: string | null;
   email_pattern_used?: string | null;
   linkedin_url_status?: 'candidate' | 'verified' | 'invalid' | string | null;
+  // Qualification IA (workflow qualification — null si non qualifie)
+  ai_qualification?: {
+    spiced?: Record<string, { value: string; source: string }>;
+    routing_rationale?: string;
+    suggested_product?: string | null;
+    next_action?: string;
+    model?: string;
+    prompt_version?: string;
+  } | null;
+  ai_routing?: string | null;
+  ai_qualified_at?: string | null;
 }
 
 export interface Company {

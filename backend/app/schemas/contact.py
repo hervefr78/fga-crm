@@ -117,6 +117,10 @@ class ContactResponse(BaseModel):
     enrichment_source: str | None = None
     email_pattern_used: str | None = None
     linkedin_url_status: str | None = None
+    # Qualification IA (workflow qualification — null si non qualifie)
+    ai_qualification: dict | None = None
+    ai_routing: str | None = None
+    ai_qualified_at: str | None = None
 
     class Config:
         from_attributes = True

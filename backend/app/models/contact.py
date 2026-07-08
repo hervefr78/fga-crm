@@ -60,6 +60,14 @@ class Contact(Base, UUIDMixin, OrgScopedMixin, TimestampMixin):
     custom_fields: Mapped[dict | None] = mapped_column(JSONB, nullable=True, default=dict)
     tags: Mapped[list | None] = mapped_column(JSONB, nullable=True, default=list)
 
+    # Qualification IA (workflow qualification — grille SPICED complete)
+    ai_qualification: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    # fast_track | standard | human_review (JAMAIS de disqualification auto)
+    ai_routing: Mapped[str | None] = mapped_column(String(20), nullable=True, index=True)
+    ai_qualified_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
     # Ownership
     owner_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
