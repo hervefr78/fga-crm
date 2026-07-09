@@ -15,7 +15,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.models.base import Base, UUIDMixin
 
 # Workflows connus (DC8 — source unique)
-AI_WORKFLOWS = ["scoring", "qualification", "insights"]
+AI_WORKFLOWS = ["scoring", "qualification", "insights", "outreach"]
 
 # Statuts d'un run (DC5)
 AI_RUN_STATUSES = ["ok", "parse_error", "api_error"]
