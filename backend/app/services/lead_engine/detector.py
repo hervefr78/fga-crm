@@ -200,7 +200,12 @@ async def scan_all_orgs(db: AsyncSession) -> dict[str, int]:
 
     totals = {"funding_detected": 0, "mmf_gap": 0, "orgs": len(org_ids)}
     for org_id in org_ids:
-        result = await scan_org(db, org_id)
+        try:
+            result = await scan_org(db, org_id)
+        except Exception:  # noqa: BLE001 — un org en echec ne bloque pas les autres
+            logger.exception("[LeadEngine] Scan org %s en echec", org_id)
+            await db.rollback()
+            continue
         totals["funding_detected"] += result["funding_detected"]
         totals["mmf_gap"] += result["mmf_gap"]
     return totals
