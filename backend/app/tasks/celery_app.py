@@ -73,6 +73,13 @@ app.conf.beat_schedule = {
         "schedule": crontab(minute=15),
         "args": (),
     },
+    # Lead Engine — detecteur de signaux (funding_detected / mmf_gap). Horaire,
+    # decale de l'enrichissement. Kill switch : LEAD_ENGINE_ENABLED.
+    "lead-engine-scan-hourly": {
+        "task": "app.tasks.lead_engine.lead_engine_scan_task",
+        "schedule": crontab(minute=45),
+        "args": (),
+    },
 }
 
 # Decouverte automatique : autodiscover_tasks scanne pour `tasks.py` dans
@@ -84,6 +91,7 @@ from app.tasks import (  # noqa: E402, F401, I001  — register tasks
     enrichment,
     funding_sync,
     geo,
+    lead_engine,
     startup_radar_full_sync,
     trends,
 )
