@@ -15,13 +15,26 @@ import type {
 } from '../../types';
 import { TEMPLATE_VARIABLES } from '../../types';
 
+// Pre-remplissage complet (ex: draft outreach du Lead Engine) — prioritaire
+// sur prefilledContact ; onSent notifie l'appelant apres envoi reussi.
+export interface ComposePrefill {
+  contactId?: string;
+  toEmail?: string;
+  subject?: string;
+  body?: string;
+}
+
 interface ComposeModalProps {
   open: boolean;
   onClose: () => void;
   prefilledContact?: Contact;
+  prefill?: ComposePrefill;
+  onSent?: () => void;
 }
 
-export default function ComposeModal({ open, onClose, prefilledContact }: ComposeModalProps) {
+export default function ComposeModal({
+  open, onClose, prefilledContact, prefill, onSent,
+}: ComposeModalProps) {
   const queryClient = useQueryClient();
 
   // Champs du formulaire
@@ -36,7 +49,7 @@ export default function ComposeModal({ open, onClose, prefilledContact }: Compos
   const { data: contactsData } = useQuery<PaginatedResponse<Contact>>({
     queryKey: ['contacts', { size: 200 }],
     queryFn: () => getContacts({ size: 200 }),
-    enabled: open && !prefilledContact,
+    enabled: open && !prefilledContact && !prefill,
   });
 
   // Charger les templates
@@ -53,6 +66,16 @@ export default function ComposeModal({ open, onClose, prefilledContact }: Compos
       setToEmail(prefilledContact.email || '');
     }
   }, [open, prefilledContact]);
+
+  // Pre-remplissage complet (draft outreach)
+  useEffect(() => {
+    if (open && prefill) {
+      if (prefill.contactId) setContactId(prefill.contactId);
+      if (prefill.toEmail) setToEmail(prefill.toEmail);
+      if (prefill.subject) setSubject(prefill.subject);
+      if (prefill.body) setBody(prefill.body);
+    }
+  }, [open, prefill]);
 
   // Reset a la fermeture
   useEffect(() => {
@@ -103,6 +126,7 @@ export default function ComposeModal({ open, onClose, prefilledContact }: Compos
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['emails'] });
       void queryClient.invalidateQueries({ queryKey: ['activities'] });
+      onSent?.();
       onClose();
     },
     onError: (err: Error) => {
@@ -137,7 +161,7 @@ export default function ComposeModal({ open, onClose, prefilledContact }: Compos
     <Modal open={open} onClose={onClose} title="Nouveau message" size="lg">
       <form onSubmit={handleSubmit} className="space-y-4">
         {/* Selection du contact (sauf si prefilled) */}
-        {!prefilledContact && (
+        {!prefilledContact && !prefill && (
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">Contact</label>
             <select

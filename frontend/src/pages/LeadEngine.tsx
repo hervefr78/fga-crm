@@ -1,11 +1,11 @@
 // =============================================================================
-// FGA CRM - Page Lead Engine : Signal Inbox (Slice V1.1)
+// FGA CRM - Page Lead Engine : queue priorisee + Signal Inbox (V1 complete)
 // =============================================================================
-// Flux des signaux detectes (docs/LEAD_ENGINE_VISION.md §3.2) + actions 1-clic :
-//  - funding_detected (P2) -> lance l'audit SR du message (jamais d'outreach) ;
-//  - mmf_gap (P1)          -> lance la recherche de decideurs (prepare l'outreach).
-// L'orchestration audit/enrichissement reutilise useCompanyBulkAction (poll +
-// import), sur une liste d'une seule societe. La page = hooks + assemblage.
+// Vues (docs/LEAD_ENGINE_VISION.md §3) :
+//  - File d'attente : leads mmf_gap tries gap x fraicheur des fonds, avec
+//    [Drafter] -> outreach-v1 -> relecture -> composer (envoi valide par l'humain).
+//  - Signal Inbox : flux chronologique, actions 1-clic par type (P1/P2/P3).
+// La page = hooks + assemblage ; panneaux dans components/leadEngine/.
 // =============================================================================
 
 import { useState } from 'react';
@@ -14,18 +14,32 @@ import {
   Banknote, Check, Crosshair, Inbox, Loader2, RadioTower, ShieldAlert, X,
 } from 'lucide-react';
 
-import { runLeadScan, listLeadSignals, updateLeadSignal } from '../api/leadEngine';
+import { qualifyContact } from '../api/client';
+import {
+  draftLeadSignal, getLeadFunnel, getLeadQueue, listLeadSignals, runLeadScan,
+  updateLeadSignal,
+} from '../api/leadEngine';
 import KpiCard from '../components/dashboard/KpiCard';
 import { useCompanyBulkAction } from '../components/companies/useCompanyBulkAction';
+import ComposeModal, { type ComposePrefill } from '../components/email/ComposeModal';
+import DraftModal from '../components/leadEngine/DraftModal';
+import FunnelStrip from '../components/leadEngine/FunnelStrip';
+import LeadQueuePanel from '../components/leadEngine/LeadQueuePanel';
 import SignalRow from '../components/leadEngine/SignalRow';
 import { Button, EmptyState, LoadingSpinner, Pagination, Tabs } from '../components/ui';
 import { useAuth } from '../contexts/useAuth';
 import { isManagerOrAbove } from '../types';
 import type {
-  LeadSignal, LeadSignalStatus, LeadSignalType, LeadSignalUpdateInput,
+  LeadSignal, LeadSignalDraft, LeadSignalStatus, LeadSignalType,
+  LeadSignalUpdateInput,
 } from '../types/leadEngine';
 
 const PAGE_SIZE = 20;
+
+const VIEW_TABS = [
+  { key: 'queue', label: "File d'attente" },
+  { key: 'inbox', label: 'Signal Inbox' },
+];
 
 const STATUS_TABS = [
   { key: 'new', label: 'Nouveaux' },
@@ -41,15 +55,27 @@ export default function LeadEnginePage() {
   const hasAccess = isManagerOrAbove(user);
   const queryClient = useQueryClient();
 
+  const [view, setView] = useState<'queue' | 'inbox'>('queue');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('new');
   const [typeFilter, setTypeFilter] = useState<LeadSignalType | 'all'>('all');
   const [page, setPage] = useState(1);
   const [scanMsg, setScanMsg] = useState<string | null>(null);
 
-  // Action en cours (audit / recherche decideurs) : une seule a la fois.
+  // Draft en relecture + composer pre-rempli (envoi valide par l'humain)
+  const [draftView, setDraftView] = useState<{ signalId: string; draft: LeadSignalDraft } | null>(null);
+  const [compose, setCompose] = useState<{ signalId: string; prefill: ComposePrefill } | null>(null);
+
+  // Action longue (audit / recherche decideurs) : une seule a la fois.
   const bulk = useCompanyBulkAction();
   const [busySignalId, setBusySignalId] = useState<string | null>(null);
 
+  const invalidateAll = () => {
+    void queryClient.invalidateQueries({ queryKey: ['lead-signals'] });
+    void queryClient.invalidateQueries({ queryKey: ['lead-queue'] });
+    void queryClient.invalidateQueries({ queryKey: ['lead-funnel'] });
+  };
+
+  // ---- Queries ----
   const { data, isLoading } = useQuery({
     queryKey: ['lead-signals', statusFilter, typeFilter, page],
     queryFn: () => listLeadSignals({
@@ -60,11 +86,22 @@ export default function LeadEnginePage() {
     }),
     enabled: hasAccess,
   });
+  const { data: queue, isLoading: queueLoading } = useQuery({
+    queryKey: ['lead-queue'],
+    queryFn: () => getLeadQueue(50),
+    enabled: hasAccess,
+  });
+  const { data: funnel } = useQuery({
+    queryKey: ['lead-funnel'],
+    queryFn: () => getLeadFunnel(30),
+    enabled: hasAccess,
+  });
 
+  // ---- Mutations ----
   const patchSignal = useMutation({
     mutationFn: ({ id, input }: { id: string; input: LeadSignalUpdateInput }) =>
       updateLeadSignal(id, input),
-    onSettled: () => queryClient.invalidateQueries({ queryKey: ['lead-signals'] }),
+    onSettled: invalidateAll,
   });
 
   const scan = useMutation({
@@ -76,27 +113,96 @@ export default function LeadEnginePage() {
           : n === 1 ? '1 nouveau signal'
             : `${n} nouveaux signaux`,
       );
-      void queryClient.invalidateQueries({ queryKey: ['lead-signals'] });
+      invalidateAll();
     },
     onError: () => setScanMsg('Scan impossible (module désactivé ?)'),
   });
 
-  // Action 1-clic : lance la brique existante puis trace la transition.
-  const handleAction = (signal: LeadSignal) => {
+  const draft = useMutation({
+    mutationFn: (signal: LeadSignal) => draftLeadSignal(signal.id),
+    onSuccess: (res) => {
+      setDraftView({
+        signalId: res.signal_id,
+        draft: {
+          contact_id: res.contact_id, contact_name: res.contact_name,
+          contact_email: res.contact_email, subject: res.subject, body: res.body,
+          angle_rationale: res.angle_rationale, generated_at: res.generated_at,
+          prompt_version: res.meta.prompt_version,
+        },
+      });
+      invalidateAll();
+    },
+    onError: (err) => {
+      const detail = (err as { response?: { data?: { detail?: string } } })
+        ?.response?.data?.detail;
+      setScanMsg(detail ?? 'Draft impossible');
+    },
+  });
+
+  const qualify = useMutation({
+    mutationFn: (contactId: string) => qualifyContact(contactId),
+    onSettled: invalidateAll,
+  });
+
+  // ---- Actions ----
+  const launchBulk = (signal: LeadSignal, kind: 'audit' | 'contacts') => {
     if (!signal.company_id || bulk.isRunning) return;
     const company = {
       id: signal.company_id,
       name: signal.payload_json.company_name ?? '',
       startup_radar_id: signal.payload_json.startup_radar_id ?? null,
     };
-    const isFunding = signal.signal_type === 'funding_detected';
-    if (isFunding) bulk.startAudit([company]);
+    if (kind === 'audit') bulk.startAudit([company]);
     else bulk.startContacts([company]);
     setBusySignalId(signal.id);
-    patchSignal.mutate({
-      id: signal.id,
-      input: { status: 'actioned', action_kind: isFunding ? 'audit' : 'contacts' },
+    patchSignal.mutate({ id: signal.id, input: { status: 'actioned', action_kind: kind } });
+  };
+
+  const handleInboxAction = (signal: LeadSignal) => {
+    if (signal.signal_type === 'funding_detected') return launchBulk(signal, 'audit');
+    if (signal.signal_type === 'mmf_gap') return launchBulk(signal, 'contacts');
+    // inbound_new (P3) : qualification SPICED puis trace
+    const contactId = signal.payload_json.contact_id;
+    if (!contactId || qualify.isPending) return;
+    setBusySignalId(signal.id);
+    qualify.mutate(contactId, {
+      onSuccess: () => patchSignal.mutate({
+        id: signal.id, input: { status: 'actioned', action_kind: 'qualify' },
+      }),
+      onSettled: () => setBusySignalId(null),
     });
+  };
+
+  const handleDraft = (signal: LeadSignal) => {
+    const existing = signal.payload_json.draft;
+    if (existing) return setDraftView({ signalId: signal.id, draft: existing });
+    if (draft.isPending) return;
+    setBusySignalId(signal.id);
+    draft.mutate(signal, { onSettled: () => setBusySignalId(null) });
+  };
+
+  const handleCompose = () => {
+    if (!draftView) return;
+    setCompose({
+      signalId: draftView.signalId,
+      prefill: {
+        contactId: draftView.draft.contact_id,
+        toEmail: draftView.draft.contact_email,
+        subject: draftView.draft.subject,
+        body: draftView.draft.body,
+      },
+    });
+    setDraftView(null);
+  };
+
+  const handleSent = () => {
+    if (!compose) return;
+    // Trace l'envoi sur le signal (funnel `sent`) — self-loop actioned autorise.
+    patchSignal.mutate({
+      id: compose.signalId,
+      input: { status: 'actioned', action_kind: 'outreach' },
+    });
+    setCompose(null);
   };
 
   if (!hasAccess) {
@@ -127,7 +233,7 @@ export default function LeadEnginePage() {
         <div>
           <h1 className="text-xl font-semibold text-slate-800">Lead Engine</h1>
           <p className="text-sm text-slate-500 mt-1">
-            Signal Inbox — le MMF gap déclenche l'outreach, la levée déclenche un audit.
+            Le MMF gap déclenche l'outreach, la levée déclenche un audit.
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -158,7 +264,10 @@ export default function LeadEnginePage() {
         </div>
       )}
 
-      {/* Progression de l'action en cours (audit ~minutes : on peut quitter la page) */}
+      {/* Funnel par play */}
+      {funnel && <FunnelStrip funnel={funnel} />}
+
+      {/* Progression de l'action longue en cours */}
       {bulk.action && bulkTask && (
         <div className="rounded-xl border border-primary-100 bg-primary-50/40 px-4 py-3 flex items-center justify-between gap-3">
           <div className="flex items-center gap-2 text-sm text-slate-700">
@@ -181,51 +290,80 @@ export default function LeadEnginePage() {
         </div>
       )}
 
-      {/* Filtres */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <Tabs
-          tabs={STATUS_TABS}
-          activeTab={statusFilter}
-          onChange={(key) => { setStatusFilter(key as StatusFilter); setPage(1); }}
+      {/* Vue : queue | inbox */}
+      <Tabs tabs={VIEW_TABS} activeTab={view} onChange={(key) => setView(key as 'queue' | 'inbox')} />
+
+      {view === 'queue' ? (
+        <LeadQueuePanel
+          items={queue?.items ?? []}
+          isLoading={queueLoading}
+          busySignalId={busySignalId}
+          onDraft={handleDraft}
+          onEnrich={(s) => launchBulk(s, 'contacts')}
+          onDismiss={(s) => patchSignal.mutate({ id: s.id, input: { status: 'ignored' } })}
         />
-        <select
-          value={typeFilter}
-          aria-label="Filtrer par type de signal"
-          onChange={(e) => { setTypeFilter(e.target.value as LeadSignalType | 'all'); setPage(1); }}
-          className="border border-slate-200 rounded-lg px-3 py-1.5 text-sm text-slate-700 bg-white"
-        >
-          <option value="all">Tous les types</option>
-          <option value="mmf_gap">MMF gap</option>
-          <option value="funding_detected">Levée détectée</option>
-        </select>
-      </div>
+      ) : (
+        <>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <Tabs
+              tabs={STATUS_TABS}
+              activeTab={statusFilter}
+              onChange={(key) => { setStatusFilter(key as StatusFilter); setPage(1); }}
+            />
+            <select
+              value={typeFilter}
+              aria-label="Filtrer par type de signal"
+              onChange={(e) => { setTypeFilter(e.target.value as LeadSignalType | 'all'); setPage(1); }}
+              className="border border-slate-200 rounded-lg px-3 py-1.5 text-sm text-slate-700 bg-white"
+            >
+              <option value="all">Tous les types</option>
+              <option value="mmf_gap">MMF gap</option>
+              <option value="funding_detected">Levée détectée</option>
+              <option value="inbound_new">Inbound</option>
+            </select>
+          </div>
 
-      {/* Inbox */}
-      <div className="bg-white border border-slate-200 rounded-xl shadow-sm">
-        {isLoading ? (
-          <div className="p-12 flex justify-center"><LoadingSpinner /></div>
-        ) : items.length === 0 ? (
-          <EmptyState
-            icon={Inbox}
-            message="Aucun signal — le scan tourne toutes les heures, ou lancez « Scanner maintenant »."
-          />
-        ) : (
-          <ul className="divide-y divide-slate-100">
-            {items.map((signal) => (
-              <SignalRow
-                key={signal.id}
-                signal={signal}
-                busy={bulk.isRunning && busySignalId === signal.id}
-                onAction={handleAction}
-                onIgnore={(s) => patchSignal.mutate({ id: s.id, input: { status: 'ignored' } })}
-                onReopen={(s) => patchSignal.mutate({ id: s.id, input: { status: 'new' } })}
+          <div className="bg-white border border-slate-200 rounded-xl shadow-sm">
+            {isLoading ? (
+              <div className="p-12 flex justify-center"><LoadingSpinner /></div>
+            ) : items.length === 0 ? (
+              <EmptyState
+                icon={Inbox}
+                message="Aucun signal — le scan tourne toutes les heures, ou lancez « Scanner maintenant »."
               />
-            ))}
-          </ul>
-        )}
-      </div>
+            ) : (
+              <ul className="divide-y divide-slate-100">
+                {items.map((signal) => (
+                  <SignalRow
+                    key={signal.id}
+                    signal={signal}
+                    busy={busySignalId === signal.id && (bulk.isRunning || qualify.isPending)}
+                    onAction={handleInboxAction}
+                    onIgnore={(s) => patchSignal.mutate({ id: s.id, input: { status: 'ignored' } })}
+                    onReopen={(s) => patchSignal.mutate({ id: s.id, input: { status: 'new' } })}
+                  />
+                ))}
+              </ul>
+            )}
+          </div>
 
-      <Pagination page={page} pages={pages} total={data?.total ?? 0} onPageChange={setPage} />
+          <Pagination page={page} pages={pages} total={data?.total ?? 0} onPageChange={setPage} />
+        </>
+      )}
+
+      {/* Relecture du draft puis composer (envoi valide par l'humain) */}
+      <DraftModal
+        open={draftView !== null}
+        draft={draftView?.draft ?? null}
+        onClose={() => setDraftView(null)}
+        onCompose={handleCompose}
+      />
+      <ComposeModal
+        open={compose !== null}
+        onClose={() => setCompose(null)}
+        prefill={compose?.prefill}
+        onSent={handleSent}
+      />
     </div>
   );
 }

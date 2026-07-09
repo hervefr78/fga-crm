@@ -128,3 +128,23 @@ class InsightsResponse(BaseModel):
     generated_at: str              # ISO datetime
     cached: bool                   # True si synthese < 24 h servie sans appel LLM
     meta: dict                     # {model, prompt_version}
+
+
+# ---------------------------------------------------------------------------
+# Workflow 4 — Outreach (draft email contextualise par un signal Lead Engine)
+# ---------------------------------------------------------------------------
+
+OUTREACH_PROMPT_VERSION = "outreach-v1"
+
+
+class OutreachDraftOutput(BaseModel):
+    """Sortie structuree du LLM pour un draft d'outreach (a valider par l'humain).
+
+    Regle metier : l'angle est TOUJOURS le MMF gap mesure ; la levee n'est
+    qu'un qualificateur d'urgence/solvabilite (jamais le motif du contact).
+    """
+
+    subject: str = Field(..., max_length=120)
+    body: str = Field(..., max_length=2000)
+    angle_rationale: str = Field(..., max_length=400)
+    personalization_used: list[str] = Field(default_factory=list, max_length=6)

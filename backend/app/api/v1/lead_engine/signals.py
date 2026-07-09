@@ -1,25 +1,18 @@
 # =============================================================================
-# FGA CRM - API Lead Engine (Signal Inbox)
+# FGA CRM - Lead Engine : routes Signal Inbox (liste, transitions, scan)
 # =============================================================================
-"""Endpoints du module Lead Engine (docs/LEAD_ENGINE_VISION.md §3.2) :
-
-- GET   /lead-engine/signals            : inbox paginee + KPI (manager+)
-- PATCH /lead-engine/signals/{id}       : transition new -> actioned|ignored, ignored -> new
-- POST  /lead-engine/scan               : scan manuel de l'org (demo/test sans attendre le beat)
-
-RBAC : manager+ (comme GEO/Trends/Enrichissement). L'action metier (audit SR,
-recherche de decideurs) reste sur les endpoints existants — orchestres cote
-client ; le PATCH ne fait que tracer la transition (payload_json.action).
-"""
+"""Les actions metier (audit SR, enrichissement, qualification) restent sur
+les endpoints existants — orchestrees cote client ; le PATCH ne fait que
+tracer la transition (payload_json.action, machine a etats DC5)."""
 
 import logging
-import uuid
 from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.v1.lead_engine._common import get_signal_or_404
 from app.config import settings
 from app.core.deps import get_current_manager
 from app.db.session import get_db
@@ -48,14 +41,7 @@ _STATUS_SET = set(SIGNAL_STATUSES)
 _TYPE_SET = set(SIGNAL_TYPES)
 
 
-def _parse_uuid(value: str) -> uuid.UUID:
-    try:
-        return uuid.UUID(value)
-    except ValueError:
-        raise HTTPException(status_code=422, detail="Identifiant invalide") from None
-
-
-async def _compute_stats(db: AsyncSession, org_id: uuid.UUID) -> LeadSignalStats:
+async def _compute_stats(db: AsyncSession, org_id) -> LeadSignalStats:
     """KPI de l'inbox : backlog `new` par type + actions des 7 derniers jours."""
     since_7d = datetime.now(UTC) - timedelta(days=7)
 
@@ -130,10 +116,7 @@ async def update_signal(
     user: User = Depends(get_current_manager),
 ) -> LeadSignalResponse:
     """Transition de statut d'un signal (DC5 : transitions explicites)."""
-    signal = await db.get(LeadSignal, _parse_uuid(signal_id))
-    # 404 (pas 403) si cross-org : ne pas divulguer l'existence du signal.
-    if signal is None or signal.organization_id != user.organization_id:
-        raise HTTPException(status_code=404, detail="Signal introuvable")
+    signal = await get_signal_or_404(db, signal_id, user)
 
     if payload.status not in SIGNAL_TRANSITIONS.get(signal.status, []):
         raise HTTPException(

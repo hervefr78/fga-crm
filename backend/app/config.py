@@ -131,6 +131,7 @@ class Settings(BaseSettings):
     lead_engine_enabled: bool = True                # kill switch du scan periodique
     lead_engine_mmf_threshold: int = 30             # audit < seuil /75 -> signal mmf_gap
     lead_engine_funding_window_days: int = 30       # levee plus recente -> funding_detected
+    lead_engine_inbound_window_days: int = 7        # contact entrant recent -> inbound_new
     lead_engine_dedup_days: int = 90                # anti re-declenchement par dedup_key
 
     # Enrichissement emails B2B (feature Compass). Icypeas = moteur principal ;

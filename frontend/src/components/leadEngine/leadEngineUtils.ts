@@ -8,6 +8,7 @@ import type { LeadSignal } from '../../types/leadEngine';
 export const SIGNAL_TYPE_LABELS: Record<string, string> = {
   funding_detected: 'Levée détectée',
   mmf_gap: 'MMF gap',
+  inbound_new: 'Inbound',
 };
 
 export const STATUS_LABELS: Record<string, string> = {
@@ -51,6 +52,10 @@ export function signalReason(signal: LeadSignal): string {
   if (signal.signal_type === 'mmf_gap') {
     const score = typeof p.audit_score === 'number' ? `${p.audit_score}/75` : 'sous le seuil';
     return `Message flou mesuré : audit ${score}`;
+  }
+  if (signal.signal_type === 'inbound_new') {
+    const who = p.contact_name ?? 'Contact';
+    return `${who} — entrant ${p.lead_source ?? ''} à qualifier`.trim();
   }
   return fundingQualifier(signal) ?? 'Levée récente';
 }

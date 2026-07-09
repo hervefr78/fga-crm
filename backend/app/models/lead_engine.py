@@ -22,13 +22,17 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.models.base import Base, OrgScopedMixin, TimestampMixin, UUIDMixin
 
 # Types de signaux (DC8 — source unique)
-SIGNAL_TYPES = ["funding_detected", "mmf_gap"]
+# funding_detected (P2 : levee -> audit) | mmf_gap (P1 : seul declencheur
+# d'outreach) | inbound_new (P3 : contact entrant a qualifier)
+SIGNAL_TYPES = ["funding_detected", "mmf_gap", "inbound_new"]
 
 # Statuts + transitions valides (DC5 — machine a etats exhaustive)
 SIGNAL_STATUSES = ["new", "actioned", "ignored"]
 SIGNAL_TRANSITIONS: dict[str, list[str]] = {
     "new": ["actioned", "ignored"],
-    "actioned": [],               # terminal : l'action a ete lancee
+    # Self-loop : une nouvelle action sur un signal deja traite (ex: enrichi
+    # puis outreach envoye) met a jour payload_json.action sans changer d'etat.
+    "actioned": ["actioned"],
     "ignored": ["new"],           # re-ouverture possible (reconsidere)
 }
 

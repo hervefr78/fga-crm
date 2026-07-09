@@ -10,10 +10,11 @@
 > (https://www.yuzuu.co — « the first revenue engine for marketing agencies »,
 > même famille de produit) et les patterns du marché (Clay, Pharow, AI-SDR).
 >
-> Date : 9 juillet 2026. Statut : **vision validée — Slice V1.1 livrée**
-> (Signal Inbox + détecteur funding_detected/mmf_gap + actions 1-clic, PR #53).
-> Reste en V1 : orchestrateur de play, workflow `outreach-v1`, file de
-> validation unifiée, funnel (§4.3).
+> Date : 9 juillet 2026. Statut : **V1 livrée** (PR #53 + #55) — Signal Inbox,
+> détecteur P1/P2/P3 (mmf_gap, funding_detected, inbound_new), queue priorisée
+> gap × fraîcheur des fonds, workflow `outreach-v1` (draft → relecture →
+> composer, envoi humain), funnel par play. V2 (§4.3) : P4 Trends, éditeur de
+> plays, LinkedIn (Unipile), booking, relances.
 
 ---
 

@@ -28,6 +28,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.models.activity import Activity
 from app.models.company import Company
+from app.models.contact import Contact
 from app.models.deal import Deal
 from app.models.lead_engine import LeadSignal
 from app.models.organization import Organization
@@ -36,6 +37,10 @@ logger = logging.getLogger(__name__)
 
 # Stages de deal consideres fermes (une societe won/lost peut etre re-signalee)
 CLOSED_DEAL_STAGES = ("won", "lost")
+
+# Sources de contacts entrants (P3) — miroir des integrations nomo/plein-phare
+# qui posent contact.source (la company recoit lead_source, le contact source).
+INBOUND_CONTACT_SOURCES = ("nomo-ia", "plein-phare")
 
 
 def _dedup_key(kind: str, company_id: uuid.UUID) -> str:
@@ -175,6 +180,54 @@ async def _detect_mmf_gap(
     return created
 
 
+async def _detect_inbound(
+    db: AsyncSession,
+    org_id: uuid.UUID,
+    known_keys: set[str],
+) -> int:
+    """P3 — contact entrant (nomo-ia / plein-phare) non qualifie -> inbound_new.
+
+    L'action du signal est la qualification SPICED (workflow existant), pas un
+    outreach : un inbound se repond, il ne se prospecte pas.
+    """
+    cutoff = datetime.now(UTC) - timedelta(days=settings.lead_engine_inbound_window_days)
+    # Outerjoin explicite : pas de lazy-load de la relation en contexte async.
+    rows = await db.execute(
+        select(Contact, Company.name)
+        .outerjoin(Company, Contact.company_id == Company.id)
+        .where(
+            Contact.organization_id == org_id,
+            Contact.source.in_(INBOUND_CONTACT_SOURCES),
+            Contact.ai_routing.is_(None),
+            Contact.created_at >= cutoff,
+        )
+    )
+    created = 0
+    for contact, company_name in rows.all():
+        key = _dedup_key("inbound", contact.id)
+        if key in known_keys:
+            continue
+        db.add(
+            LeadSignal(
+                organization_id=org_id,
+                signal_type="inbound_new",
+                company_id=contact.company_id,
+                payload_json={
+                    "contact_id": str(contact.id),
+                    "contact_name": contact.full_name,
+                    "contact_email": contact.email,
+                    "lead_source": contact.source,
+                    "company_name": company_name,
+                },
+                status="new",
+                dedup_key=key,
+            )
+        )
+        known_keys.add(key)
+        created += 1
+    return created
+
+
 async def scan_org(db: AsyncSession, org_id: uuid.UUID) -> dict[str, int]:
     """Scanner une organisation et creer les signaux manquants (commit inclus)."""
     known_keys = await _recent_dedup_keys(db, org_id)
@@ -182,14 +235,15 @@ async def scan_org(db: AsyncSession, org_id: uuid.UUID) -> dict[str, int]:
 
     funding = await _detect_funding(db, org_id, known_keys, in_pipeline)
     mmf = await _detect_mmf_gap(db, org_id, known_keys, in_pipeline)
+    inbound = await _detect_inbound(db, org_id, known_keys)
     await db.commit()
 
-    if funding or mmf:
+    if funding or mmf or inbound:
         logger.info(
-            "[LeadEngine] Scan org %s : %d funding_detected, %d mmf_gap",
-            org_id, funding, mmf,
+            "[LeadEngine] Scan org %s : %d funding_detected, %d mmf_gap, %d inbound_new",
+            org_id, funding, mmf, inbound,
         )
-    return {"funding_detected": funding, "mmf_gap": mmf}
+    return {"funding_detected": funding, "mmf_gap": mmf, "inbound_new": inbound}
 
 
 async def scan_all_orgs(db: AsyncSession) -> dict[str, int]:
@@ -198,7 +252,7 @@ async def scan_all_orgs(db: AsyncSession) -> dict[str, int]:
         await db.execute(select(Organization.id).where(Organization.is_active.is_(True)))
     ).scalars().all()
 
-    totals = {"funding_detected": 0, "mmf_gap": 0, "orgs": len(org_ids)}
+    totals = {"funding_detected": 0, "mmf_gap": 0, "inbound_new": 0, "orgs": len(org_ids)}
     for org_id in org_ids:
         try:
             result = await scan_org(db, org_id)
@@ -208,4 +262,5 @@ async def scan_all_orgs(db: AsyncSession) -> dict[str, int]:
             continue
         totals["funding_detected"] += result["funding_detected"]
         totals["mmf_gap"] += result["mmf_gap"]
+        totals["inbound_new"] += result["inbound_new"]
     return totals
