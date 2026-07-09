@@ -49,6 +49,16 @@ describe('fundingQualifier', () => {
   it('renvoie null sans donnee de levee', () => {
     expect(fundingQualifier(signal())).toBeNull();
   });
+
+  it('montant inconnu (0) : omis plutot que "levée —"', () => {
+    const s = signal({
+      payload_json: {
+        funding_amount: 0,
+        funding_date: new Date(Date.now() - 5 * DAY_MS).toISOString().slice(0, 10),
+      },
+    });
+    expect(fundingQualifier(s)).toBe('levée il y a 5 j');
+  });
 });
 
 describe('signalReason', () => {
