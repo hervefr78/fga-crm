@@ -1,9 +1,10 @@
 # Workflows IA natifs — FGA CRM
 
 > Implémentation de la spec `spec-workflows-ia-fga-crm.md` (juillet 2026).
-> Livré en 4 slices : PR #47 (socle + scoring), #48 (qualification), #49 (insights),
-> fga-mcp `e308ac5` (tools MCP). Ce document décrit **ce qui est en production**,
-> y compris les écarts assumés vs la spec d'origine (§8).
+> Livré en 5 slices : PR #47 (socle + scoring), #48 (qualification), #49 (insights),
+> fga-mcp `e308ac5` (tools MCP), PR #55 (outreach — Lead Engine). Ce document
+> décrit **ce qui est en production**, y compris les écarts assumés vs la spec
+> d'origine (§8).
 
 ## 1. Principe d'architecture
 
@@ -124,6 +125,25 @@ Prompt versionné **`insights-v1`** (`services/ai_workflows/insights.py`).
   violerait l'ownership.
 - UI : carte **« Insights IA — pipeline »** sur le Dashboard (`InsightsCard`),
   visible managers/admins, bouton **Actualiser**.
+
+## 5 bis. Workflow 4 — Outreach (`POST /lead-engine/signals/{id}/draft`)
+
+Draft d'email d'outreach contextualisé par un **signal Lead Engine** (module
+`docs/LEAD_ENGINE_VISION.md`). Prompt versionné **`outreach-v1`**
+(`services/ai_workflows/outreach.py`).
+
+- **Règle métier structurante** : l'angle du message est TOUJOURS le MMF gap
+  mesuré (audit SR /75) ; la levée de fonds n'est qu'un qualificateur d'urgence
+  en clôture. Le draft d'un signal `funding_detected` est **refusé (422)**.
+- Contact cible : demandé (`contact_id`) ou meilleur email de la société
+  (emails vérifiés d'abord). 422 si aucun contact joignable.
+- **Jamais d'envoi automatique** : le draft est stocké sur le signal
+  (`payload_json.draft`), relu dans une modale, puis envoyé via le composer
+  email existant (éditable). L'envoi trace `action.kind=outreach` → funnel `sent`.
+- Sortie stricte : `subject` (≤120), `body` (≤2000, 90-140 mots demandés),
+  `angle_rationale`, `personalization_used`. Run tracé (workflow `outreach`,
+  target `signal`).
+- RBAC : manager+ (module Lead Engine).
 
 ## 6. Audit des appels — `ai_workflow_runs`
 
