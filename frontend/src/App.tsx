@@ -27,6 +27,7 @@ import EmailPage from './pages/Email';
 import IntegrationsPage from './pages/Integrations';
 import DraftsPage from './pages/Drafts';
 import GEOPage from './pages/GEO';
+import LeadEnginePage from './pages/LeadEngine';
 import TrendsPage from './pages/Trends';
 import EnrichmentPage from './pages/Enrichment';
 
@@ -95,6 +96,7 @@ function AppRoutes() {
         <Route path="/activities" element={<ActivitiesPage />} />
         <Route path="/drafts" element={<DraftsPage />} />
         <Route path="/geo" element={<GEOPage />} />
+        <Route path="/lead-engine" element={<LeadEnginePage />} />
         <Route path="/trends" element={<TrendsPage />} />
         <Route path="/enrichment" element={<EnrichmentPage />} />
         <Route path="/email" element={<EmailPage />} />

@@ -30,6 +30,10 @@ export const MAX_IMPORT_ATTEMPTS = 3;  // essais d'import audit avant echec
 export type BulkActionType = 'audit' | 'contacts';
 export type BulkTaskStatus = 'running' | 'done' | 'failed' | 'skipped';
 
+// Champs minimaux requis pour lancer une action (permet la reutilisation hors
+// page Companies, ex: Signal Inbox du Lead Engine qui n'a que le payload signal).
+export type BulkCompanyInput = Pick<Company, 'id' | 'name' | 'startup_radar_id'>;
+
 export interface BulkTask {
   id: string;
   name: string;
@@ -50,8 +54,8 @@ interface UseCompanyBulkActionResult {
   tasks: BulkTask[];
   summary: BulkSummary;
   isRunning: boolean;
-  startAudit: (companies: Company[]) => void;
-  startContacts: (companies: Company[]) => void;
+  startAudit: (companies: BulkCompanyInput[]) => void;
+  startContacts: (companies: BulkCompanyInput[]) => void;
   reset: () => void;
 }
 
@@ -104,7 +108,7 @@ export function useCompanyBulkAction(): UseCompanyBulkActionResult {
     setTasks(initial);
   };
 
-  const startAudit = (companies: Company[]) => {
+  const startAudit = (companies: BulkCompanyInput[]) => {
     begin('audit', companies.map((c) => ({
       id: c.id, name: c.name, status: isAuditEligible(c) ? 'running' : 'skipped',
     })));
@@ -120,7 +124,7 @@ export function useCompanyBulkAction(): UseCompanyBulkActionResult {
     });
   };
 
-  const startContacts = (companies: Company[]) => {
+  const startContacts = (companies: BulkCompanyInput[]) => {
     begin('contacts', companies.map((c) => ({ id: c.id, name: c.name, status: 'running' })));
     void runPool(companies, MAX_LAUNCH_CONCURRENCY, async (c) => {
       try {
