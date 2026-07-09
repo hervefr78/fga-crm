@@ -25,6 +25,7 @@ from app.models.geo import (
     GeoPrompt,
     GeoRun,
 )
+from app.models.lead_engine import LeadSignal
 from app.models.mcp_tool_usage import McpToolUsage
 from app.models.organization import Organization
 from app.models.tag import Tag, TagAssignment
@@ -76,4 +77,5 @@ __all__ = [
     "TrendReport",
     "AiWorkflowRun",
     "AiInsight",
+    "LeadSignal",
 ]

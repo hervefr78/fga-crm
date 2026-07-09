@@ -22,6 +22,7 @@ from app.api.v1 import (
     geo,
     geo_audit,
     integrations,
+    lead_engine,
     mcp_usage,
     organizations,
     search,
@@ -53,6 +54,7 @@ api_router.include_router(trends.router, prefix="/trends", tags=["Trends"])
 api_router.include_router(enrichment.router, prefix="/enrichment", tags=["Enrichment (Compass)"])
 api_router.include_router(enrichment_webhook.router, prefix="/integrations/icypeas", tags=["Enrichment Webhook"])
 api_router.include_router(mcp_usage.router, prefix="/mcp-usage", tags=["MCP Usage"])
+api_router.include_router(lead_engine.router, prefix="/lead-engine", tags=["Lead Engine"])
 # AI router : routes absolues (/companies/{id}/next-action, /contacts/{id}/next-action,
 # /deals/{id}/next-action). Pas de prefix ici — chaque route porte son chemin complet.
 api_router.include_router(ai.router, tags=["AI"])

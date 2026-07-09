@@ -125,6 +125,14 @@ class Settings(BaseSettings):
     ai_workflows_model: str = "gpt-4o-mini"
     ai_score_ttl_days: int = 7                      # score deal en cache N jours
 
+    # Lead Engine (orchestration leadgen — docs/LEAD_ENGINE_VISION.md).
+    # Regle metier : MMF gap = seul declencheur d'outreach ; la levee de fonds
+    # est un qualificateur de solvabilite (declenche un audit, jamais un contact).
+    lead_engine_enabled: bool = True                # kill switch du scan periodique
+    lead_engine_mmf_threshold: int = 30             # audit < seuil /75 -> signal mmf_gap
+    lead_engine_funding_window_days: int = 30       # levee plus recente -> funding_detected
+    lead_engine_dedup_days: int = 90                # anti re-declenchement par dedup_key
+
     # Enrichissement emails B2B (feature Compass). Icypeas = moteur principal ;
     # si cle absente -> provider mock (deployable/testable sans cle).
     icypeas_api_key: str | None = None

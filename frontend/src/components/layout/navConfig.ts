@@ -11,7 +11,7 @@ import type { ElementType } from 'react';
 import {
   LayoutDashboard,
   Building2, Users, Target, Award, XCircle, ListTodo, Activity,
-  TrendingUp, BarChart3, UserPlus, Mail, FileCheck,
+  RadioTower, TrendingUp, BarChart3, UserPlus, Mail, FileCheck,
   Settings, Link2, Shield, Coins,
 } from 'lucide-react';
 
@@ -53,6 +53,7 @@ const GROUPS: NavGroup[] = [
     key: 'marketing',
     label: 'Marketing',
     items: [
+      { name: 'Lead Engine', href: '/lead-engine', icon: RadioTower, access: 'manager' },
       { name: 'GEO', href: '/geo', icon: TrendingUp, access: 'manager' },
       { name: 'Trends', href: '/trends', icon: BarChart3, access: 'manager' },
       { name: 'Enrichissement', href: '/enrichment', icon: UserPlus, access: 'manager' },
