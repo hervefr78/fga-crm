@@ -33,11 +33,13 @@ export function timeAgo(iso: string): string {
   return formatDateFR(iso);
 }
 
-/** Qualificateur de solvabilite ("levée 4.5 M€ (Série A) il y a 12 j"). */
+/** Qualificateur de solvabilite ("levée 4.5 M€ (Série A) il y a 12 j").
+ *  Montant inconnu (0 en base, frequent cote SR) -> omis plutot que "levée —". */
 export function fundingQualifier(signal: LeadSignal): string | null {
   const p = signal.payload_json;
   if (!p.funding_amount && !p.funding_date) return null;
-  const parts = [`levée ${formatAmountMillions(p.funding_amount)}`];
+  const parts = ['levée'];
+  if (p.funding_amount) parts.push(formatAmountMillions(p.funding_amount));
   if (p.funding_series) parts.push(`(${p.funding_series})`);
   if (p.funding_date) parts.push(timeAgo(p.funding_date));
   return parts.join(' ');
