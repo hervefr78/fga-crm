@@ -30,6 +30,7 @@ import GEOPage from './pages/GEO';
 import LeadEnginePage from './pages/LeadEngine';
 import TrendsPage from './pages/Trends';
 import EnrichmentPage from './pages/Enrichment';
+import PulsePage from './pages/Pulse';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -99,6 +100,7 @@ function AppRoutes() {
         <Route path="/lead-engine" element={<LeadEnginePage />} />
         <Route path="/trends" element={<TrendsPage />} />
         <Route path="/enrichment" element={<EnrichmentPage />} />
+        <Route path="/pulse" element={<PulsePage />} />
         <Route path="/email" element={<EmailPage />} />
         <Route path="/integrations" element={<ManagerRoute><IntegrationsPage /></ManagerRoute>} />
         <Route path="/settings" element={<SettingsPage />} />

@@ -17,7 +17,7 @@ describe('navGroupsForUser', () => {
   it('admin : voit tout (3 groupes complets)', () => {
     const groups = navGroupsForUser(asUser('admin'));
     expect(groups.map((g) => g.key)).toEqual(['sales', 'marketing', 'settings']);
-    expect(names(groups, 'marketing')).toEqual(['Lead Engine', 'GEO', 'Trends', 'Enrichissement', 'Email', 'Drafts à valider']);
+    expect(names(groups, 'marketing')).toEqual(['Lead Engine', 'GEO', 'Trends', 'Radar & Calendrier', 'Enrichissement', 'Email', 'Drafts à valider']);
     expect(names(groups, 'settings')).toEqual(['Paramètres', 'Integrations', 'Utilisateurs', 'Conso MCP']);
   });
 
