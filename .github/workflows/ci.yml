@@ -23,24 +23,22 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup Python 3.12
-        uses: actions/setup-python@v5
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
         with:
-          python-version: "3.12"
+          enable-cache: true
+          cache-dependency-glob: "backend/uv.lock"
 
-      - name: Install Poetry
-        run: pipx install poetry
-
-      - name: Install dependencies
-        run: poetry install --no-interaction --no-root
+      - name: Sync (frozen — deps runtime + dev)
+        run: uv sync --frozen
 
       - name: Ruff (lint)
-        # Version epinglee = celle validee en local (evite le drift de regles).
-        run: pipx run --spec ruff==0.15.0 ruff check app/
+        # Version pinnee via uv.lock (groupe dev) — evite le drift de regles.
+        run: uv run ruff check app/
 
       - name: Pytest
         # Tests en SQLite in-memory (cf. conftest) — aucun service externe requis.
-        run: poetry run pytest tests/ -q
+        run: uv run pytest tests/ -q
 
   frontend:
     name: Frontend (tsc + eslint + vitest)

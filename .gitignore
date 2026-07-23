@@ -58,3 +58,7 @@ tools/contacts_*.csv
 
 # Scaffolding leftovers (UI refactor drop-ins, already applied)
 refactor-output/
+
+# Python venvs (uv/poetry) — jamais commites
+.venv/
+backend/.venv/
