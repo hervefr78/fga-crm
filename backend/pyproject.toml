@@ -18,8 +18,9 @@ dependencies = [
     # Redis & Task Queue
     "redis>=5.0.1,<6.0.0",
     "celery[redis]>=5.3.6,<6.0.0",
-    # Authentication
-    "python-jose[cryptography]>=3.3.0,<4.0.0",
+    # Authentication (PyJWT plutot que python-jose : ce dernier tire ecdsa,
+    # vulnerable Minerva P-256 sans patch — GHSA-wj6h-64fc-37mp).
+    "pyjwt[crypto]>=2.8.0,<3.0.0",
     "passlib[bcrypt]>=1.7.4,<2.0.0",
     "bcrypt>=4.1.2,<5.0.0",
     "webauthn>=3.0.0,<4.0.0",

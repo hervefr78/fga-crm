@@ -5,7 +5,7 @@
 from datetime import UTC, datetime, timedelta
 
 import bcrypt
-from jose import JWTError, jwt
+import jwt
 
 from app.config import settings
 
@@ -37,5 +37,5 @@ def create_refresh_token(data: dict) -> str:
 def decode_token(token: str) -> dict | None:
     try:
         return jwt.decode(token, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm])
-    except JWTError:
+    except jwt.PyJWTError:
         return None
